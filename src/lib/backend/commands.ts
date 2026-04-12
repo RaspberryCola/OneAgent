@@ -34,6 +34,14 @@ export async function openWorkspace(cwd: string): Promise<Types.Workspace> {
   return invoke('open_workspace', { cwd });
 }
 
+export async function getOrCreateDefaultWorkspace(): Promise<Types.Workspace> {
+  return invoke('get_or_create_default_workspace');
+}
+
+export async function pickWorkspaceDirectory(): Promise<Types.Workspace | null> {
+  return invoke('pick_workspace_directory');
+}
+
 // Conversation / Task
 export async function listConversations(workspaceId: string, filter?: Types.ConversationFilter): Promise<Types.Conversation[]> {
   return invoke('list_conversations', { workspaceId, filter });

@@ -1,6 +1,10 @@
 {
-  "identifier": "oneagent.desktop",
-  "description": "Capabilities for the OneAgent desktop shell.",
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capabilities for OneAgent",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "dialog:default"
+  ]
 }

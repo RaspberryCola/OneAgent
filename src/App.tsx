@@ -381,6 +381,7 @@ export default function App() {
   const {
     isInitializing,
     init,
+    workspaces,
     activeWorkspace,
     agentDiscoveryStatus,
     agentProfiles,
@@ -395,6 +396,8 @@ export default function App() {
     sendMessage,
     deleteConversation,
     setSessionConfig,
+    switchWorkspace,
+    pickWorkspace,
   } = useAppStore();
 
   useEffect(() => {
@@ -754,6 +757,41 @@ export default function App() {
           </div>
 
           <div className="flex-1 overflow-y-auto px-3 py-2 space-y-5">
+            {/* Workspaces Section */}
+            <div>
+              <div className="text-[11px] text-silver font-medium px-2 mb-1.5 uppercase tracking-wider">Workspaces</div>
+              <div className="space-y-0.5">
+                {workspaces.length === 0 && <div className="px-2 py-1 text-[13px] text-silver">No workspaces</div>}
+                {workspaces.map((workspace) => (
+                  <button
+                    key={workspace.id}
+                    onClick={() => {
+                      if (workspace.id !== activeWorkspace?.id) {
+                        void switchWorkspace(workspace);
+                        resetComposer();
+                      }
+                    }}
+                    className={`w-full text-left px-2 py-1.5 rounded-md flex items-center gap-2 transition-colors min-w-0 ${
+                      activeWorkspace?.id === workspace.id
+                        ? "text-pure-black font-medium bg-light-gray/50"
+                        : "text-near-black hover:bg-light-gray/30"
+                    }`}
+                  >
+                    <Folder className="w-3.5 h-3.5 shrink-0 text-stone" />
+                    <span className="text-[13px] truncate w-full block">{workspace.display_name}</span>
+                  </button>
+                ))}
+                <button
+                  onClick={() => void pickWorkspace()}
+                  className="w-full text-left px-2 py-1.5 rounded-md flex items-center gap-2 transition-colors min-w-0 hover:bg-light-gray/30 text-stone"
+                >
+                  <Plus className="w-3.5 h-3.5 shrink-0" />
+                  <span className="text-[13px] truncate w-full block">Open Workspace...</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Conversations Section */}
             <div>
               <div className="text-[11px] text-silver font-medium px-2 mb-1.5 uppercase tracking-wider">Conversations</div>
               <div className="space-y-0.5">
@@ -902,37 +940,44 @@ export default function App() {
                 </div>
               )}
             </div>
-            <div className="w-full max-w-[768px] mx-auto px-4 md:px-6">
-              <Composer
-                input={input}
-                setInput={setInput}
-                attachments={attachmentStates}
-                composerNotice={composerNotice}
-                activeWorkspace={activeWorkspace}
-                activeAgent={activeAgent}
-                modelSelector={modelSelector}
-                selectedModelValue={selectedModelValue}
-                selectedModelLabel={selectedModelLabel}
-                onModelChange={(value) => void handleModelChange(String(value))}
-                isSettingModel={isSettingModel}
-                onAttachClick={() => fileInputRef.current?.click()}
-                onDrop={handleDrop}
-                onPaste={handlePaste}
-                onRemoveAttachment={removeAttachment}
-                onSend={() => void handleSend()}
-                onKeyDown={handleKeyDown}
-                canSend={canSend}
-                isCompact={false}
-              />
+            <div className="w-full flex">
+              <div className="flex-1 min-w-0">
+                <div className="max-w-[768px] mx-auto px-4 md:px-6">
+                  <Composer
+                    input={input}
+                    setInput={setInput}
+                    attachments={attachmentStates}
+                    composerNotice={composerNotice}
+                    activeWorkspace={activeWorkspace}
+                    activeAgent={activeAgent}
+                    modelSelector={modelSelector}
+                    selectedModelValue={selectedModelValue}
+                    selectedModelLabel={selectedModelLabel}
+                    onModelChange={(value) => void handleModelChange(String(value))}
+                    isSettingModel={isSettingModel}
+                    onAttachClick={() => fileInputRef.current?.click()}
+                    onWorkspaceClick={() => void pickWorkspace()}
+                    onDrop={handleDrop}
+                    onPaste={handlePaste}
+                    onRemoveAttachment={removeAttachment}
+                    onSend={() => void handleSend()}
+                    onKeyDown={handleKeyDown}
+                    canSend={canSend}
+                    isCompact={false}
+                  />
+                </div>
+              </div>
+              {/* Spacer to match scrollbar width for perfect centering */}
+              <div className="w-0 overflow-y-hidden [scrollbar-gutter:stable] pointer-events-none" aria-hidden="true" />
             </div>
           </div>
         ) : (
-          <>
-            <div 
-              ref={scrollAreaRef}
-              className="flex-1 overflow-y-auto min-w-0 w-full [mask-image:linear-gradient(to_bottom,transparent,black_8px,black_calc(100%-8px),transparent)] flex flex-col scroll-smooth"
-            >
-              <div className="max-w-[768px] mx-auto w-full space-y-4 px-4 md:px-6 pt-4 pb-2">
+          <div 
+            ref={scrollAreaRef}
+            className="flex-1 overflow-y-auto min-w-0 w-full flex flex-col scroll-smooth [scrollbar-gutter:stable]"
+          >
+            <div className="max-w-[768px] mx-auto w-full flex-1 flex flex-col min-h-full">
+              <div className="flex-1 space-y-4 px-4 md:px-6 pt-4 pb-4">
                 {timelineItems.map((item) => {
                   if (item.type === 'message') {
                     const message = item.data;
@@ -967,9 +1012,7 @@ export default function App() {
                   return <PermissionMessage key={item.id} request={item.data} />;
                 })}
               </div>
-            </div>
-            <div className="bg-pure-white shrink-0 w-full z-10 pb-4 md:pb-6">
-              <div className="max-w-[768px] mx-auto px-4 md:px-6">
+              <div className="sticky bottom-0 bg-pure-white z-10 pb-4 md:pb-6 px-4 md:px-6">
                 <Composer
                   input={input}
                   setInput={setInput}
@@ -983,6 +1026,7 @@ export default function App() {
                   onModelChange={(value) => void handleModelChange(String(value))}
                   isSettingModel={isSettingModel}
                   onAttachClick={() => fileInputRef.current?.click()}
+                  onWorkspaceClick={() => void pickWorkspace()}
                   onDrop={handleDrop}
                   onPaste={handlePaste}
                   onRemoveAttachment={removeAttachment}
@@ -993,7 +1037,7 @@ export default function App() {
                 />
               </div>
             </div>
-          </>
+          </div>
         )}
       </main>
 
@@ -1110,6 +1154,7 @@ function Composer({
   onModelChange,
   isSettingModel,
   onAttachClick,
+  onWorkspaceClick,
   onDrop,
   onPaste,
   onRemoveAttachment,
@@ -1130,6 +1175,7 @@ function Composer({
   onModelChange: (value: any) => void;
   isSettingModel: boolean;
   onAttachClick: () => void;
+  onWorkspaceClick?: () => void;
   onDrop: (event: React.DragEvent<HTMLDivElement>) => void;
   onPaste: (event: React.ClipboardEvent<HTMLTextAreaElement>) => void;
   onRemoveAttachment: (id: string) => void;
@@ -1264,10 +1310,13 @@ function Composer({
             )}
           </div>
 
-          <div className={`flex items-center gap-1.5 ${isCompact ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-small"} text-stone bg-pure-white border border-light-gray rounded-pill`}>
+          <button
+            onClick={onWorkspaceClick}
+            className={`flex items-center gap-1.5 ${isCompact ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-small"} text-stone bg-pure-white border border-light-gray rounded-pill hover:bg-snow hover:text-pure-black transition-colors`}
+          >
             <Folder className={isCompact ? "w-3 h-3" : "w-3.5 h-3.5"} />
             <span className="truncate max-w-[120px]">{activeWorkspace?.display_name || "Workspace"}</span>
-          </div>
+          </button>
         </div>
 
         <button
@@ -1431,7 +1480,7 @@ function Message({
   return (
     <div className={`flex w-full ${isUser ? "justify-end" : "justify-start"}`}>
       <div className={`flex flex-col gap-2 min-w-0 w-full ${isUser ? "max-w-[95%] md:max-w-[85%] items-end" : "items-start"} mt-1`}>
-        <div className={`text-caption leading-relaxed break-words min-w-0 w-fit max-w-full ${isUser ? "bg-light-gray px-4 py-2 rounded-container" : "text-pure-black py-2 px-4"}`}>
+        <div className={`text-caption leading-relaxed break-words min-w-0 w-fit max-w-full ${isUser ? "bg-light-gray px-4 py-2 rounded-container" : "text-pure-black py-2 pl-0 pr-4"}`}>
           {isUser ? (
             <div className="whitespace-pre-wrap">{displayContent}</div>
           ) : isDiff ? (
@@ -1520,8 +1569,8 @@ function StatusMessage({ content }: { content: string }) {
 function ErrorMessage({ content }: { content: string }) {
   return (
     <div className="flex w-full justify-start mt-1 mb-2">
-      <div className="w-full max-w-[95%] md:max-w-[85%] border border-rose-200 bg-rose-50 rounded-container px-4 py-3 text-rose-700">
-        <div className="flex items-center gap-2 mb-1">
+      <div className="w-full max-w-[95%] md:max-w-[85%] border border-light-gray bg-snow rounded-container px-4 py-3 text-near-black">
+        <div className="flex items-center gap-2 mb-1 text-stone">
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span className="text-[11px] font-medium uppercase tracking-wider">Error</span>
         </div>
@@ -1641,9 +1690,9 @@ function ToolCallMessage({
   
   const getIcon = () => {
     const kind = toolCall.kind.toLowerCase();
-    if (kind.includes("terminal") || kind.includes("shell") || kind.includes("execute")) return <Terminal className="w-3.5 h-3.5" />;
-    if (kind.includes("edit") || kind.includes("write") || kind.includes("fs")) return <Code className="w-3.5 h-3.5" />;
-    return <Cpu className="w-3.5 h-3.5" />;
+    if (kind.includes("terminal") || kind.includes("shell") || kind.includes("execute")) return <Terminal className="w-3.5 h-3.5 text-near-black" />;
+    if (kind.includes("edit") || kind.includes("write") || kind.includes("fs")) return <Code className="w-3.5 h-3.5 text-near-black" />;
+    return <Cpu className="w-3.5 h-3.5 text-near-black" />;
   };
 
   const inputSummary = useMemo(() => {
@@ -1664,12 +1713,8 @@ function ToolCallMessage({
             className="w-full flex items-center justify-between px-4 py-2 hover:bg-light-gray/20 transition-colors text-left"
           >
             <div className="flex items-center gap-3 min-w-0">
-              <div className={`flex items-center justify-center w-6 h-6 rounded-md border ${
-                isFailed ? "bg-rose-50 border-rose-200 text-rose-600" : 
-                isRunning ? "bg-blue-50 border-blue-200 text-blue-600" :
-                "bg-pure-white border-light-gray text-stone"
-              }`}>
-                {isRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : getIcon()}
+              <div className={`flex items-center justify-center w-7 h-7 rounded-container border bg-pure-white border-light-gray`}>
+                {isRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin text-near-black" /> : getIcon()}
               </div>
               <div className="flex flex-col min-w-0">
                 <div className="flex items-center gap-2">
@@ -1677,9 +1722,7 @@ function ToolCallMessage({
                     {toolCall.title || toolCall.kind}
                   </span>
                   <span className={`text-[10px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-tight ${
-                    isFailed ? "bg-rose-100 text-rose-700" :
-                    isRunning ? "bg-blue-100 text-blue-700" :
-                    "bg-light-gray/50 text-stone"
+                    isRunning ? "bg-pure-black text-pure-white" : "bg-light-gray text-near-black"
                   }`}>
                     {status}
                   </span>
@@ -1830,11 +1873,11 @@ function PermissionMessage({
                   key={option.optionId || option.id || option.kind || index}
                   onClick={() => void handleResolve(option)}
                   disabled={isResolved || !!isSubmitting}
-                  className={`inline-flex items-center justify-center rounded-full border px-4 py-2 text-[12px] transition-colors ${
+                  className={`inline-flex items-center justify-center rounded-pill border px-4 py-2 text-[12px] font-medium transition-colors ${
                     meta.tone === "dark"
                       ? "border-pure-black bg-pure-black text-pure-white"
-                      : "border-light-gray bg-pure-white text-near-black"
-                  } ${isResolved || !!isSubmitting ? "opacity-60 cursor-not-allowed" : "hover:bg-light-gray/40"}`}
+                      : "border-light-gray bg-pure-white text-near-black hover:bg-snow"
+                  } ${isResolved || !!isSubmitting ? "opacity-40 cursor-not-allowed" : ""}`}
                 >
                   {isActive ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : meta.label}
                 </button>

@@ -112,7 +112,6 @@ function startConversationSync(
 ) {
   const syncToken = ++activeTurnSyncToken;
   void (async () => {
-    // Poll for up to 10 minutes (1200 * 500ms)
     for (let attempt = 0; attempt < 1200; attempt += 1) {
       if (syncToken !== activeTurnSyncToken) return;
 
@@ -160,14 +159,22 @@ async function refreshActiveConversation(
       API.getConversationTimeline(conversationId),
       API.getConversationState(conversationId),
     ]);
-    set((state) => ({
-      activeTimeline: state.activeConversationId === conversationId ? timeline : state.activeTimeline,
-      activeConversationState:
-        state.activeConversationId === conversationId ? conversationState : state.activeConversationState,
-      conversations: state.conversations.map((conversation) =>
+    const activeWsId = get().activeWorkspace?.id;
+    set((state) => {
+      const newWorkspaceConversations = new Map(state.workspaceConversations);
+      const currentConversations = newWorkspaceConversations.get(activeWsId ?? '') ?? [];
+      const updatedConversations = currentConversations.map((conversation) =>
         conversation.id === conversationId ? { ...conversation, status: conversationState.conversation.status } : conversation,
-      ),
-    }));
+      );
+      newWorkspaceConversations.set(activeWsId ?? '', updatedConversations);
+      return {
+        workspaceConversations: newWorkspaceConversations,
+        conversations: state.activeConversationId === conversationId ? updatedConversations : state.conversations,
+        activeTimeline: state.activeConversationId === conversationId ? timeline : state.activeTimeline,
+        activeConversationState:
+          state.activeConversationId === conversationId ? conversationState : state.activeConversationState,
+      };
+    });
     if (isConversationActive(conversationState) && get().activeConversationId === conversationId) {
       startConversationSync(conversationId, set, get);
     }
@@ -179,7 +186,7 @@ async function refreshActiveConversation(
 interface AppState {
   isInitializing: boolean;
   hasEventSubscriptions: boolean;
-  
+
   // Workspace
   workspaces: Types.Workspace[];
   activeWorkspace: Types.Workspace | null;
@@ -191,15 +198,16 @@ interface AppState {
   agentProfiles: Types.AgentProfile[];
   activeAgentProfileId: string | null;
 
-  // Conversations
-  conversations: Types.Conversation[];
+  // Conversations - keyed by workspace_id for multi-workspace support
+  workspaceConversations: Map<string, Types.Conversation[]>;
+  conversations: Types.Conversation[]; // current workspace's conversations
   discoveredSessions: Types.ExternalSession[];
   activeConversationId: string | null;
   activeConversationState: Types.ConversationState | null;
-  
+
   // Timeline Data
   activeTimeline: Types.TimelineResponse | null;
-  
+
   // Actions
   init: () => Promise<void>;
   selectConversation: (id: string | null) => Promise<void>;
@@ -212,7 +220,12 @@ interface AppState {
   ) => Promise<void>;
   deleteConversation: (conversationId: string) => Promise<void>;
   setSessionConfig: (configId: string, value: any) => Promise<void>;
-  
+
+  // Workspace Actions
+  switchWorkspace: (workspace: Types.Workspace) => Promise<void>;
+  pickWorkspace: () => Promise<Types.Workspace | null>;
+  refreshWorkspaces: () => Promise<void>;
+
   // Event Handlers
   _setupEventSubscriptions: () => void;
 }
@@ -220,7 +233,7 @@ interface AppState {
 export const useAppStore = create<AppState>((set, get) => ({
   isInitializing: true,
   hasEventSubscriptions: false,
-  
+
   workspaces: [],
   activeWorkspace: null,
   mcpServers: [],
@@ -230,51 +243,54 @@ export const useAppStore = create<AppState>((set, get) => ({
   agentProfiles: [],
   activeAgentProfileId: null,
 
+  workspaceConversations: new Map(),
   conversations: [],
   discoveredSessions: [],
   activeConversationId: null,
   activeConversationState: null,
-  
+
   activeTimeline: null,
 
   init: async () => {
     try {
-      // 1. Get initial workspaces
-      let workspaces = await API.listWorkspaces();
-      
-      // If no workspace exists, we might want to default to the current directory
-      if (workspaces.length === 0) {
-        // Fallback to opening current directory as a workspace
-        const newWs = await API.openWorkspace('.');
-        workspaces = [newWs];
-      }
-      
-      const activeWorkspace = workspaces[0];
-      
-      // 2. Call bootstrap workspace
+      // 1. Load all workspaces from backend
+      const allWorkspaces = await API.listWorkspaces();
+
+      // 2. Get or create the default workspace at ~/.oneagent
+      const defaultWorkspace = await API.getOrCreateDefaultWorkspace();
+
+      // Ensure default workspace is in the list
+      const workspaces = allWorkspaces.find(w => w.id === defaultWorkspace.id)
+        ? allWorkspaces
+        : [defaultWorkspace, ...allWorkspaces];
+
+      // 3. Bootstrap the default/active workspace
       const bootstrapData = await API.bootstrapWorkspace({
-        workspace_id: activeWorkspace.id,
+        workspace_id: defaultWorkspace.id,
       });
+
+      // Initialize workspaceConversations Map with default workspace conversations
+      const workspaceConversations = new Map<string, Types.Conversation[]>();
+      workspaceConversations.set(defaultWorkspace.id, bootstrapData.conversations);
 
       set({
         workspaces,
         activeWorkspace: bootstrapData.workspace,
-        agentProfiles: bootstrapData.agent_profiles,
+        workspaceConversations,
         conversations: bootstrapData.conversations,
+        agentProfiles: bootstrapData.agent_profiles,
         discoveredSessions: bootstrapData.discovered_sessions,
         mcpServers: bootstrapData.mcp,
         skills: bootstrapData.skills,
-        
-        // Auto-select the first available agent profile for "New Chat" defaults
         activeAgentProfileId: bootstrapData.agent_profiles.length > 0 ? bootstrapData.agent_profiles[0].id : null,
         activeConversationState: null,
         isInitializing: false,
       });
 
-      // 3. Set up event listeners
+      // 4. Set up event listeners
       get()._setupEventSubscriptions();
 
-      // 4. Refresh agent discovery state in the background so startup never blocks on ACP probing.
+      // 5. Refresh agent discovery state in the background
       void Promise.allSettled([API.listAgentProfiles(), API.listAgentDiscoveryStatus()]).then((results) => {
         const [profilesResult, discoveryResult] = results;
         set((state) => {
@@ -299,23 +315,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   selectConversation: async (id: string | null) => {
     activeTurnSyncToken += 1;
-    const selectedConversation = id ? get().conversations.find((conversation) => conversation.id === id) ?? null : null;
+    const activeWsId = get().activeWorkspace?.id;
+    const currentConversations = activeWsId ? get().workspaceConversations.get(activeWsId) ?? [] : [];
+    const selectedConversation = id ? currentConversations.find((conversation) => conversation.id === id) ?? null : null;
     set({
       activeConversationId: id,
       activeAgentProfileId: selectedConversation?.agent_profile_id ?? get().activeAgentProfileId,
       activeConversationState: null,
     });
-    
+
     if (id) {
-      // Fetch timeline when a conversation is selected
       try {
         const [timeline, conversationState] = await Promise.all([
           API.getConversationTimeline(id),
           API.getConversationState(id),
         ]);
         set({ activeTimeline: timeline, activeConversationState: conversationState });
-        
-        // If the conversation is active (running/starting), start background sync
+
         if (isConversationActive(conversationState)) {
           startConversationSync(id, set, get);
         }
@@ -357,23 +373,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     sessionConfigOverrides: Array<{ config_id: string; value: any }> = [],
   ) => {
     const state = get();
-    
+
     if (!state.activeWorkspace) return;
     if (!state.activeAgentProfileId) {
       console.error("No active agent profile selected");
       return;
     }
-    
+
     let conversationId = state.activeConversationId;
     let pendingConversationId: string | null = null;
-    
-    // If it's a new chat, create it first
+    const activeWsId = state.activeWorkspace.id;
+    const currentConversations = state.workspaceConversations.get(activeWsId) ?? [];
+
     if (!conversationId) {
       pendingConversationId = `local-conversation-${Date.now()}`;
       const pendingTurnId = `local-turn-${pendingConversationId}`;
       const pendingConversation: Types.Conversation = {
         id: pendingConversationId,
-        workspace_id: state.activeWorkspace.id,
+        workspace_id: activeWsId,
         agent_profile_id: state.activeAgentProfileId,
         origin: 'oneagent_managed',
         status: 'starting',
@@ -400,7 +417,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         content_json: { message: 'Initializing connection...' },
         created_at: new Date().toISOString(),
       };
+
+      const newWorkspaceConversations = new Map(state.workspaceConversations);
+      newWorkspaceConversations.set(activeWsId, [pendingConversation, ...currentConversations]);
+
       set((s) => ({
+        workspaceConversations: newWorkspaceConversations,
         conversations: [pendingConversation, ...s.conversations],
         activeConversationId: pendingConversationId,
         activeConversationState: {
@@ -420,7 +442,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }));
       try {
         let newConvState = await API.createConversation({
-          workspace_id: state.activeWorkspace.id,
+          workspace_id: activeWsId,
           agent_profile_id: state.activeAgentProfileId,
           title: pendingConversation.title,
         });
@@ -435,63 +457,80 @@ export const useAppStore = create<AppState>((set, get) => ({
           newConvState = await API.getConversationState(newConvState.conversation.id);
         }
         conversationId = newConvState.conversation.id;
-        set((s) => ({
-          conversations: s.conversations.map((conversation) =>
+
+        set((s) => {
+          const wsConv = new Map(s.workspaceConversations);
+          const convs = wsConv.get(activeWsId) ?? [];
+          const updatedConvs = convs.map((conversation) =>
             conversation.id === pendingConversationId ? newConvState.conversation : conversation
-          ),
-          activeConversationId:
-            s.activeConversationId === pendingConversationId ? newConvState.conversation.id : s.activeConversationId,
-          activeConversationState:
-            s.activeConversationId === pendingConversationId || s.activeConversationState?.conversation.id === pendingConversationId
-              ? { ...newConvState, config_options: newConvState.config_options ?? [] }
-              : s.activeConversationState,
-          activeTimeline: s.activeTimeline
-            ? {
-                ...s.activeTimeline,
-                messages: s.activeTimeline.messages.map((message) =>
-                  message.conversation_id === pendingConversationId
-                    ? { ...message, conversation_id: newConvState.conversation.id }
-                    : message
-                ),
-              }
-            : s.activeTimeline,
-        }));
+          );
+          wsConv.set(activeWsId, updatedConvs);
+          return {
+            workspaceConversations: wsConv,
+            conversations: s.conversations.map((conversation) =>
+              conversation.id === pendingConversationId ? newConvState.conversation : conversation
+            ),
+            activeConversationId:
+              s.activeConversationId === pendingConversationId ? newConvState.conversation.id : s.activeConversationId,
+            activeConversationState:
+              s.activeConversationId === pendingConversationId || s.activeConversationState?.conversation.id === pendingConversationId
+                ? { ...newConvState, config_options: newConvState.config_options ?? [] }
+                : s.activeConversationState,
+            activeTimeline: s.activeTimeline
+              ? {
+                  ...s.activeTimeline,
+                  messages: s.activeTimeline.messages.map((message) =>
+                    message.conversation_id === pendingConversationId
+                      ? { ...message, conversation_id: newConvState.conversation.id }
+                      : message
+                  ),
+                }
+              : s.activeTimeline,
+          };
+        });
       } catch (err: any) {
         console.error('Failed to create conversation', err.code ? err : err);
-        set((s) => ({
-          conversations: s.conversations.map((conversation) =>
+        set((s) => {
+          const wsConv = new Map(s.workspaceConversations);
+          const convs = wsConv.get(activeWsId) ?? [];
+          wsConv.set(activeWsId, convs.map((conversation) =>
             conversation.id === pendingConversationId ? { ...conversation, status: 'failed' } : conversation
-          ),
-          activeConversationState:
-            s.activeConversationState?.conversation.id === pendingConversationId
+          ));
+          return {
+            workspaceConversations: wsConv,
+            conversations: s.conversations.map((conversation) =>
+              conversation.id === pendingConversationId ? { ...conversation, status: 'failed' } : conversation
+            ),
+            activeConversationState:
+              s.activeConversationState?.conversation.id === pendingConversationId
+                ? {
+                    ...s.activeConversationState,
+                    conversation: { ...s.activeConversationState.conversation, status: 'failed' },
+                  }
+                : s.activeConversationState,
+            activeTimeline: s.activeTimeline
               ? {
-                  ...s.activeConversationState,
-                  conversation: { ...s.activeConversationState.conversation, status: 'failed' },
+                  ...s.activeTimeline,
+                  messages: [
+                    ...s.activeTimeline.messages,
+                    {
+                      id: `local-error-${pendingConversationId}`,
+                      conversation_id: pendingConversationId!,
+                      turn_id: `local-turn-${pendingConversationId}`,
+                      role: 'system',
+                      kind: 'error',
+                      content_json: { message: 'Failed to initialize connection.' },
+                      created_at: new Date().toISOString(),
+                    },
+                  ],
                 }
-              : s.activeConversationState,
-          activeTimeline: s.activeTimeline
-            ? {
-                ...s.activeTimeline,
-                messages: [
-                  ...s.activeTimeline.messages,
-                  {
-                    id: `local-error-${pendingConversationId}`,
-                    conversation_id: pendingConversationId!,
-                    turn_id: `local-turn-${pendingConversationId}`,
-                    role: 'system',
-                    kind: 'error',
-                    content_json: { message: 'Failed to initialize connection.' },
-                    created_at: new Date().toISOString(),
-                  },
-                ],
-              }
-            : s.activeTimeline,
-        }));
+              : s.activeTimeline,
+          };
+        });
         throw err;
       }
     }
 
-    // Send the message
     try {
       if (conversationId) {
         set((s) => ({
@@ -520,15 +559,13 @@ export const useAppStore = create<AppState>((set, get) => ({
             : s.activeTimeline,
         }));
       }
-      
+
       const updatedTimeline = await API.sendUserMessage({
         conversation_id: conversationId,
         text,
         attachments,
       });
-      
-      // Start background sync. We don't overwrite activeTimeline here 
-      // because events and polling will handle it more accurately.
+
       if (conversationId) {
         startConversationSync(conversationId, set, get);
       }
@@ -548,11 +585,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   deleteConversation: async (conversationId: string) => {
+    const activeWsId = get().activeWorkspace?.id;
     if (conversationId.startsWith('local-conversation-')) {
       set((state) => {
-        const nextConversations = state.conversations.filter((conversation) => conversation.id !== conversationId);
+        const newWorkspaceConversations = new Map(state.workspaceConversations);
+        if (activeWsId) {
+          const convs = newWorkspaceConversations.get(activeWsId) ?? [];
+          newWorkspaceConversations.set(activeWsId, convs.filter((c) => c.id !== conversationId));
+        }
+        const nextConversations = state.conversations.filter((c) => c.id !== conversationId);
         const isActive = state.activeConversationId === conversationId;
         return {
+          workspaceConversations: newWorkspaceConversations,
           conversations: nextConversations,
           activeConversationId: isActive ? null : state.activeConversationId,
           activeConversationState: isActive ? null : state.activeConversationState,
@@ -564,9 +608,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await API.deleteConversation(conversationId);
       set((state) => {
-        const nextConversations = state.conversations.filter((conversation) => conversation.id !== conversationId);
+        const newWorkspaceConversations = new Map(state.workspaceConversations);
+        if (activeWsId) {
+          const convs = newWorkspaceConversations.get(activeWsId) ?? [];
+          newWorkspaceConversations.set(activeWsId, convs.filter((c) => c.id !== conversationId));
+        }
+        const nextConversations = state.conversations.filter((c) => c.id !== conversationId);
         const isActive = state.activeConversationId === conversationId;
         return {
+          workspaceConversations: newWorkspaceConversations,
           conversations: nextConversations,
           activeConversationId: isActive ? null : state.activeConversationId,
           activeConversationState: isActive ? null : state.activeConversationState,
@@ -594,11 +644,72 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  switchWorkspace: async (workspace: Types.Workspace) => {
+    try {
+      const currentWorkspace = get().activeWorkspace;
+
+      // If switching to the same workspace, do nothing
+      if (currentWorkspace?.id === workspace.id) return;
+
+      // Bootstrap the new workspace
+      const bootstrapData = await API.bootstrapWorkspace({
+        workspace_id: workspace.id,
+      });
+
+      // Update workspaceConversations Map
+      const workspaceConversations = new Map(get().workspaceConversations);
+      workspaceConversations.set(workspace.id, bootstrapData.conversations);
+
+      // Check if this is a new workspace not in the list
+      const existingWorkspaces = get().workspaces;
+      const isNewWorkspace = !existingWorkspaces.find(w => w.id === workspace.id);
+      const nextWorkspaces = isNewWorkspace ? [...existingWorkspaces, workspace] : existingWorkspaces;
+
+      set({
+        workspaces: nextWorkspaces,
+        activeWorkspace: bootstrapData.workspace,
+        workspaceConversations,
+        conversations: bootstrapData.conversations,
+        agentProfiles: bootstrapData.agent_profiles,
+        discoveredSessions: bootstrapData.discovered_sessions,
+        mcpServers: bootstrapData.mcp,
+        skills: bootstrapData.skills,
+        activeAgentProfileId: bootstrapData.agent_profiles.length > 0 ? bootstrapData.agent_profiles[0].id : null,
+        activeConversationId: null,
+        activeConversationState: null,
+        activeTimeline: null,
+      });
+    } catch (error) {
+      console.error('Failed to switch workspace', error);
+    }
+  },
+
+  pickWorkspace: async () => {
+    try {
+      const workspace = await API.pickWorkspaceDirectory();
+      if (workspace) {
+        await get().switchWorkspace(workspace);
+      }
+      return workspace;
+    } catch (error) {
+      console.error('Failed to pick workspace', error);
+      return null;
+    }
+  },
+
+  refreshWorkspaces: async () => {
+    try {
+      const workspaces = await API.listWorkspaces();
+      set({ workspaces });
+    } catch (error) {
+      console.error('Failed to refresh workspaces', error);
+    }
+  },
+
   _setupEventSubscriptions: () => {
     if (get().hasEventSubscriptions) return;
     set({ hasEventSubscriptions: true });
 
-    // Message Appended
     Events.onConversationMessageAppended((payload) => {
       set((state) => {
         if (state.activeConversationId !== payload.conversation_id || !state.activeTimeline) return state;
@@ -608,7 +719,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
     });
 
-    // Message Updated (e.g. streaming chunks)
     Events.onConversationMessageUpdated((payload) => {
       set((state) => {
         if (state.activeConversationId !== payload.conversation_id || !state.activeTimeline) return state;
@@ -618,7 +728,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
     });
 
-    // Terminal Output
     Events.onConversationTerminalOutput((payload) => {
       set((state) => {
         if (state.activeConversationId !== payload.conversation_id || !state.activeTimeline) return state;
@@ -630,14 +739,26 @@ export const useAppStore = create<AppState>((set, get) => ({
         return state;
       });
     });
-    
-    // Conversation State Changed
+
     Events.onConversationStateChanged((payload) => {
+      const activeWsId = get().activeWorkspace?.id;
       set((state) => {
-        const updatedConversations = state.conversations.map(c => 
+        const newWorkspaceConversations = new Map(state.workspaceConversations);
+        // Update in the specific workspace's conversation list
+        for (const [wsId, conversations] of newWorkspaceConversations) {
+          const updated = conversations.map(c =>
+            c.id === payload.conversation_id ? { ...c, status: payload.state.conversation.status } : c
+          );
+          if (updated.length !== conversations.length || updated.some((c, i) => c.status !== conversations[i].status)) {
+            newWorkspaceConversations.set(wsId, updated);
+          }
+        }
+        // Also update current conversations if visible
+        const updatedConversations = state.conversations.map(c =>
           c.id === payload.conversation_id ? { ...c, status: payload.state.conversation.status } : c
         );
-        return { 
+        return {
+          workspaceConversations: newWorkspaceConversations,
           conversations: updatedConversations,
           activeConversationState: state.activeConversationId === payload.conversation_id
             ? payload.state
@@ -663,10 +784,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
 
     Events.onConversationDeleted((payload) => {
+      const activeWsId = get().activeWorkspace?.id;
       set((state) => {
-        const nextConversations = state.conversations.filter((conversation) => conversation.id !== payload.conversation_id);
+        const newWorkspaceConversations = new Map(state.workspaceConversations);
+        if (activeWsId) {
+          const convs = newWorkspaceConversations.get(activeWsId) ?? [];
+          newWorkspaceConversations.set(activeWsId, convs.filter((c) => c.id !== payload.conversation_id));
+        }
+        const nextConversations = state.conversations.filter((c) => c.id !== payload.conversation_id);
         const isActive = state.activeConversationId === payload.conversation_id;
         return {
+          workspaceConversations: newWorkspaceConversations,
           conversations: nextConversations,
           activeConversationId: isActive ? null : state.activeConversationId,
           activeConversationState: isActive ? null : state.activeConversationState,
@@ -674,8 +802,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         };
       });
     });
-    
-    // Conversation Tool Call Changed
+
     Events.onConversationToolCallChanged((payload) => {
       set((state) => {
         if (state.activeConversationId !== payload.conversation_id || !state.activeTimeline) return state;

@@ -23,6 +23,7 @@ pub fn run() {
     let gateway = bootstrap();
     let managed_gateway = gateway.clone();
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             gateway: managed_gateway.clone(),
         })
@@ -43,6 +44,8 @@ pub fn run() {
             channel_api::probe_agent_profile,
             channel_api::list_workspaces,
             channel_api::open_workspace,
+            channel_api::get_or_create_default_workspace,
+            channel_api::pick_workspace_directory,
             channel_api::list_conversations,
             channel_api::list_discovered_sessions,
             channel_api::create_conversation,

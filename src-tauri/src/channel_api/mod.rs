@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use serde::Deserialize;
 use tauri::State;
+use tauri_plugin_dialog::DialogExt;
 
 use crate::{domain::{BackendError, *}, gateway::Gateway};
 
@@ -87,6 +88,47 @@ pub async fn list_workspaces(state: State<'_, AppState>) -> Result<Vec<Workspace
 #[tauri::command]
 pub async fn open_workspace(state: State<'_, AppState>, cwd: String) -> Result<Workspace, BackendError> {
     state.gateway.open_workspace(&cwd).map_err(BackendError::from)
+}
+
+/// Get or create the default workspace at ~/.oneagent
+#[tauri::command]
+pub async fn get_or_create_default_workspace(
+    state: State<'_, AppState>,
+) -> Result<Workspace, BackendError> {
+    // Get the home directory
+    let home_dir = dirs::home_dir()
+        .ok_or_else(|| BackendError::new(ErrorCode::InvalidWorkspacePath, "Could not determine home directory"))?;
+
+    // Create ~/.oneagent directory
+    let default_workspace_dir = home_dir.join(".oneagent");
+    if !default_workspace_dir.exists() {
+        std::fs::create_dir_all(&default_workspace_dir).map_err(|e| {
+            BackendError::new(ErrorCode::InvalidWorkspacePath, format!("Failed to create default workspace directory: {e}"))
+        })?;
+    }
+
+    // Open the workspace
+    let cwd = default_workspace_dir.to_string_lossy().to_string();
+    state.gateway.open_workspace(&cwd).map_err(BackendError::from)
+}
+
+/// Pick a workspace directory using the system file dialog
+#[tauri::command]
+pub async fn pick_workspace_directory(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<Workspace>, BackendError> {
+    // Use Tauri's dialog plugin to pick a directory
+    let folder_path = app.dialog().file().blocking_pick_folder();
+
+    match folder_path {
+        Some(path) => {
+            let cwd = path.to_string();
+            let workspace = state.gateway.open_workspace(&cwd).map_err(BackendError::from)?;
+            Ok(Some(workspace))
+        }
+        None => Ok(None), // User cancelled the dialog
+    }
 }
 
 #[tauri::command]
