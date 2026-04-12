@@ -353,6 +353,15 @@ impl Database {
         Ok(())
     }
 
+    pub fn is_agent_profile_referenced(&self, profile_id: &str) -> StorageResult<bool> {
+        let count: i64 = self.conn.lock().query_row(
+            "SELECT COUNT(1) FROM conversations WHERE agent_profile_id = ?1",
+            params![profile_id],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
     pub fn get_agent_profile(&self, profile_id: &str) -> StorageResult<AgentProfile> {
         self.conn
             .lock()

@@ -1022,7 +1022,7 @@ export default function App() {
                               <SidebarItem
                                 key={conversation.id}
                                 title={conversation.title || "Untitled Chat"}
-                                agentCommand={agent?.command}
+                                agentCommand={agent?.command ?? conversation.agent_profile_id}
                                 active={activeConversationId === conversation.id}
                                 onClick={() => {
                                   void selectConversation(conversation.id);

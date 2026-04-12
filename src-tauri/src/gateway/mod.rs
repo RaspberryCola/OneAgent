@@ -53,6 +53,7 @@ impl Gateway {
             if profile.id.starts_with("auto-")
                 && !discovered_ids.contains(&profile.id)
                 && !is_claude_bridge_profile(&profile)
+                && !self.db.is_agent_profile_referenced(&profile.id)?
             {
                 self.db.delete_agent_profile(&profile.id)?;
             }
