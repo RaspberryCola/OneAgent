@@ -31,7 +31,7 @@ use crate::{
     },
 };
 
-const ACP_PROTOCOL_VERSION: &str = "2025-11-25";
+const ACP_PROTOCOL_VERSION: u64 = 1;
 const MAX_EMBEDDED_TEXT_BYTES: u64 = 128 * 1024;
 const MAX_EMBEDDED_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_EMBEDDED_AUDIO_BYTES: u64 = 10 * 1024 * 1024;
@@ -65,6 +65,10 @@ enum LiveSessionCommand {
         value: Value,
         resp: oneshot::Sender<AdapterResult<Vec<SessionConfigOption>>>,
     },
+    SetModel {
+        model_id: String,
+        resp: oneshot::Sender<AdapterResult<AcpSessionModels>>,
+    },
     Close,
 }
 
@@ -87,12 +91,16 @@ impl AgentAdapter for AcpAdapter {
         let response = process.initialize().await?;
         process.close().await?;
         let result = response.get("result").cloned().unwrap_or_else(|| json!({}));
+        let protocol_version = result
+            .get("protocolVersion")
+            .and_then(|v| {
+                v.as_u64()
+                    .map(|n| n.to_string())
+                    .or_else(|| v.as_str().map(ToOwned::to_owned))
+            })
+            .unwrap_or_else(|| ACP_PROTOCOL_VERSION.to_string());
         Ok(AgentCapabilities {
-            protocol_version: result
-                .get("protocolVersion")
-                .and_then(Value::as_str)
-                .unwrap_or(ACP_PROTOCOL_VERSION)
-                .to_string(),
+            protocol_version,
             agent_info: result
                 .get("agentInfo")
                 .cloned()
@@ -612,6 +620,19 @@ impl AcpLiveSession {
             .map_err(|_| AdapterError::Protocol("set config response dropped".to_string()))?
     }
 
+    pub async fn set_model(&self, model_id: &str) -> AdapterResult<AcpSessionModels> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.command_tx
+            .send(LiveSessionCommand::SetModel {
+                model_id: model_id.to_string(),
+                resp: resp_tx,
+            })
+            .map_err(|_| AdapterError::Protocol("live ACP session stopped".to_string()))?;
+        resp_rx
+            .await
+            .map_err(|_| AdapterError::Protocol("set model response dropped".to_string()))?
+    }
+
     pub fn close(&self) {
         let _ = self.command_tx.send(LiveSessionCommand::Close);
     }
@@ -672,6 +693,29 @@ fn spawn_live_actor(process: JsonRpcProcess, handle: AgentSessionHandle) -> AcpL
                         )
                         .await
                         .map(|response| parse_config_options(response.get("result")));
+                    let _ = resp.send(result);
+                }
+                LiveSessionCommand::SetModel { model_id, resp } => {
+                    let result = process
+                        .request(
+                            "session/set_model",
+                            json!({
+                                "sessionId": live_handle.remote_session_id,
+                                "modelId": model_id
+                            }),
+                        )
+                        .await
+                        .map(|response| {
+                            // Try to get models from response, otherwise construct from local state
+                            let models_from_response = parse_models(response.get("result"));
+                            models_from_response.unwrap_or_else(|| AcpSessionModels {
+                                current_model_id: Some(model_id.clone()),
+                                available_models: live_handle
+                                    .models
+                                    .clone()
+                                    .and_then(|m| m.available_models),
+                            })
+                        });
                     let _ = resp.send(result);
                 }
                 LiveSessionCommand::Close => {
@@ -747,6 +791,25 @@ async fn run_turn_loop(
                             )
                             .await
                             .map(|response| parse_config_options(response.get("result")));
+                        let _ = resp.send(result);
+                    }
+                    Some(LiveSessionCommand::SetModel { model_id, resp }) => {
+                        let result = process
+                            .request(
+                                "session/set_model",
+                                json!({
+                                    "sessionId": handle.remote_session_id,
+                                    "modelId": model_id
+                                }),
+                            )
+                            .await
+                            .map(|response| {
+                                let models_from_response = parse_models(response.get("result"));
+                                models_from_response.unwrap_or_else(|| AcpSessionModels {
+                                    current_model_id: Some(model_id.clone()),
+                                    available_models: handle.models.clone().and_then(|m| m.available_models),
+                                })
+                            });
                         let _ = resp.send(result);
                     }
                     Some(LiveSessionCommand::RunTurn { completion_tx, .. }) => {
@@ -1587,12 +1650,16 @@ fn is_text_like_mime(mime: &str) -> bool {
 
 fn parse_agent_capabilities(response: &Value) -> AgentCapabilities {
     let result = response.get("result").cloned().unwrap_or_else(|| json!({}));
+    let protocol_version = result
+        .get("protocolVersion")
+        .and_then(|v| {
+            v.as_u64()
+                .map(|n| n.to_string())
+                .or_else(|| v.as_str().map(ToOwned::to_owned))
+        })
+        .unwrap_or_else(|| ACP_PROTOCOL_VERSION.to_string());
     AgentCapabilities {
-        protocol_version: result
-            .get("protocolVersion")
-            .and_then(Value::as_str)
-            .unwrap_or(ACP_PROTOCOL_VERSION)
-            .to_string(),
+        protocol_version,
         agent_info: result
             .get("agentInfo")
             .cloned()
@@ -1655,51 +1722,53 @@ fn parse_config_options(result: Option<&Value>) -> Vec<SessionConfigOption> {
     result
         .and_then(|value| value.get("configOptions"))
         .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .map(|item| SessionConfigOption {
-                    id: item
-                        .get("id")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string(),
-                    name: item
-                        .get("name")
-                        .and_then(Value::as_str)
-                        .or_else(|| item.get("label").and_then(Value::as_str))
-                        .or_else(|| item.get("title").and_then(Value::as_str))
-                        .unwrap_or_default()
-                        .to_string(),
-                    description: item
-                        .get("description")
-                        .and_then(Value::as_str)
-                        .map(ToOwned::to_owned),
-                    category: item
-                        .get("category")
-                        .and_then(Value::as_str)
-                        .map(ToOwned::to_owned),
-                    option_type: item
-                        .get("type")
-                        .and_then(Value::as_str)
-                        .unwrap_or("string")
-                        .to_string(),
-                    current_value: item
-                        .get("currentValue")
-                        .cloned()
-                        .or_else(|| item.get("selectedValue").cloned())
-                        .or_else(|| item.get("value").cloned())
-                        .unwrap_or(Value::Null),
-                    options: item
-                        .get("options")
-                        .cloned()
-                        .or_else(|| item.get("enum").cloned())
-                        .unwrap_or_else(|| json!([])),
-                    raw: item.clone(),
-                })
-                .collect()
-        })
+        .map(|items| parse_config_options_from_array(items))
         .unwrap_or_default()
+}
+
+fn parse_config_options_from_array(items: &[Value]) -> Vec<SessionConfigOption> {
+    items
+        .iter()
+        .map(|item| SessionConfigOption {
+            id: item
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            name: item
+                .get("name")
+                .and_then(Value::as_str)
+                .or_else(|| item.get("label").and_then(Value::as_str))
+                .or_else(|| item.get("title").and_then(Value::as_str))
+                .unwrap_or_default()
+                .to_string(),
+            description: item
+                .get("description")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+            category: item
+                .get("category")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+            option_type: item
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or("string")
+                .to_string(),
+            current_value: item
+                .get("currentValue")
+                .cloned()
+                .or_else(|| item.get("selectedValue").cloned())
+                .or_else(|| item.get("value").cloned())
+                .unwrap_or(Value::Null),
+            options: item
+                .get("options")
+                .cloned()
+                .or_else(|| item.get("enum").cloned())
+                .unwrap_or_else(|| json!([])),
+            raw: item.clone(),
+        })
+        .collect()
 }
 
 /// Parse models from session/new or session/load response (unstable API)
@@ -1846,6 +1915,14 @@ fn parse_session_update(message: &Value, turn_id: &str) -> Vec<RuntimeStreamEven
                     "paths": extract_paths(update.get("content"))
                 }),
             });
+        }
+        "config_option_update" => {
+            // Update configOptions from the notification
+            if let Some(config_options) = update.get("configOptions").and_then(Value::as_array) {
+                events.push(RuntimeStreamEvent::ConfigOptionsUpdated {
+                    config_options: parse_config_options_from_array(config_options),
+                });
+            }
         }
         _ => {}
     }

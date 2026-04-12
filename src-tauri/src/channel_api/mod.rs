@@ -304,10 +304,22 @@ pub async fn delete_conversation(
 pub async fn set_session_config(
     state: State<'_, AppState>,
     input: SessionConfigInput,
-) -> Result<(), BackendError> {
+) -> Result<Vec<SessionConfigOption>, BackendError> {
     state
         .gateway
         .set_session_config(input)
+        .await
+        .map_err(BackendError::from)
+}
+
+#[tauri::command]
+pub async fn set_model(
+    state: State<'_, AppState>,
+    input: SetModelInput,
+) -> Result<AcpSessionModels, BackendError> {
+    state
+        .gateway
+        .set_model(input)
         .await
         .map_err(BackendError::from)
 }

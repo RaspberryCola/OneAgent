@@ -57,6 +57,7 @@ pub fn run() {
             channel_api::cancel_turn,
             channel_api::delete_conversation,
             channel_api::set_session_config,
+            channel_api::set_model,
             channel_api::persist_attachment_blob,
             channel_api::list_permissions,
             channel_api::resolve_permission_request,

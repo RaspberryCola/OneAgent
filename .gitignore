@@ -3,6 +3,13 @@ dist/
 
 src-tauri/target/
 
+# Bundled resources (downloaded by prepare:claude-runtime)
+# Ignore downloaded bun binaries and npm packages
+src-tauri/resources/bundled-bun/*
+!src-tauri/resources/bundled-bun/.gitkeep
+src-tauri/resources/external_agents/*
+!src-tauri/resources/external_agents/.gitkeep
+
 .env
 .env.*
 !.env.example

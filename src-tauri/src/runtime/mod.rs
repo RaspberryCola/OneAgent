@@ -630,7 +630,10 @@ impl Runtime {
         Ok(())
     }
 
-    pub async fn set_session_config(&self, input: SessionConfigInput) -> RuntimeResult<()> {
+    pub async fn set_session_config(
+        &self,
+        input: SessionConfigInput,
+    ) -> RuntimeResult<Vec<SessionConfigOption>> {
         let conversation = self.db.get_conversation(&input.conversation_id)?;
         let profile = self.db.get_agent_profile(&conversation.agent_profile_id)?;
         let binding = self
@@ -657,9 +660,47 @@ impl Runtime {
                 "value": input.value
             }),
         )?;
-        self.update_snapshot_config_options(&input.conversation_id, config_options)?;
+        self.update_snapshot_config_options(&input.conversation_id, config_options.clone())?;
         self.emit_conversation_state(&input.conversation_id)?;
-        Ok(())
+        Ok(config_options)
+    }
+
+    pub async fn set_model(&self, input: SetModelInput) -> RuntimeResult<AcpSessionModels> {
+        let binding = self
+            .db
+            .get_binding(&input.conversation_id)?
+            .ok_or_else(|| RuntimeError::InvalidState("missing binding".to_string()))?;
+        let models = match self.session_runtime(&input.conversation_id, binding.clone())? {
+            ManagedSession::Acp(session) => session.set_model(&input.model_id).await?,
+            ManagedSession::Passive(_) => {
+                // Passive session cannot switch model via unstable API
+                return Err(RuntimeError::InvalidState(
+                    "passive session does not support model switching".to_string(),
+                ));
+            }
+        };
+        self.record_lifecycle_event(
+            &input.conversation_id,
+            "SessionModelChanged",
+            json!({
+                "model_id": input.model_id
+            }),
+        )?;
+        let config_options = sync_model_selection_in_config_options(
+            self.conversation_config_options(&input.conversation_id),
+            &input.model_id,
+        );
+        self.update_snapshot_config_options(&input.conversation_id, config_options.clone())?;
+        self.update_snapshot_models(&input.conversation_id, models.clone())?;
+        self.emit(
+            "conversation.config_updated",
+            &json!({
+                "conversation_id": input.conversation_id,
+                "config_options": config_options,
+                "models": models
+            }),
+        );
+        Ok(models)
     }
 
     pub async fn resolve_permission_request(
@@ -857,6 +898,32 @@ impl Runtime {
         Ok(())
     }
 
+    fn finalize_text_stream(&self, conversation_id: &str, turn_id: &str) -> RuntimeResult<()> {
+        // Remove text streams for both agent and user roles
+        for role in [MessageRole::Agent, MessageRole::User] {
+            let stream_key =
+                Self::stream_message_key(conversation_id, turn_id, &role, &MessageKind::Text);
+            let active = self.streaming_messages.lock().remove(&stream_key);
+            if let Some(active) = active {
+                let message = MessageProjection {
+                    id: active.id,
+                    conversation_id: conversation_id.to_string(),
+                    turn_id: turn_id.to_string(),
+                    role: active.role.clone(),
+                    kind: MessageKind::Text,
+                    content_json: json!({ "text": active.content, "stream": false }),
+                    created_at: active.started_at,
+                };
+                self.db.upsert_message(&message)?;
+                self.emit(
+                    "conversation.message_updated",
+                    &json!({ "conversation_id": conversation_id, "message": message }),
+                );
+            }
+        }
+        Ok(())
+    }
+
     async fn apply_stream_event(
         &self,
         conversation_id: &str,
@@ -884,6 +951,13 @@ impl Runtime {
                     &MessageKind::Thinking,
                 );
                 let mut stream_messages = self.streaming_messages.lock();
+                // When starting a new thinking stream, finalize any active text stream
+                // so subsequent MessageChunk creates a new message instead of appending to previous text.
+                if !stream_messages.contains_key(&stream_key) {
+                    drop(stream_messages);
+                    self.finalize_text_stream(conversation_id, turn_id)?;
+                    stream_messages = self.streaming_messages.lock();
+                }
                 let active =
                     stream_messages
                         .entry(stream_key)
@@ -1062,6 +1136,9 @@ impl Runtime {
                 ..
             } => {
                 self.finalize_thinking_stream(conversation_id, turn_id)?;
+                // Clear any active text stream so subsequent MessageChunk creates a new message.
+                // This prevents content after tool calls from being merged with content before tool calls.
+                self.finalize_text_stream(conversation_id, turn_id)?;
                 let call = ToolCallProjection {
                     id: format!("{conversation_id}:{tool_call_id}"),
                     conversation_id: conversation_id.to_string(),
@@ -1347,6 +1424,13 @@ impl Runtime {
                     &json!({ "conversation_id": conversation_id, "turn_id": turn_id, "status": "completed" }),
                 );
             }
+            RuntimeStreamEvent::ConfigOptionsUpdated { config_options } => {
+                self.update_snapshot_config_options(conversation_id, config_options.clone())?;
+                self.emit(
+                    "conversation.config_updated",
+                    &json!({ "conversation_id": conversation_id, "config_options": config_options }),
+                );
+            }
         }
         Ok(())
     }
@@ -1452,6 +1536,22 @@ impl Runtime {
         )?;
         Ok(())
     }
+
+    fn update_snapshot_models(
+        &self,
+        conversation_id: &str,
+        models: AcpSessionModels,
+    ) -> RuntimeResult<()> {
+        let mut state = self.conversation_state(conversation_id)?;
+        state.models = Some(models);
+        self.db.replace_snapshot(
+            conversation_id,
+            1,
+            &serde_json::to_value(&state).unwrap_or_else(|_| Value::Null),
+            state.conversation.last_event_seq,
+        )?;
+        Ok(())
+    }
 }
 
 fn enum_text<T: serde::Serialize>(value: &T) -> String {
@@ -1459,6 +1559,36 @@ fn enum_text<T: serde::Serialize>(value: &T) -> String {
         .ok()
         .and_then(|v| v.as_str().map(ToOwned::to_owned))
         .unwrap_or_default()
+}
+
+fn sync_model_selection_in_config_options(
+    config_options: Vec<SessionConfigOption>,
+    model_id: &str,
+) -> Vec<SessionConfigOption> {
+    let next_value = Value::String(model_id.to_string());
+    config_options
+        .into_iter()
+        .map(|mut option| {
+            let is_model_option = option
+                .category
+                .as_deref()
+                .map(|category| category.eq_ignore_ascii_case("model"))
+                .unwrap_or(false)
+                || option.id.to_lowercase().contains("model");
+
+            if !is_model_option {
+                return option;
+            }
+
+            option.current_value = next_value.clone();
+            if let Some(raw) = option.raw.as_object_mut() {
+                raw.insert("currentValue".to_string(), next_value.clone());
+                raw.insert("selectedValue".to_string(), next_value.clone());
+                raw.insert("value".to_string(), next_value.clone());
+            }
+            option
+        })
+        .collect()
 }
 
 fn summarize_task_timeline(

@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.oneagent.desktop",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run prepare:claude-runtime && npm run dev",
     "beforeBuildCommand": "npm run prepare:claude-runtime && npm run build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
@@ -21,6 +21,13 @@
   },
   "bundle": {
     "active": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
     "resources": [
       "resources/bundled-bun/**/*",
       "resources/external_agents/**/*"

@@ -531,6 +531,12 @@ pub struct SessionConfigInput {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetModelInput {
+    pub conversation_id: String,
+    pub model_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistAttachmentBlobInput {
     pub name: String,
     pub mime_type: Option<String>,

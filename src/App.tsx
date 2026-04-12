@@ -16,6 +16,7 @@ import {
   PanelLeftOpen,
   Paperclip,
   Plus,
+  Square,
   SquarePen,
   Search,
   Settings,
@@ -98,22 +99,32 @@ const markdownComponents = {
 };
 
 const AGENT_LOGOS: Record<string, string> = {
-  claude: "/src/assets/logos/ai-major/claude.svg",
-  anthropic: "/src/assets/logos/ai-major/anthropic.svg",
-  qwen: "/src/assets/logos/ai-china/qwen.svg",
-  openai: "/src/assets/logos/ai-major/openai.svg",
-  gemini: "/src/assets/logos/ai-major/gemini.svg",
-  deepseek: "/src/assets/logos/ai-major/deepseek.svg",
-  mistral: "/src/assets/logos/ai-major/mistral.svg",
-  tencent: "/src/assets/logos/ai-china/tencent.svg",
-  kimi: "/src/assets/logos/ai-china/kimi.svg",
-  baidu: "/src/assets/logos/ai-china/baidu.svg",
-  zhipu: "/src/assets/logos/ai-china/zhipu.svg",
-  minimax: "/src/assets/logos/ai-china/minimax.png",
-  volcengine: "/src/assets/logos/ai-china/volcengine.svg",
-  stepfun: "/src/assets/logos/ai-china/stepfun.svg",
-  lingyiwanwu: "/src/assets/logos/ai-china/lingyiwanwu.svg",
-  opencode: "/src/assets/logos/tools/coding/opencode.svg",
+  claude: "/logos/ai-major/claude.svg",
+  anthropic: "/logos/ai-major/anthropic.svg",
+  qwen: "/logos/ai-china/qwen.svg",
+  openai: "/logos/ai-major/openai.svg",
+  gemini: "/logos/ai-major/gemini.svg",
+  deepseek: "/logos/ai-major/deepseek.svg",
+  mistral: "/logos/ai-major/mistral.svg",
+  github: "/logos/tools/github.svg",
+  copilot: "/logos/tools/github.svg",
+  tencent: "/logos/ai-china/tencent.svg",
+  kimi: "/logos/ai-china/kimi.svg",
+  baidu: "/logos/ai-china/baidu.svg",
+  zhipu: "/logos/ai-china/zhipu.svg",
+  minimax: "/logos/ai-china/minimax.png",
+  volcengine: "/logos/ai-china/volcengine.svg",
+  stepfun: "/logos/ai-china/stepfun.svg",
+  lingyiwanwu: "/logos/ai-china/lingyiwanwu.svg",
+  goose: "/logos/tools/goose.svg",
+  openclaw: "/logos/tools/openclaw.svg",
+  opencode: "/logos/tools/coding/opencode.svg",
+  qoder: "/logos/tools/coding/qoder.png",
+  qodercli: "/logos/tools/coding/qoder.png",
+  augment: "/logos/brand/auggie.svg",
+  auggie: "/logos/brand/auggie.svg",
+  droid: "/logos/brand/droid.svg",
+  factory: "/logos/brand/droid.svg",
 };
 
 type AgentLogoSource =
@@ -269,6 +280,23 @@ function optionChoices(option: Types.SessionConfigOption) {
   return [];
 }
 
+function configOptionSelectedValue(option: Types.SessionConfigOption): string | null {
+  const raw = option.raw ?? {};
+  const selectedValueRaw =
+    option.current_value ??
+    raw.currentValue ??
+    raw.selectedValue ??
+    raw.value ??
+    null;
+  return selectedValueRaw === null || selectedValueRaw === undefined || selectedValueRaw === ""
+    ? null
+    : String(selectedValueRaw);
+}
+
+function modelChoiceId(model: Types.AcpAvailableModel): string {
+  return model.id ?? model.model_id ?? "";
+}
+
 function buildModelSelectorState(
   configOptions: Types.SessionConfigOption[],
   models?: Types.AcpSessionModels | null
@@ -287,20 +315,18 @@ function buildModelSelectorState(
       }))
       .filter((choice, index, array) => array.findIndex((item) => item.value === choice.value) === index);
 
-    const raw = modelOption.raw ?? {};
-    const selectedValueRaw =
-      modelOption.current_value ??
-      raw.currentValue ??
-      raw.selectedValue ??
-      raw.value ??
-      null;
+    const configSelectedValue = configOptionSelectedValue(modelOption);
+    const modelSelectedValue = models?.current_model_id ? String(models.current_model_id) : null;
     const selectedValue =
-      selectedValueRaw === null || selectedValueRaw === undefined || selectedValueRaw === ""
-        ? null
-        : String(selectedValueRaw);
+      modelSelectedValue && choices.some((choice) => choice.value === modelSelectedValue)
+        ? modelSelectedValue
+        : configSelectedValue;
     const selectedLabel =
       choices.find((choice) => choice.value === selectedValue)?.label ??
-      (selectedValue ? String(raw.currentLabel ?? raw.selectedLabel ?? selectedValue) : null);
+      (selectedValue
+        ? models?.available_models?.find((model) => modelChoiceId(model) === selectedValue)?.name ??
+          String((modelOption.raw ?? {}).currentLabel ?? (modelOption.raw ?? {}).selectedLabel ?? selectedValue)
+        : null);
 
     return {
       option: modelOption,
@@ -369,7 +395,7 @@ function statusMeta(status?: Types.Conversation["status"]) {
       };
     case "running":
       return {
-        label: "Thinking",
+        label: "Running",
         dot: "bg-blue-500",
         pulse: true,
       };
@@ -474,6 +500,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Types.Conversation[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [isSending, setIsSending] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
 
@@ -497,6 +524,7 @@ export default function App() {
     sendMessage,
     deleteConversation,
     setSessionConfig,
+    cancelTurn,
     switchWorkspace,
     pickWorkspace,
   } = useAppStore();
@@ -600,10 +628,11 @@ export default function App() {
   const canSend = input.trim().length > 0 && !!activeAgentProfileId && !blockedAttachment && !isAddingAttachment;
   const isWorkspaceLocked = activeConversationId !== null;
   const currentConversation =
-    conversations.find((conversation) => conversation.id === activeConversationId) ??
-    activeConversationState?.conversation ??
+    activeConversationState?.conversation ??  // 优先使用实时轮询的状态
+    conversations.find((conversation) => conversation.id === activeConversationId) ??  // 其次使用列表缓存
     null;
   const conversationStatus = statusMeta(currentConversation?.status);
+  const isBusy = isSending || (conversationStatus?.pulse ?? false);
 
   useEffect(() => {
     if (activeConversationId || !activeAgentProfileId) return;
@@ -627,18 +656,21 @@ export default function App() {
     })
       .then((result) => {
         if (cancelled) return;
-        setDraftConfigOptions(result.config_options);
-        setDraftModels(result.models ?? null);
-        const nextConfigCache = {
-          ...(readJsonStorage<Record<string, Types.SessionConfigOption[]>>(MODEL_CONFIG_CACHE_KEY) ?? {}),
-          [activeAgentProfileId]: result.config_options,
-        };
-        const nextModelsCache = {
-          ...(readJsonStorage<Record<string, Types.AcpSessionModels | null>>(MODEL_MODELS_CACHE_KEY) ?? {}),
-          [activeAgentProfileId]: result.models ?? null,
-        };
-        writeJsonStorage(MODEL_CONFIG_CACHE_KEY, nextConfigCache);
-        writeJsonStorage(MODEL_MODELS_CACHE_KEY, nextModelsCache);
+        // Only update if we got actual data, otherwise keep cached values
+        if (result.config_options.length > 0 || result.models?.available_models?.length) {
+          setDraftConfigOptions(result.config_options);
+          setDraftModels(result.models ?? null);
+          const nextConfigCache = {
+            ...(readJsonStorage<Record<string, Types.SessionConfigOption[]>>(MODEL_CONFIG_CACHE_KEY) ?? {}),
+            [activeAgentProfileId]: result.config_options,
+          };
+          const nextModelsCache = {
+            ...(readJsonStorage<Record<string, Types.AcpSessionModels | null>>(MODEL_MODELS_CACHE_KEY) ?? {}),
+            [activeAgentProfileId]: result.models ?? null,
+          };
+          writeJsonStorage(MODEL_CONFIG_CACHE_KEY, nextConfigCache);
+          writeJsonStorage(MODEL_MODELS_CACHE_KEY, nextModelsCache);
+        }
       })
       .catch((error) => {
         console.error("Failed to preview session config", error);
@@ -692,7 +724,8 @@ export default function App() {
   };
 
   const handleSend = async () => {
-    if (!canSend || !activeAgentProfileId) return;
+    if (!canSend || !activeAgentProfileId || isBusy) return;
+    setIsSending(true);
     const draftAttachments = attachments;
     const payload: Types.AttachmentInput[] = attachmentStates.map(({ attachment, resolution }) => ({
       id: attachment.id,
@@ -720,7 +753,13 @@ export default function App() {
       setInput(text);
       setAttachments(draftAttachments);
       setComposerNotice("Failed to send message.");
+    } finally {
+      setIsSending(false);
     }
+  };
+
+  const handleStop = async () => {
+    await cancelTurn();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -863,7 +902,7 @@ export default function App() {
           <div className="p-3 shrink-0">
             <div className="flex items-center justify-between mb-3 px-2">
               <div className="flex items-center justify-start h-8">
-                <img src="/src/assets/oneagent_horizontal.svg" alt=">_One Logo" className="h-[22px] object-contain" />
+                <img src="/oneagent_horizontal.svg" alt=">_One Logo" className="h-[22px] object-contain" />
               </div>
               <button
                 onClick={() => setDesktopSidebarOpen(false)}
@@ -1153,6 +1192,8 @@ export default function App() {
                     onKeyDown={handleKeyDown}
                     canSend={canSend}
                     isCompact={false}
+                    isBusy={isBusy}
+                    onStop={() => void handleStop()}
                   />
                 </div>
               </div>
@@ -1245,6 +1286,8 @@ export default function App() {
                   onKeyDown={handleKeyDown}
                   canSend={canSend}
                   isCompact
+                  isBusy={isBusy}
+                  onStop={() => void handleStop()}
                 />
               </div>
             </div>
@@ -1418,6 +1461,8 @@ function Composer({
   onKeyDown,
   canSend,
   isCompact,
+  isBusy,
+  onStop,
 }: {
   input: string;
   setInput: (value: string) => void;
@@ -1440,6 +1485,8 @@ function Composer({
   onKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   canSend: boolean;
   isCompact: boolean;
+  isBusy: boolean;
+  onStop: () => void;
 }) {
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const choices = modelSelector?.choices ?? [];
@@ -1506,24 +1553,24 @@ function Composer({
           </button>
 
           <div className="relative">
-            {modelSelector ? (
+            {modelSelector && modelSelector.choices.length > 0 ? (
               <>
-                <button 
-                  onClick={() => choices.length > 0 && !isSettingModel && setIsModelMenuOpen(!isModelMenuOpen)}
-                  disabled={choices.length === 0 || isSettingModel}
+                <button
+                  onClick={() => !isSettingModel && setIsModelMenuOpen(!isModelMenuOpen)}
+                  disabled={isSettingModel}
                   className={`flex items-center gap-1.5 ${isCompact ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-small"} text-stone bg-pure-white border border-light-gray rounded-pill transition-colors select-none ${
-                    choices.length > 0 && !isSettingModel ? "hover:text-pure-black hover:bg-snow" : "opacity-60 cursor-not-allowed"
+                    !isSettingModel ? "hover:text-pure-black hover:bg-snow" : "opacity-60 cursor-not-allowed"
                   }`}
                 >
                   {isSettingModel ? <Loader2 className={isCompact ? "w-3 h-3 animate-spin" : "w-3.5 h-3.5 animate-spin"} /> : <Cpu className={isCompact ? "w-3 h-3" : "w-3.5 h-3.5"} />}
                   <span className="truncate max-w-[150px] font-medium">
-                    {selectedChoice?.label || selectedModelLabel || (choices.length > 0 ? "Select Model" : "CLI Model")}
+                    {selectedChoice?.label || selectedModelLabel || "Select Model"}
                   </span>
                   <ChevronDown className={`${isCompact ? "w-2.5 h-2.5" : "w-3 h-3"} transition-transform ${isModelMenuOpen ? 'rotate-180' : ''}`} />
                 </button>
-                
+
                 <AnimatePresence>
-                  {isModelMenuOpen && choices.length > 0 && (
+                  {isModelMenuOpen && (
                     <>
                       <div className="fixed inset-0 z-[60]" onClick={() => setIsModelMenuOpen(false)} />
                       <motion.div
@@ -1532,7 +1579,7 @@ function Composer({
                         exit={{ opacity: 0, scale: 0.95, y: 5 }}
                         className="absolute bottom-full left-0 mb-2 w-max min-w-[220px] max-w-[320px] max-h-[300px] overflow-y-auto bg-pure-white border border-light-gray rounded-container z-[70] p-1.5 scrollbar-thin"
                       >
-                        {choices.map((choice) => (
+                        {modelSelector.choices.map((choice) => (
                           <button
                             key={String(choice.value)}
                             onClick={() => {
@@ -1557,13 +1604,25 @@ function Composer({
                   )}
                 </AnimatePresence>
               </>
-            ) : (
+            ) : modelSelector ? (
+              // State 2: Has model info but no choices (read-only)
               <div
-                className={`flex items-center gap-1.5 ${isCompact ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-small"} text-silver bg-snow border border-light-gray rounded-pill opacity-60`}
+                title="Model switching not available"
+                className={`flex items-center gap-1.5 ${isCompact ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-small"} text-stone bg-snow border border-light-gray rounded-pill select-none`}
               >
                 <Cpu className={isCompact ? "w-3 h-3" : "w-3.5 h-3.5"} />
-                <span className="truncate max-w-[120px]">{activeAgent?.name || "Model"}</span>
-                <ChevronDown className={`${isCompact ? "w-2.5 h-2.5" : "w-3 h-3"} opacity-30`} />
+                <span className="truncate max-w-[150px] font-medium">
+                  {selectedModelLabel || "Default Model"}
+                </span>
+              </div>
+            ) : (
+              // State 3: No model info (disabled placeholder)
+              <div
+                title="Model info not available"
+                className={`flex items-center gap-1.5 ${isCompact ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-small"} text-silver bg-snow border border-light-gray rounded-pill opacity-50 select-none`}
+              >
+                <Cpu className={isCompact ? "w-3 h-3" : "w-3.5 h-3.5"} />
+                <span className="truncate max-w-[120px]">Default Model</span>
               </div>
             )}
           </div>
@@ -1583,13 +1642,22 @@ function Composer({
           </button>
         </div>
 
-        <button
-          className={`${isCompact ? "p-1.5" : "p-2.5"} rounded-pill transition-colors shrink-0 flex items-center justify-center ${canSend ? "bg-pure-black text-pure-white" : "bg-light-gray text-silver"}`}
-          disabled={!canSend}
-          onClick={onSend}
-        >
-          <ArrowUp className={isCompact ? "w-3.5 h-3.5" : "w-4 h-4"} />
-        </button>
+        {isBusy ? (
+          <button
+            className={`${isCompact ? "p-1.5" : "p-2.5"} rounded-pill shrink-0 flex items-center justify-center bg-light-gray text-pure-black hover:bg-mid-gray transition-colors`}
+            onClick={onStop}
+          >
+            <Square className={isCompact ? "w-3.5 h-3.5" : "w-4 h-4"} />
+          </button>
+        ) : (
+          <button
+            className={`${isCompact ? "p-1.5" : "p-2.5"} rounded-pill transition-colors shrink-0 flex items-center justify-center ${canSend ? "bg-pure-black text-pure-white" : "bg-light-gray text-silver"}`}
+            disabled={!canSend}
+            onClick={onSend}
+          >
+            <ArrowUp className={isCompact ? "w-3.5 h-3.5" : "w-4 h-4"} />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -1959,15 +2027,6 @@ function ToolCallMessage({
     return <Cpu className="w-3.5 h-3.5 text-near-black" />;
   };
 
-  const inputSummary = useMemo(() => {
-    const input = toolCall.raw_input_json;
-    if (!input) return "";
-    if (typeof input === "string") return input;
-    if (input.command) return `${input.command} ${Array.isArray(input.args) ? input.args.join(" ") : ""}`;
-    if (input.path) return input.path;
-    return JSON.stringify(input);
-  }, [toolCall.raw_input_json]);
-
   return (
     <div className="flex w-full justify-start mt-1 mb-2">
       <div className="flex flex-col gap-2 min-w-0 w-full max-w-[95%] md:max-w-[85%] items-start">
@@ -1980,25 +2039,18 @@ function ToolCallMessage({
               <div className={`flex items-center justify-center w-7 h-7 rounded-container border bg-pure-white border-light-gray`}>
                 {isRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin text-near-black" /> : getIcon()}
               </div>
-              <div className="flex flex-col min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-medium text-stone uppercase tracking-wider truncate">
-                    {toolCall.title || toolCall.kind}
-                  </span>
-                  <span className={`text-[10px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-tight ${
-                    isRunning ? "bg-pure-black text-pure-white" : "bg-light-gray text-near-black"
-                  }`}>
-                    {status}
-                  </span>
-                </div>
-                {inputSummary && !isExpanded && (
-                  <span className="text-[11px] text-silver truncate font-mono max-w-[300px]">
-                    {inputSummary}
-                  </span>
-                )}
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-[11px] font-medium text-stone uppercase tracking-wider truncate">
+                  {toolCall.title || toolCall.kind}
+                </span>
+                <span className={`text-[10px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-tight shrink-0 ${
+                  isRunning ? "bg-pure-black text-pure-white" : "bg-light-gray text-near-black"
+                }`}>
+                  {status}
+                </span>
               </div>
             </div>
-            <ChevronDown className={`w-3.5 h-3.5 text-silver transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
+            <ChevronDown className={`w-3.5 h-3.5 text-silver transition-transform duration-200 shrink-0 ${isExpanded ? "rotate-180" : ""}`} />
           </button>
           
           <AnimatePresence initial={false}>

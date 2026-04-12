@@ -294,6 +294,8 @@ interface AppState {
   ) => Promise<void>;
   deleteConversation: (conversationId: string) => Promise<void>;
   setSessionConfig: (configId: string, value: any) => Promise<void>;
+  setModel: (modelId: string) => Promise<void>;
+  cancelTurn: () => Promise<void>;
 
   // Workspace Actions
   switchWorkspace: (workspace: Types.Workspace) => Promise<void>;
@@ -515,6 +517,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       return;
     }
 
+    // Separate model overrides from other config overrides
+    const modelOverrides = sessionConfigOverrides.filter(
+      (override) => override.config_id.toLowerCase().includes('model')
+    );
+    const otherConfigOverrides = sessionConfigOverrides.filter(
+      (override) => !override.config_id.toLowerCase().includes('model')
+    );
+
     let conversationId = state.activeConversationId;
     let pendingConversationId: string | null = null;
     const activeWsId = state.activeWorkspace.id;
@@ -564,17 +574,34 @@ export const useAppStore = create<AppState>((set, get) => ({
           agent_profile_id: state.activeAgentProfileId,
           title: pendingConversation.title,
         });
-        if (sessionConfigOverrides.length > 0) {
-          for (const override of sessionConfigOverrides) {
+        conversationId = newConvState.conversation.id;
+
+        // Apply model overrides first using setModel API
+        for (const modelOverride of modelOverrides) {
+          try {
+            const models = await API.setModel({
+              conversation_id: conversationId,
+              model_id: String(modelOverride.value),
+            });
+            newConvState = { ...newConvState, models };
+          } catch (error) {
+            console.error('Failed to set model for new conversation', error);
+          }
+        }
+
+        // Apply other config overrides using setSessionConfig
+        if (otherConfigOverrides.length > 0) {
+          for (const override of otherConfigOverrides) {
             await API.setSessionConfig({
-              conversation_id: newConvState.conversation.id,
+              conversation_id: conversationId,
               config_id: override.config_id,
               value: override.value,
             });
           }
-          newConvState = await API.getConversationState(newConvState.conversation.id);
+          newConvState = await API.getConversationState(conversationId);
+        } else if (modelOverrides.length > 0) {
+          newConvState = await API.getConversationState(conversationId);
         }
-        conversationId = newConvState.conversation.id;
 
         set((s) => {
           const wsConv = new Map(s.workspaceConversations);
@@ -759,16 +786,125 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSessionConfig: async (configId: string, value: any) => {
     const state = get();
     if (!state.activeConversationId) return;
+
+    // Check if this is a model change:
+    // 1. If models field exists (new adapter), use setModel API directly
+    // 2. Otherwise check config_options for model category
+    const availableModels = state.activeConversationState?.models?.available_models;
+    const hasModels = availableModels && availableModels.length > 0;
+    const isModelConfigId = configId.toLowerCase().includes('model');
+    const modelOption = state.activeConversationState?.config_options.find(
+      (opt) => opt.id === configId && (opt.category?.toLowerCase() === 'model' || opt.id.toLowerCase().includes('model'))
+    );
+
+    if (hasModels && isModelConfigId) {
+      // Use setModel API for model switching (new adapter style)
+      try {
+        const models = await API.setModel({
+          conversation_id: state.activeConversationId,
+          model_id: String(value),
+        });
+        set((s) => {
+          if (s.activeConversationState?.conversation.id === state.activeConversationId) {
+            return {
+              activeConversationState: {
+                ...s.activeConversationState,
+                models: models,
+              },
+            };
+          }
+          return {};
+        });
+      } catch (error) {
+        console.error('Failed to set model', error);
+        throw error;
+      }
+    } else if (modelOption) {
+      // Use setModel API for model switching (old adapter with config_options)
+      try {
+        const models = await API.setModel({
+          conversation_id: state.activeConversationId,
+          model_id: String(value),
+        });
+        set((s) => {
+          if (s.activeConversationState?.conversation.id === state.activeConversationId) {
+            return {
+              activeConversationState: {
+                ...s.activeConversationState,
+                models: models,
+              },
+            };
+          }
+          return {};
+        });
+      } catch (error) {
+        console.error('Failed to set model', error);
+        throw error;
+      }
+    } else {
+      // Use setSessionConfig for other config options
+      try {
+        const configOptions = await API.setSessionConfig({
+          conversation_id: state.activeConversationId,
+          config_id: configId,
+          value,
+        });
+        set((s) => {
+          if (s.activeConversationState?.conversation.id === state.activeConversationId) {
+            return {
+              activeConversationState: {
+                ...s.activeConversationState,
+                config_options: configOptions,
+              },
+            };
+          }
+          return {};
+        });
+      } catch (error) {
+        console.error('Failed to set session config', error);
+        throw error;
+      }
+    }
+  },
+
+  setModel: async (modelId: string) => {
+    const state = get();
+    if (!state.activeConversationId) return;
     try {
-      await API.setSessionConfig({
+      const models = await API.setModel({
         conversation_id: state.activeConversationId,
-        config_id: configId,
-        value,
+        model_id: modelId,
       });
-      const nextState = await API.getConversationState(state.activeConversationId);
-      set({ activeConversationState: nextState });
+      set((s) => {
+        if (s.activeConversationState?.conversation.id === state.activeConversationId) {
+          return {
+            activeConversationState: {
+              ...s.activeConversationState,
+              models: models,
+            },
+          };
+        }
+        return {};
+      });
     } catch (error) {
-      console.error('Failed to set session config', error);
+      console.error('Failed to set model', error);
+      throw error;
+    }
+  },
+
+  cancelTurn: async () => {
+    const state = get();
+    const conversationId = state.activeConversationId;
+    if (!conversationId) return;
+    try {
+      await API.cancelTurn(conversationId);
+      set((s) => ({
+        activeConversationState: s.activeConversationState
+          ? { ...s.activeConversationState, conversation: { ...s.activeConversationState.conversation, status: 'cancelling' } }
+          : null,
+      }));
+    } catch (error) {
+      console.error('Failed to cancel turn', error);
     }
   },
 
@@ -896,11 +1032,28 @@ export const useAppStore = create<AppState>((set, get) => ({
         const updatedConversations = state.conversations.map(c =>
           c.id === payload.conversation_id ? { ...c, status: payload.state.conversation.status } : c
         );
+
+        // For activeConversationState, preserve models if payload doesn't have them or they're empty
+        let newState = payload.state;
+        const currentModels = state.activeConversationState?.models;
+        const currentAvailableModels = currentModels?.available_models;
+        if (state.activeConversationId === payload.conversation_id) {
+          const payloadAvailableModels = payload.state.models?.available_models;
+          if (currentAvailableModels && currentAvailableModels.length > 0 &&
+              (!payloadAvailableModels || payloadAvailableModels.length === 0)) {
+            // Keep current models if payload has empty models but we have valid ones
+            newState = {
+              ...payload.state,
+              models: currentModels,
+            };
+          }
+        }
+
         return {
           workspaceConversations: newWorkspaceConversations,
           conversations: updatedConversations,
           activeConversationState: state.activeConversationId === payload.conversation_id
-            ? payload.state
+            ? newState
             : state.activeConversationState,
           activeAgentProfileId: state.activeConversationId === payload.conversation_id
             ? payload.state.conversation.agent_profile_id
@@ -920,6 +1073,29 @@ export const useAppStore = create<AppState>((set, get) => ({
             : profile
         ),
       }));
+    });
+
+    Events.onConversationConfigUpdated((payload) => {
+      set((state) => {
+        if (state.activeConversationId === payload.conversation_id && state.activeConversationState) {
+          const updates: Partial<Types.ConversationState> = {};
+          if (payload.config_options) {
+            updates.config_options = payload.config_options;
+          }
+          if (payload.models) {
+            updates.models = payload.models;
+          }
+          if (Object.keys(updates).length > 0) {
+            return {
+              activeConversationState: {
+                ...state.activeConversationState,
+                ...updates,
+              },
+            };
+          }
+        }
+        return {};
+      });
     });
 
     Events.onConversationDeleted((payload) => {

@@ -121,6 +121,9 @@ pub enum RuntimeStreamEvent {
         content: Option<String>,
         exit_code: Option<i64>,
     },
+    ConfigOptionsUpdated {
+        config_options: Vec<SessionConfigOption>,
+    },
     Error {
         message: String,
     },

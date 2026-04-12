@@ -215,8 +215,15 @@ impl Gateway {
         Ok(self.runtime.delete_conversation(conversation_id).await?)
     }
 
-    pub async fn set_session_config(&self, input: SessionConfigInput) -> GatewayResult<()> {
+    pub async fn set_session_config(
+        &self,
+        input: SessionConfigInput,
+    ) -> GatewayResult<Vec<SessionConfigOption>> {
         Ok(self.runtime.set_session_config(input).await?)
+    }
+
+    pub async fn set_model(&self, input: SetModelInput) -> GatewayResult<AcpSessionModels> {
+        Ok(self.runtime.set_model(input).await?)
     }
 
     pub fn persist_attachment_blob(

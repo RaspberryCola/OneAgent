@@ -518,7 +518,10 @@ impl Database {
         };
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(sql)?;
-        let rows = stmt.query_map(params![workspace_id, search_pattern], Self::read_conversation)?;
+        let rows = stmt.query_map(
+            params![workspace_id, search_pattern],
+            Self::read_conversation,
+        )?;
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(StorageError::from)
     }

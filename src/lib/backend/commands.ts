@@ -100,8 +100,12 @@ export async function deleteConversation(conversationId: string): Promise<void> 
   return invoke('delete_conversation', { conversationId });
 }
 
-export async function setSessionConfig(input: Types.SessionConfigInput): Promise<void> {
+export async function setSessionConfig(input: Types.SessionConfigInput): Promise<Types.SessionConfigOption[]> {
   return invoke('set_session_config', { input });
+}
+
+export async function setModel(input: Types.SetModelInput): Promise<Types.AcpSessionModels> {
+  return invoke('set_model', { input });
 }
 
 export async function persistAttachmentBlob(input: Types.PersistAttachmentBlobInput): Promise<Types.PersistAttachmentBlobOutput> {

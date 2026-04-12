@@ -371,6 +371,11 @@ export interface SessionConfigInput {
   value: any;
 }
 
+export interface SetModelInput {
+  conversation_id: string;
+  model_id: string;
+}
+
 export interface PersistAttachmentBlobInput {
   name: string;
   mime_type?: string | null;

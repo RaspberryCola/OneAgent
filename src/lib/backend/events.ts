@@ -1,5 +1,5 @@
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
-import type { MessageProjection, ToolCallProjection, PermissionDecision, ConversationState, AgentCapabilities, PendingPermissionRequest, TerminalRecord, TaskRun } from './types';
+import type { MessageProjection, ToolCallProjection, PermissionDecision, ConversationState, SessionConfigOption, AcpSessionModels, AgentCapabilities, PendingPermissionRequest, TerminalRecord, TaskRun } from './types';
 
 // The backend now emits normalized envelopes, replacing the older raw-payload assumptions.
 
@@ -11,19 +11,28 @@ export type ConversationTurnFinishedPayload = { conversation_id: string; turn_id
 export type ConversationPermissionRequestedPayload = { conversation_id: string; request: PendingPermissionRequest };
 export type ConversationPermissionResolvedPayload = { conversation_id: string; decision: PermissionDecision };
 export type ConversationToolCallChangedPayload = { conversation_id: string; tool_call: ToolCallProjection };
-export type ConversationTerminalOutputPayload = { 
-  conversation_id: string; 
-  terminal_id: string; 
-  event: string; 
-  stream?: boolean; 
-  content?: string; 
-  terminal?: TerminalRecord; 
+export type ConversationTerminalOutputPayload = {
+  conversation_id: string;
+  terminal_id: string;
+  event: string;
+  stream?: boolean;
+  content?: string;
+  terminal?: TerminalRecord;
 };
 export type TaskRunStateChangedPayload = { conversation_id: string; task_run: TaskRun };
 export type ConversationDeletedPayload = { conversation_id: string };
+export type ConversationConfigUpdatedPayload = {
+  conversation_id: string;
+  config_options?: SessionConfigOption[];
+  models?: AcpSessionModels;
+};
 
 export function onAgentProfileProbed(handler: (payload: AgentProfileProbedPayload) => void): Promise<UnlistenFn> {
   return listen<AgentProfileProbedPayload>('agent.profile_probed', (event) => handler(event.payload));
+}
+
+export function onConversationConfigUpdated(handler: (payload: ConversationConfigUpdatedPayload) => void): Promise<UnlistenFn> {
+  return listen<ConversationConfigUpdatedPayload>('conversation.config_updated', (event) => handler(event.payload));
 }
 
 export function onConversationStateChanged(handler: (payload: ConversationStateChangedPayload) => void): Promise<UnlistenFn> {

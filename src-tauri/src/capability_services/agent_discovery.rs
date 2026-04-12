@@ -1,11 +1,10 @@
-use std::process::Command;
-
 use crate::{
     capability_services::agent_launch::{
         claude_bridge_availability, BridgeAvailability, CLAUDE_CODE_ACP_PACKAGE,
         CLAUDE_CODE_ACP_VERSION, CLAUDE_CODE_DISPLAY_COMMAND, CLAUDE_CODE_PRESET_ID,
         CLAUDE_CODE_PRESET_NAME,
     },
+    capability_services::system_path::command_exists,
     domain::{
         AgentAvailability, AgentDiscoveryStatus, AgentDisplaySource, AgentKind, AgentLaunchMode,
         AgentRuntimePreference, UpsertAgentProfileInput,
@@ -105,26 +104,6 @@ pub const KNOWN_ACP_AGENTS: &[KnownAcpAgent] = &[
         description: "OpenClaw gateway mode",
     },
 ];
-
-/// Check if a command exists in the system PATH
-pub fn command_exists(command: &str) -> bool {
-    #[cfg(target_os = "windows")]
-    {
-        Command::new("where")
-            .arg(command)
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        Command::new("which")
-            .arg(command)
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    }
-}
 
 /// Discover installed ACP agents and return inputs for profile creation
 pub fn discover_installed_agents() -> Vec<UpsertAgentProfileInput> {
