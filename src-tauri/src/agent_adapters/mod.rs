@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::domain::{
-    AgentCapabilities, AgentProfile, AgentPromptCapabilities, AttachmentInput, ExternalSession,
+    AgentCapabilities, AgentProfile, AgentPromptCapabilities, AcpSessionModels, AttachmentInput, ExternalSession,
     McpServerConfig, SessionConfigOption,
 };
 
@@ -31,6 +31,8 @@ pub struct AgentSessionHandle {
     pub prompt_capabilities: AgentPromptCapabilities,
     #[serde(default)]
     pub config_options: Vec<SessionConfigOption>,
+    #[serde(default)]
+    pub models: Option<AcpSessionModels>,
 }
 
 fn default_prompt_capabilities() -> AgentPromptCapabilities {

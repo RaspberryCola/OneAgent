@@ -57,7 +57,7 @@ export async function createConversation(input: Types.CreateConversationInput): 
 
 export async function previewSessionConfig(
   input: Types.PreviewSessionConfigInput,
-): Promise<Types.SessionConfigOption[]> {
+): Promise<Types.PreviewSessionConfigResult> {
   return invoke('preview_session_config', { input });
 }
 

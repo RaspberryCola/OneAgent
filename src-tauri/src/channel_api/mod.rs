@@ -173,7 +173,7 @@ pub async fn create_conversation(
 pub async fn preview_session_config(
     state: State<'_, AppState>,
     input: PreviewSessionConfigInput,
-) -> Result<Vec<SessionConfigOption>, BackendError> {
+) -> Result<PreviewSessionConfigResult, BackendError> {
     state
         .gateway
         .preview_session_config(input)

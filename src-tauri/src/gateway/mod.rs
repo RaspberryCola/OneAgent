@@ -138,7 +138,7 @@ impl Gateway {
     pub async fn preview_session_config(
         &self,
         input: PreviewSessionConfigInput,
-    ) -> GatewayResult<Vec<SessionConfigOption>> {
+    ) -> GatewayResult<PreviewSessionConfigResult> {
         Ok(self.runtime.preview_session_config(input).await?)
     }
 

@@ -5,6 +5,11 @@ import * as Events from './backend/events';
 
 let activeTurnSyncToken = 0;
 
+export type TimelineItem =
+  | { type: 'message'; key: string; data: Types.MessageProjection }
+  | { type: 'tool_call'; key: string; data: Types.ToolCallProjection }
+  | { type: 'permission'; key: string; data: Types.PendingPermissionRequest };
+
 function buildConversationTitle(text: string): string {
   const normalized = text.replace(/\s+/g, ' ').trim();
   if (!normalized) return 'Untitled Chat';
@@ -34,6 +39,53 @@ function compareIsoTimestamp(a?: string | null, b?: string | null): number {
 
 function sortMessages(messages: Types.MessageProjection[]): Types.MessageProjection[] {
   return [...messages].sort((a, b) => compareIsoTimestamp(a.created_at, b.created_at));
+}
+
+function timelineItemKey(type: TimelineItem['type'], id: string): string {
+  return `${type}:${id}`;
+}
+
+function buildTimelineItems(timeline: Types.TimelineResponse): TimelineItem[] {
+  const items: Array<TimelineItem & { ts: string }> = [
+    ...timeline.messages.map((message) => ({
+      type: 'message' as const,
+      key: timelineItemKey('message', message.id),
+      data: message,
+      ts: message.created_at,
+    })),
+    ...timeline.tool_calls.map((toolCall) => ({
+      type: 'tool_call' as const,
+      key: timelineItemKey('tool_call', toolCall.tool_call_id || toolCall.id),
+      data: toolCall,
+      ts: toolCall.started_at,
+    })),
+    ...timeline.pending_permissions.map((request) => ({
+      type: 'permission' as const,
+      key: timelineItemKey('permission', request.id),
+      data: request,
+      ts: request.created_at,
+    })),
+  ];
+
+  return items
+    .sort((a, b) => {
+      const timeDiff = compareIsoTimestamp(a.ts, b.ts);
+      if (timeDiff !== 0) return timeDiff;
+      return a.key.localeCompare(b.key);
+    })
+    .map(({ ts: _ts, ...item }) => item);
+}
+
+function upsertTimelineItem(items: TimelineItem[], item: TimelineItem): TimelineItem[] {
+  const existingIndex = items.findIndex((entry) => entry.key === item.key);
+  if (existingIndex >= 0) {
+    return items.map((entry, index) => (index === existingIndex ? item : entry));
+  }
+  return [...items, item];
+}
+
+function mergeTimelineItems(items: TimelineItem[], timeline: Types.TimelineResponse): TimelineItem[] {
+  return buildTimelineItems(timeline).reduce((next, item) => upsertTimelineItem(next, item), items);
 }
 
 function mergeTimelineMessage(
@@ -105,6 +157,19 @@ function mergePendingPermission(
   );
 }
 
+function findConversationAcrossWorkspaces(
+  workspaceConversations: Map<string, Types.Conversation[]>,
+  conversationId: string,
+): { workspaceId: string; conversation: Types.Conversation } | null {
+  for (const [workspaceId, conversations] of workspaceConversations.entries()) {
+    const conversation = conversations.find((item) => item.id === conversationId);
+    if (conversation) {
+      return { workspaceId, conversation };
+    }
+  }
+  return null;
+}
+
 function startConversationSync(
   conversationId: string,
   set: (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void,
@@ -126,6 +191,10 @@ function startConversationSync(
         set((current: AppState) => ({
           activeTimeline:
             current.activeConversationId === conversationId ? timeline : current.activeTimeline,
+          activeTimelineItems:
+            current.activeConversationId === conversationId
+              ? mergeTimelineItems(current.activeTimelineItems, timeline)
+              : current.activeTimelineItems,
           activeConversationState:
             current.activeConversationId === conversationId ? state : current.activeConversationState,
         }));
@@ -171,6 +240,10 @@ async function refreshActiveConversation(
         workspaceConversations: newWorkspaceConversations,
         conversations: state.activeConversationId === conversationId ? updatedConversations : state.conversations,
         activeTimeline: state.activeConversationId === conversationId ? timeline : state.activeTimeline,
+        activeTimelineItems:
+          state.activeConversationId === conversationId
+            ? mergeTimelineItems(state.activeTimelineItems, timeline)
+            : state.activeTimelineItems,
         activeConversationState:
           state.activeConversationId === conversationId ? conversationState : state.activeConversationState,
       };
@@ -207,6 +280,7 @@ interface AppState {
 
   // Timeline Data
   activeTimeline: Types.TimelineResponse | null;
+  activeTimelineItems: TimelineItem[];
 
   // Actions
   init: () => Promise<void>;
@@ -250,6 +324,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeConversationState: null,
 
   activeTimeline: null,
+  activeTimelineItems: [],
 
   init: async () => {
     try {
@@ -307,6 +382,27 @@ export const useAppStore = create<AppState>((set, get) => ({
         });
       });
 
+      const preloadTargets = workspaces.filter((workspace) => workspace.id !== defaultWorkspace.id);
+      void Promise.allSettled(
+        preloadTargets.map(async (workspace) => {
+          const data = await API.bootstrapWorkspace({ workspace_id: workspace.id });
+          return { workspaceId: workspace.id, conversations: data.conversations };
+        }),
+      ).then((results) => {
+        set((state) => {
+          const nextWorkspaceConversations = new Map(state.workspaceConversations);
+          let changed = false;
+
+          for (const result of results) {
+            if (result.status !== 'fulfilled') continue;
+            nextWorkspaceConversations.set(result.value.workspaceId, result.value.conversations);
+            changed = true;
+          }
+
+          return changed ? { workspaceConversations: nextWorkspaceConversations } : state;
+        });
+      });
+
     } catch (error) {
       console.error('Failed to initialize app state:', error);
       set({ isInitializing: false });
@@ -315,32 +411,71 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   selectConversation: async (id: string | null) => {
     activeTurnSyncToken += 1;
-    const activeWsId = get().activeWorkspace?.id;
-    const currentConversations = activeWsId ? get().workspaceConversations.get(activeWsId) ?? [] : [];
-    const selectedConversation = id ? currentConversations.find((conversation) => conversation.id === id) ?? null : null;
+    const syncToken = activeTurnSyncToken;
+    const selectedEntry = id
+      ? findConversationAcrossWorkspaces(get().workspaceConversations, id)
+      : null;
+    const selectedConversation = selectedEntry?.conversation ?? null;
     set({
       activeConversationId: id,
       activeAgentProfileId: selectedConversation?.agent_profile_id ?? get().activeAgentProfileId,
       activeConversationState: null,
+      activeTimeline: null,
+      activeTimelineItems: [],
     });
 
     if (id) {
       try {
+        if (selectedEntry && get().activeWorkspace?.id !== selectedEntry.workspaceId) {
+          const bootstrapData = await API.bootstrapWorkspace({
+            workspace_id: selectedEntry.workspaceId,
+          });
+
+          if (syncToken !== activeTurnSyncToken) return;
+
+          set((state) => {
+            const workspaceConversations = new Map(state.workspaceConversations);
+            workspaceConversations.set(selectedEntry.workspaceId, bootstrapData.conversations);
+
+            return {
+              activeWorkspace: bootstrapData.workspace,
+              workspaceConversations,
+              conversations: bootstrapData.conversations,
+              agentProfiles: bootstrapData.agent_profiles,
+              discoveredSessions: bootstrapData.discovered_sessions,
+              mcpServers: bootstrapData.mcp,
+              skills: bootstrapData.skills,
+              activeAgentProfileId:
+                selectedConversation?.agent_profile_id
+                ?? bootstrapData.agent_profiles[0]?.id
+                ?? state.activeAgentProfileId,
+            };
+          });
+        }
+
         const [timeline, conversationState] = await Promise.all([
           API.getConversationTimeline(id),
           API.getConversationState(id),
         ]);
-        set({ activeTimeline: timeline, activeConversationState: conversationState });
+
+        if (syncToken !== activeTurnSyncToken) return;
+
+        set({
+          activeTimeline: timeline,
+          activeTimelineItems: buildTimelineItems(timeline),
+          activeConversationState: conversationState,
+        });
 
         if (isConversationActive(conversationState)) {
           startConversationSync(id, set, get);
         }
       } catch (error) {
         console.error('Failed to fetch timeline for conversation', id, error);
-        set({ activeTimeline: null, activeConversationState: null });
+        if (syncToken !== activeTurnSyncToken) return;
+        set({ activeTimeline: null, activeTimelineItems: [], activeConversationState: null });
       }
     } else {
-      set({ activeTimeline: null, activeConversationState: null });
+      set({ activeTimeline: null, activeTimelineItems: [], activeConversationState: null });
     }
   },
 
@@ -399,24 +534,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         updated_at: new Date().toISOString(),
         last_event_seq: 0,
       };
-      const optimisticUserMessage: Types.MessageProjection = {
-        id: `local-user-${pendingConversationId}`,
-        conversation_id: pendingConversationId,
-        turn_id: pendingTurnId,
-        role: 'user',
-        kind: 'text',
-        content_json: { text, attachments },
-        created_at: new Date().toISOString(),
-      };
-      const optimisticStatusMessage: Types.MessageProjection = {
-        id: `local-status-${pendingConversationId}`,
-        conversation_id: pendingConversationId,
-        turn_id: pendingTurnId,
-        role: 'system',
-        kind: 'status',
-        content_json: { message: 'Initializing connection...' },
-        created_at: new Date().toISOString(),
-      };
 
       const newWorkspaceConversations = new Map(state.workspaceConversations);
       newWorkspaceConversations.set(activeWsId, [pendingConversation, ...currentConversations]);
@@ -434,11 +551,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         },
         activeTimeline: {
           events: [],
-          messages: [optimisticUserMessage, optimisticStatusMessage],
+          messages: [],
           tool_calls: [],
           pending_permissions: [],
           terminals: [],
         },
+        activeTimelineItems: [],
       }));
       try {
         let newConvState = await API.createConversation({
@@ -486,6 +604,14 @@ export const useAppStore = create<AppState>((set, get) => ({
                   ),
                 }
               : s.activeTimeline,
+            activeTimelineItems: s.activeTimelineItems.map((item) =>
+              item.type === 'message' && item.data.conversation_id === pendingConversationId
+                ? {
+                    ...item,
+                    data: { ...item.data, conversation_id: newConvState.conversation.id },
+                  }
+                : item
+            ),
           };
         });
       } catch (err: any) {
@@ -525,6 +651,7 @@ export const useAppStore = create<AppState>((set, get) => ({
                   ],
                 }
               : s.activeTimeline,
+            activeTimelineItems: s.activeTimelineItems,
           };
         });
         throw err;
@@ -544,19 +671,10 @@ export const useAppStore = create<AppState>((set, get) => ({
           activeTimeline: !pendingConversationId && s.activeTimeline && s.activeConversationId === conversationId
             ? {
                 ...s.activeTimeline,
-                messages: [...s.activeTimeline.messages, {
-                  id: `local-user-${Date.now()}`,
-                  conversation_id: conversationId,
-                  turn_id: `local-turn-${Date.now()}`,
-                  role: 'user' as const,
-                  kind: 'text' as const,
-                  content_json: { text, attachments },
-                  created_at: new Date().toISOString(),
-                } satisfies Types.MessageProjection].sort((a, b) =>
-                  new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-                ),
+                messages: s.activeTimeline.messages,
               }
             : s.activeTimeline,
+          activeTimelineItems: s.activeTimelineItems,
         }));
       }
 
@@ -585,15 +703,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   deleteConversation: async (conversationId: string) => {
-    const activeWsId = get().activeWorkspace?.id;
+    const targetWorkspaceId =
+      findConversationAcrossWorkspaces(get().workspaceConversations, conversationId)?.workspaceId
+      ?? get().activeWorkspace?.id;
     if (conversationId.startsWith('local-conversation-')) {
       set((state) => {
         const newWorkspaceConversations = new Map(state.workspaceConversations);
-        if (activeWsId) {
-          const convs = newWorkspaceConversations.get(activeWsId) ?? [];
-          newWorkspaceConversations.set(activeWsId, convs.filter((c) => c.id !== conversationId));
+        if (targetWorkspaceId) {
+          const convs = newWorkspaceConversations.get(targetWorkspaceId) ?? [];
+          newWorkspaceConversations.set(targetWorkspaceId, convs.filter((c) => c.id !== conversationId));
         }
-        const nextConversations = state.conversations.filter((c) => c.id !== conversationId);
+        const nextConversations =
+          state.activeWorkspace?.id === targetWorkspaceId
+            ? state.conversations.filter((c) => c.id !== conversationId)
+            : state.conversations;
         const isActive = state.activeConversationId === conversationId;
         return {
           workspaceConversations: newWorkspaceConversations,
@@ -601,6 +724,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           activeConversationId: isActive ? null : state.activeConversationId,
           activeConversationState: isActive ? null : state.activeConversationState,
           activeTimeline: isActive ? null : state.activeTimeline,
+          activeTimelineItems: isActive ? [] : state.activeTimelineItems,
         };
       });
       return;
@@ -609,11 +733,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       await API.deleteConversation(conversationId);
       set((state) => {
         const newWorkspaceConversations = new Map(state.workspaceConversations);
-        if (activeWsId) {
-          const convs = newWorkspaceConversations.get(activeWsId) ?? [];
-          newWorkspaceConversations.set(activeWsId, convs.filter((c) => c.id !== conversationId));
+        if (targetWorkspaceId) {
+          const convs = newWorkspaceConversations.get(targetWorkspaceId) ?? [];
+          newWorkspaceConversations.set(targetWorkspaceId, convs.filter((c) => c.id !== conversationId));
         }
-        const nextConversations = state.conversations.filter((c) => c.id !== conversationId);
+        const nextConversations =
+          state.activeWorkspace?.id === targetWorkspaceId
+            ? state.conversations.filter((c) => c.id !== conversationId)
+            : state.conversations;
         const isActive = state.activeConversationId === conversationId;
         return {
           workspaceConversations: newWorkspaceConversations,
@@ -621,6 +748,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           activeConversationId: isActive ? null : state.activeConversationId,
           activeConversationState: isActive ? null : state.activeConversationState,
           activeTimeline: isActive ? null : state.activeTimeline,
+          activeTimelineItems: isActive ? [] : state.activeTimelineItems,
         };
       });
     } catch (error) {
@@ -678,6 +806,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         activeConversationId: null,
         activeConversationState: null,
         activeTimeline: null,
+        activeTimelineItems: [],
       });
     } catch (error) {
       console.error('Failed to switch workspace', error);
@@ -715,6 +844,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (state.activeConversationId !== payload.conversation_id || !state.activeTimeline) return state;
         return {
           activeTimeline: mergeTimelineMessage(state.activeTimeline, payload.message),
+          activeTimelineItems: upsertTimelineItem(state.activeTimelineItems, {
+            type: 'message',
+            key: timelineItemKey('message', payload.message.id),
+            data: payload.message,
+          }),
         };
       });
     });
@@ -724,6 +858,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (state.activeConversationId !== payload.conversation_id || !state.activeTimeline) return state;
         return {
           activeTimeline: mergeTimelineMessage(state.activeTimeline, payload.message),
+          activeTimelineItems: upsertTimelineItem(state.activeTimelineItems, {
+            type: 'message',
+            key: timelineItemKey('message', payload.message.id),
+            data: payload.message,
+          }),
         };
       });
     });
@@ -799,6 +938,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           activeConversationId: isActive ? null : state.activeConversationId,
           activeConversationState: isActive ? null : state.activeConversationState,
           activeTimeline: isActive ? null : state.activeTimeline,
+          activeTimelineItems: isActive ? [] : state.activeTimelineItems,
         };
       });
     });
@@ -808,6 +948,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (state.activeConversationId !== payload.conversation_id || !state.activeTimeline) return state;
         return {
           activeTimeline: mergeToolCall(state.activeTimeline, payload.tool_call),
+          activeTimelineItems: upsertTimelineItem(state.activeTimelineItems, {
+            type: 'tool_call',
+            key: timelineItemKey('tool_call', payload.tool_call.tool_call_id || payload.tool_call.id),
+            data: payload.tool_call,
+          }),
         };
       });
     });
@@ -822,6 +967,11 @@ export const useAppStore = create<AppState>((set, get) => ({
                 pending_permissions: mergePendingPermission(state.activeTimeline.pending_permissions, payload.request),
               }
             : state.activeTimeline,
+          activeTimelineItems: upsertTimelineItem(state.activeTimelineItems, {
+            type: 'permission',
+            key: timelineItemKey('permission', payload.request.id),
+            data: payload.request,
+          }),
           activeConversationState: state.activeConversationState
             ? {
                 ...state.activeConversationState,
@@ -852,6 +1002,18 @@ export const useAppStore = create<AppState>((set, get) => ({
                 pending_permissions: markResolved(state.activeTimeline.pending_permissions),
               }
             : state.activeTimeline,
+          activeTimelineItems: state.activeTimelineItems.map((item) =>
+            item.type === 'permission' && item.data.tool_call_id === payload.decision.tool_call_id
+              ? {
+                  ...item,
+                  data: {
+                    ...item.data,
+                    status: 'resolved',
+                    resolved_at: payload.decision.created_at,
+                  },
+                }
+              : item
+          ),
           activeConversationState: state.activeConversationState
             ? {
                 ...state.activeConversationState,

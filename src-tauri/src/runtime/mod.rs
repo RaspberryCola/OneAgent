@@ -147,6 +147,7 @@ impl Runtime {
             binding: Some(binding),
             task_run: None,
             config_options: handle.config_options.clone(),
+            models: handle.models.clone(),
             pending_permissions: Vec::new(),
         };
         self.db.replace_snapshot(
@@ -162,25 +163,31 @@ impl Runtime {
     pub async fn preview_session_config(
         &self,
         input: PreviewSessionConfigInput,
-    ) -> RuntimeResult<Vec<SessionConfigOption>> {
+    ) -> RuntimeResult<PreviewSessionConfigResult> {
         let workspace = self.db.get_workspace(&input.workspace_id)?;
         let profile = self.db.get_agent_profile(&input.agent_profile_id)?;
         let mcp_servers = self.mcp_registry.list_for_workspace(&workspace.id)?;
         match profile.kind {
             AgentKind::Acp => {
                 let session = AcpLiveSession::start_new(&profile, &workspace.cwd, &mcp_servers).await?;
-                let config_options = session.handle.config_options.clone();
+                let result = PreviewSessionConfigResult {
+                    config_options: session.handle.config_options.clone(),
+                    models: session.handle.models.clone(),
+                };
                 session.close();
-                Ok(config_options)
+                Ok(result)
             }
             AgentKind::Compat => {
                 let handle = self
                     .adapter_for(&profile)
                     .new_session(&profile, &workspace.cwd, &mcp_servers)
                     .await?;
-                let config_options = handle.config_options.clone();
+                let result = PreviewSessionConfigResult {
+                    config_options: handle.config_options.clone(),
+                    models: handle.models.clone(),
+                };
                 self.adapter_for(&profile).close(&profile, &handle).await?;
-                Ok(config_options)
+                Ok(result)
             }
         }
     }
@@ -246,6 +253,7 @@ impl Runtime {
             binding: Some(binding),
             task_run: None,
             config_options: loaded.handle.config_options.clone(),
+            models: loaded.handle.models.clone(),
             pending_permissions: self.db.list_pending_permissions(&conversation.id)?,
         };
         self.db.replace_snapshot(
@@ -309,6 +317,7 @@ impl Runtime {
             binding: Some(binding),
             task_run: Some(task),
             config_options: handle.config_options.clone(),
+            models: handle.models.clone(),
             pending_permissions: Vec::new(),
         };
         self.db.replace_snapshot(
@@ -549,6 +558,7 @@ impl Runtime {
                             .ok()
                             .map(|state| state.config_options)
                             .unwrap_or_default(),
+                        models: self.conversation_models(conversation_id),
                     };
                     self.adapter_for(&profile)
                         .close(&profile, &fallback_handle)
@@ -684,6 +694,7 @@ impl Runtime {
                     .ok()
                     .map(|state| state.config_options)
                     .unwrap_or_default(),
+                models: self.conversation_models(conversation_id),
             })))
     }
 
@@ -731,6 +742,15 @@ impl Runtime {
             .and_then(|snapshot| serde_json::from_value::<ConversationState>(snapshot.state_json).ok())
             .map(|state| state.config_options)
             .unwrap_or_default()
+    }
+
+    fn conversation_models(&self, conversation_id: &str) -> Option<AcpSessionModels> {
+        self.db
+            .get_snapshot(conversation_id)
+            .ok()
+            .flatten()
+            .and_then(|snapshot| serde_json::from_value::<ConversationState>(snapshot.state_json).ok())
+            .and_then(|state| state.models)
     }
 
     fn finalize_thinking_stream(&self, conversation_id: &str, turn_id: &str) -> RuntimeResult<()> {
@@ -1272,6 +1292,7 @@ impl Runtime {
             binding: self.db.get_binding(conversation_id)?,
             task_run: self.db.get_task_run(conversation_id)?,
             config_options: self.conversation_config_options(conversation_id),
+            models: self.conversation_models(conversation_id),
             pending_permissions: self.db.list_pending_permissions(conversation_id)?,
         })
     }

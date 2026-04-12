@@ -4,9 +4,11 @@ import {
   ArrowUp,
   Bot,
   ChevronDown,
+  ChevronRight,
   Code,
   Cpu,
   Folder,
+  FolderOpen,
   Loader2,
   Menu,
   MoreHorizontal,
@@ -14,6 +16,7 @@ import {
   PanelLeftOpen,
   Paperclip,
   Plus,
+  SquarePen,
   Search,
   Settings,
   Terminal,
@@ -64,7 +67,7 @@ const MODEL_CONFIG_CACHE_KEY = "oneagent.model-config-cache.v1";
 const MODEL_SELECTION_CACHE_KEY = "oneagent.model-selection-cache.v1";
 
 const markdownComponents = {
-  p: ({ children }: any) => <p className="mb-2 last:mb-0">{children}</p>,
+  p: ({ children }: any) => <p className="mb-1 last:mb-0">{children}</p>,
   pre: ({ children }: any) => (
     <pre className="w-full bg-snow border border-light-gray rounded-container p-3 overflow-x-auto mt-2 mb-3 min-w-0 font-mono text-small text-pure-black break-words">
       {children}
@@ -118,6 +121,16 @@ function getAgentLogo(command: string) {
     if (cmd.includes(key)) return AGENT_LOGOS[key];
   }
   return null;
+}
+
+function getWorkspaceLabel(workspace: Types.Workspace | null | undefined): string {
+  if (!workspace) return "Workspace";
+  const normalizedPath = workspace.cwd.replace(/\\/g, "/");
+  const basename = normalizedPath.split("/").filter(Boolean).at(-1) ?? "";
+  if (workspace.display_name === ".oneagent" || basename === ".oneagent") {
+    return "Default";
+  }
+  return workspace.display_name;
 }
 
 function AgentLogo({ command, className = "w-4 h-4" }: { command: string; className?: string }) {
@@ -211,41 +224,75 @@ function optionChoices(option: Types.SessionConfigOption) {
   return [];
 }
 
-function buildModelSelectorState(configOptions: Types.SessionConfigOption[]): ModelSelectorState | null {
+function buildModelSelectorState(
+  configOptions: Types.SessionConfigOption[],
+  models?: Types.AcpSessionModels | null
+): ModelSelectorState | null {
+  // Prefer configOptions (stable API)
   const modelOption = configOptions.find((option) => {
     const category = option.category?.toLowerCase() ?? "";
     return category === "model" || option.id.toLowerCase().includes("model");
   });
-  if (!modelOption) return null;
 
-  const choices = optionChoices(modelOption)
-    .map((choice) => ({
-      value: String(choice.value),
-      label: String(choice.label || choice.value),
-    }))
-    .filter((choice, index, array) => array.findIndex((item) => item.value === choice.value) === index);
+  if (modelOption && modelOption.options && Array.isArray(modelOption.options) && modelOption.options.length > 0) {
+    const choices = optionChoices(modelOption)
+      .map((choice) => ({
+        value: String(choice.value),
+        label: String(choice.label || choice.value),
+      }))
+      .filter((choice, index, array) => array.findIndex((item) => item.value === choice.value) === index);
 
-  const raw = modelOption.raw ?? {};
-  const selectedValueRaw =
-    modelOption.current_value ??
-    raw.currentValue ??
-    raw.selectedValue ??
-    raw.value ??
-    null;
-  const selectedValue =
-    selectedValueRaw === null || selectedValueRaw === undefined || selectedValueRaw === ""
-      ? null
-      : String(selectedValueRaw);
-  const selectedLabel =
-    choices.find((choice) => choice.value === selectedValue)?.label ??
-    (selectedValue ? String(raw.currentLabel ?? raw.selectedLabel ?? selectedValue) : null);
+    const raw = modelOption.raw ?? {};
+    const selectedValueRaw =
+      modelOption.current_value ??
+      raw.currentValue ??
+      raw.selectedValue ??
+      raw.value ??
+      null;
+    const selectedValue =
+      selectedValueRaw === null || selectedValueRaw === undefined || selectedValueRaw === ""
+        ? null
+        : String(selectedValueRaw);
+    const selectedLabel =
+      choices.find((choice) => choice.value === selectedValue)?.label ??
+      (selectedValue ? String(raw.currentLabel ?? raw.selectedLabel ?? selectedValue) : null);
 
-  return {
-    option: modelOption,
-    choices,
-    selectedValue,
-    selectedLabel,
-  };
+    return {
+      option: modelOption,
+      choices,
+      selectedValue,
+      selectedLabel,
+    };
+  }
+
+  // Fall back to models (unstable API)
+  if (models && models.available_models && models.available_models.length > 0) {
+    const choices = models.available_models
+      .map((model) => ({
+        value: model.id ?? model.model_id ?? "",
+        label: model.name ?? model.id ?? model.model_id ?? "",
+      }))
+      .filter((choice) => choice.value !== "");
+
+    const currentModelId = models.current_model_id ?? null;
+    const selectedLabel = choices.find((c) => c.value === currentModelId)?.label ?? currentModelId;
+
+    return {
+      option: {
+        id: "model",
+        name: "Model",
+        option_type: "select",
+        current_value: currentModelId,
+        options: [],
+        raw: {},
+      },
+      choices,
+      selectedValue: currentModelId,
+      selectedLabel,
+    };
+  }
+
+  return null;
 }
 
 function readJsonStorage<T>(key: string): T | null {
@@ -375,6 +422,9 @@ export default function App() {
   const [pendingModelValue, setPendingModelValue] = useState<string | null>(null);
   const [isSettingModel, setIsSettingModel] = useState(false);
   const [draftConfigOptions, setDraftConfigOptions] = useState<Types.SessionConfigOption[]>([]);
+  const [draftModels, setDraftModels] = useState<Types.AcpSessionModels | null>(null);
+  const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(new Set());
+  const [permissionDecisions, setPermissionDecisions] = useState<Types.PermissionDecision[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
 
@@ -383,6 +433,7 @@ export default function App() {
     init,
     workspaces,
     activeWorkspace,
+    workspaceConversations,
     agentDiscoveryStatus,
     agentProfiles,
     activeAgentProfileId,
@@ -390,6 +441,7 @@ export default function App() {
     activeConversationId,
     activeConversationState,
     activeTimeline,
+    activeTimelineItems,
     selectConversation,
     setActiveAgentProfile,
     ensureAgentCapabilities,
@@ -404,13 +456,24 @@ export default function App() {
     init();
   }, [init]);
 
+  // Auto-expand current workspace
+  useEffect(() => {
+    if (activeWorkspace?.id) {
+      setExpandedWorkspaces((prev) => {
+        const next = new Set(prev);
+        next.add(activeWorkspace.id);
+        return next;
+      });
+    }
+  }, [activeWorkspace?.id]);
+
   // Auto-scroll to bottom on message updates
   useEffect(() => {
     if (scrollAreaRef.current) {
       const scrollContainer = scrollAreaRef.current;
       const isAtBottom =
         scrollContainer.scrollHeight - scrollContainer.scrollTop <= scrollContainer.clientHeight + 100;
-      
+
       if (isAtBottom) {
         scrollContainer.scrollTo({
           top: scrollContainer.scrollHeight,
@@ -430,14 +493,47 @@ export default function App() {
     };
   }, [attachments]);
 
+  useEffect(() => {
+    if (!activeConversationId) {
+      setPermissionDecisions([]);
+      return;
+    }
+
+    let cancelled = false;
+    void API.listPermissions(activeConversationId)
+      .then((records) => {
+        if (!cancelled) {
+          setPermissionDecisions(records);
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to list permission decisions", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeConversationId,
+    activeTimeline?.pending_permissions
+      .map((request) => `${request.id}:${request.status}:${request.resolved_at ?? ""}`)
+      .join("|"),
+  ]);
+
   const activeAgent = agentProfiles.find((agent) => agent.id === activeAgentProfileId) ?? null;
   const activeCapabilities = activeAgent?.capabilities_cache ?? null;
   const installedAgents = agentDiscoveryStatus.filter((agent) => agent.installed);
   const conversationModelSelector = useMemo(
-    () => buildModelSelectorState(activeConversationState?.config_options ?? []),
-    [activeConversationState?.config_options],
+    () => buildModelSelectorState(
+      activeConversationState?.config_options ?? [],
+      activeConversationState?.models
+    ),
+    [activeConversationState?.config_options, activeConversationState?.models],
   );
-  const draftModelSelector = useMemo(() => buildModelSelectorState(draftConfigOptions), [draftConfigOptions]);
+  const draftModelSelector = useMemo(
+    () => buildModelSelectorState(draftConfigOptions, draftModels),
+    [draftConfigOptions, draftModels]
+  );
   const modelSelector = activeConversationId ? conversationModelSelector : draftModelSelector;
   const attachmentStates = attachments.map((attachment) => ({
     attachment,
@@ -445,6 +541,7 @@ export default function App() {
   }));
   const blockedAttachment = attachmentStates.find((entry) => !entry.resolution.canSend);
   const canSend = input.trim().length > 0 && !!activeAgentProfileId && !blockedAttachment && !isAddingAttachment;
+  const isWorkspaceLocked = activeConversationId !== null;
   const currentConversation =
     conversations.find((conversation) => conversation.id === activeConversationId) ??
     activeConversationState?.conversation ??
@@ -463,12 +560,13 @@ export default function App() {
       workspace_id: activeWorkspace.id,
       agent_profile_id: activeAgentProfileId,
     })
-      .then((configOptions) => {
+      .then((result) => {
         if (cancelled) return;
-        setDraftConfigOptions(configOptions);
+        setDraftConfigOptions(result.config_options);
+        setDraftModels(result.models ?? null);
         const nextCache = {
           ...(readJsonStorage<Record<string, Types.SessionConfigOption[]>>(MODEL_CONFIG_CACHE_KEY) ?? {}),
-          [activeAgentProfileId]: configOptions,
+          [activeAgentProfileId]: result.config_options,
         };
         writeJsonStorage(MODEL_CONFIG_CACHE_KEY, nextCache);
       })
@@ -481,62 +579,35 @@ export default function App() {
     };
   }, [activeConversationId, activeWorkspace, activeAgentProfileId]);
 
-  const timelineItems = useMemo(() => {
-    if (!activeTimeline) return [];
-    
-    const items: Array<{
-      type: 'message' | 'tool_call' | 'permission';
-      id: string;
-      timestamp: number;
-      data: any;
-    }> = [];
-
-    activeTimeline.messages.forEach(m => {
-        items.push({
-          type: 'message',
-          id: m.id,
-          timestamp: 0,
-          data: m
-        });
-      });
-
-    activeTimeline.tool_calls.forEach(t => {
-      items.push({
-        type: 'tool_call',
-        id: t.id,
-        timestamp: 0,
-        data: t
-      });
-    });
-
-    activeTimeline.pending_permissions.forEach((request) => {
-      items.push({
-        type: 'permission',
-        id: request.id,
-        timestamp: 0,
-        data: request,
-      });
-    });
-
-    return items.sort((a, b) => {
-      const aTime =
-        a.type === "message" ? a.data.created_at : a.type === "tool_call" ? a.data.started_at : a.data.created_at;
-      const bTime =
-        b.type === "message" ? b.data.created_at : b.type === "tool_call" ? b.data.started_at : b.data.created_at;
-      const timeDiff = compareIsoTimestamp(aTime, bTime);
-      if (timeDiff !== 0) return timeDiff;
-      
-      if (a.type === 'permission' && b.type !== 'permission') return 1;
-      if (a.type !== 'permission' && b.type === 'permission') return -1;
-      if (a.type === 'message' && b.type === 'message') {
-        if (a.data.role === "user" && b.data.role !== "user") return -1;
-        if (a.data.role !== "user" && b.data.role === "user") return 1;
-        if (a.data.kind === "thinking" && b.data.kind !== "thinking") return -1;
-        if (a.data.kind !== "thinking" && b.data.kind === "thinking") return 1;
+  const permissionRequestMeta = useMemo(() => {
+    const meta = new Map<
+      string,
+      {
+        toolKind?: string;
+        title?: string;
+        paths?: string[];
+        rawInput?: any;
       }
-      return 0;
+    >();
+
+    activeTimeline?.events.forEach((event) => {
+      if (event.event_type !== "PermissionRequested") return;
+      const payload = event.payload_json ?? {};
+      const requestId = typeof payload.request_id === "string" ? payload.request_id : null;
+      const toolCallId = typeof payload.tool_call_id === "string" ? payload.tool_call_id : null;
+      const key = requestId ?? toolCallId;
+      if (!key) return;
+
+      meta.set(key, {
+        toolKind: typeof payload.tool_kind === "string" ? payload.tool_kind : undefined,
+        title: typeof payload.title === "string" ? payload.title : undefined,
+        paths: Array.isArray(payload.paths) ? payload.paths.filter((item: unknown): item is string => typeof item === "string") : undefined,
+        rawInput: payload.raw_input,
+      });
     });
-  }, [activeTimeline]);
+
+    return meta;
+  }, [activeTimeline?.events]);
 
   const resetComposer = (items: LocalAttachment[] = attachments) => {
     items.forEach((attachment) => {
@@ -742,98 +813,137 @@ export default function App() {
                   void selectConversation(null);
                   resetComposer();
                 }}
-                className={`w-full text-left px-2 py-1.5 rounded-md flex items-center gap-2 transition-colors min-w-0 hover:bg-light-gray/50 ${
-                  activeConversationId === null ? "text-pure-black font-medium bg-light-gray/30" : "text-near-black"
+                className={`w-full text-left px-3 py-1.5 rounded-container flex items-center gap-2.5 transition-colors min-w-0 ${
+                  activeConversationId === null ? "text-pure-black font-medium bg-light-gray" : "text-near-black hover:bg-snow"
                 }`}
               >
                 <Plus className="w-3.5 h-3.5 shrink-0" />
-                <span className="text-[13px] truncate w-full block">New Chat</span>
+                <span className="text-caption truncate w-full block">New Chat</span>
               </button>
-              <button className="w-full text-left px-2 py-1.5 rounded-md flex items-center gap-2 transition-colors min-w-0 hover:bg-light-gray/50 text-near-black">
+              <button className="w-full text-left px-3 py-1.5 rounded-container flex items-center gap-2.5 transition-colors min-w-0 text-near-black hover:bg-snow">
                 <Search className="w-3.5 h-3.5 shrink-0" />
-                <span className="text-[13px] truncate w-full block">Search</span>
+                <span className="text-caption truncate w-full block">Search</span>
               </button>
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-3 py-2 space-y-5">
-            {/* Workspaces Section */}
-            <div>
-              <div className="text-[11px] text-silver font-medium px-2 mb-1.5 uppercase tracking-wider">Workspaces</div>
-              <div className="space-y-0.5">
-                {workspaces.length === 0 && <div className="px-2 py-1 text-[13px] text-silver">No workspaces</div>}
-                {workspaces.map((workspace) => (
-                  <button
-                    key={workspace.id}
-                    onClick={() => {
-                      if (workspace.id !== activeWorkspace?.id) {
-                        void switchWorkspace(workspace);
-                        resetComposer();
-                      }
-                    }}
-                    className={`w-full text-left px-2 py-1.5 rounded-md flex items-center gap-2 transition-colors min-w-0 ${
-                      activeWorkspace?.id === workspace.id
-                        ? "text-pure-black font-medium bg-light-gray/50"
-                        : "text-near-black hover:bg-light-gray/30"
-                    }`}
-                  >
-                    <Folder className="w-3.5 h-3.5 shrink-0 text-stone" />
-                    <span className="text-[13px] truncate w-full block">{workspace.display_name}</span>
-                  </button>
-                ))}
-                <button
-                  onClick={() => void pickWorkspace()}
-                  className="w-full text-left px-2 py-1.5 rounded-md flex items-center gap-2 transition-colors min-w-0 hover:bg-light-gray/30 text-stone"
-                >
-                  <Plus className="w-3.5 h-3.5 shrink-0" />
-                  <span className="text-[13px] truncate w-full block">Open Workspace...</span>
-                </button>
-              </div>
+          <div className="flex-1 overflow-y-auto px-3 py-2">
+            <div className="px-3 mb-2 mt-4 flex items-center justify-between gap-2">
+              <span className="text-[10px] font-medium text-stone uppercase tracking-widest opacity-80">
+                Workspaces
+              </span>
+              <button
+                type="button"
+                onClick={() => void pickWorkspace()}
+                className="rounded-container p-1.5 text-stone transition-colors hover:bg-light-gray/60 hover:text-pure-black"
+                title="Open workspace"
+                aria-label="Open workspace"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
             </div>
+            {/* Workspaces Tree */}
+            <div className="space-y-1">
+              {workspaces.length === 0 && <div className="px-2 py-1 text-[13px] text-silver">No workspaces</div>}
+              {workspaces.map((workspace) => {
+                const isExpanded = expandedWorkspaces.has(workspace.id);
+                const wsConversations = workspaceConversations.get(workspace.id) ?? [];
+                const hasConversations = wsConversations.length > 0;
 
-            {/* Conversations Section */}
-            <div>
-              <div className="text-[11px] text-silver font-medium px-2 mb-1.5 uppercase tracking-wider">Conversations</div>
-              <div className="space-y-0.5">
-                {conversations.length === 0 && <div className="px-2 py-1 text-[13px] text-silver">No history yet</div>}
-                {conversations.map((conversation) => {
-                  const agent = agentProfiles.find(a => a.id === conversation.agent_profile_id);
-                  return (
-                    <SidebarItem
-                      key={conversation.id}
-                      title={conversation.title || "Untitled Chat"}
-                      agentCommand={agent?.command}
-                      active={activeConversationId === conversation.id}
-                      onClick={() => {
-                        void selectConversation(conversation.id);
-                        setComposerNotice(null);
-                        setPendingDeleteConversationId(null);
-                      }}
-                      deletePending={pendingDeleteConversationId === conversation.id}
-                      onDelete={() => {
-                        if (pendingDeleteConversationId === conversation.id) {
-                          setPendingDeleteConversationId(null);
-                          void deleteConversation(conversation.id);
-                          return;
-                        }
-                        setPendingDeleteConversationId(conversation.id);
-                      }}
-                      onCancelDelete={() => {
-                        setPendingDeleteConversationId((current) =>
-                          current === conversation.id ? null : current
-                        );
-                      }}
-                    />
-                  );
-                })}
-              </div>
+                return (
+                  <div key={workspace.id} className="space-y-0.5">
+                    {/* Workspace Header */}
+                    <div className="group relative w-full">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setExpandedWorkspaces((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(workspace.id)) {
+                              next.delete(workspace.id);
+                            } else {
+                              next.add(workspace.id);
+                            }
+                            return next;
+                          });
+                        }}
+                        className="w-full text-left px-3 py-1 pr-10 rounded-container flex items-center gap-2.5 transition-colors min-w-0 text-near-black hover:bg-light-gray/50"
+                      >
+                        {isExpanded ? (
+                          <FolderOpen className="w-3.5 h-3.5 shrink-0 text-stone" />
+                        ) : (
+                          <Folder className="w-3.5 h-3.5 shrink-0 text-stone" />
+                        )}
+                        <span className="text-caption truncate flex-1 min-w-0">{getWorkspaceLabel(workspace)}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void switchWorkspace(workspace).then(() => {
+                            void selectConversation(null);
+                            resetComposer();
+                            setPendingDeleteConversationId(null);
+                          });
+                        }}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-container p-1.5 text-stone opacity-0 transition-all hover:bg-light-gray/60 hover:text-pure-black focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
+                        title={`New chat in ${getWorkspaceLabel(workspace)}`}
+                        aria-label={`New chat in ${getWorkspaceLabel(workspace)}`}
+                      >
+                        <SquarePen className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+
+                    {/* Workspace Conversations */}
+                    {isExpanded && (
+                      <div className="ml-5 pl-2 border-l border-light-gray/50 space-y-0.5 mt-0.5">
+                        {hasConversations ? (
+                          wsConversations.map((conversation) => {
+                            const agent = agentProfiles.find((a) => a.id === conversation.agent_profile_id);
+                            return (
+                              <SidebarItem
+                                key={conversation.id}
+                                title={conversation.title || "Untitled Chat"}
+                                agentCommand={agent?.command}
+                                active={activeConversationId === conversation.id}
+                                onClick={() => {
+                                  void selectConversation(conversation.id);
+                                  setComposerNotice(null);
+                                  setPendingDeleteConversationId(null);
+                                }}
+                                deletePending={pendingDeleteConversationId === conversation.id}
+                                onDelete={() => {
+                                  if (pendingDeleteConversationId === conversation.id) {
+                                    setPendingDeleteConversationId(null);
+                                    void deleteConversation(conversation.id);
+                                    return;
+                                  }
+                                  setPendingDeleteConversationId(conversation.id);
+                                }}
+                                onCancelDelete={() => {
+                                  setPendingDeleteConversationId((current) =>
+                                    current === conversation.id ? null : current
+                                  );
+                                }}
+                              />
+                            );
+                          })
+                        ) : (
+                          <div className="px-3 py-1 text-[11px] text-silver">No conversations</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
             </div>
           </div>
 
           <div className="p-3 shrink-0">
             <button
               onClick={() => setIsSettingsOpen(true)}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-[13px] rounded-md hover:bg-light-gray/50 transition-colors text-pure-black text-left"
+              className="w-full flex items-center gap-2.5 px-3 py-1.5 text-small rounded-container hover:bg-snow transition-colors text-near-black text-left"
             >
               <Settings className="w-3.5 h-3.5 shrink-0" />
               Settings
@@ -956,7 +1066,8 @@ export default function App() {
                     onModelChange={(value) => void handleModelChange(String(value))}
                     isSettingModel={isSettingModel}
                     onAttachClick={() => fileInputRef.current?.click()}
-                    onWorkspaceClick={() => void pickWorkspace()}
+                    onWorkspaceClick={isWorkspaceLocked ? undefined : () => void pickWorkspace()}
+                    workspaceLocked={isWorkspaceLocked}
                     onDrop={handleDrop}
                     onPaste={handlePaste}
                     onRemoveAttachment={removeAttachment}
@@ -978,7 +1089,7 @@ export default function App() {
           >
             <div className="max-w-[768px] mx-auto w-full flex-1 flex flex-col min-h-full">
               <div className="flex-1 space-y-4 px-4 md:px-6 pt-4 pb-4">
-                {timelineItems.map((item) => {
+                {activeTimelineItems.map((item) => {
                   if (item.type === 'message') {
                     const message = item.data;
                     if (message.kind === "thinking") {
@@ -1001,7 +1112,7 @@ export default function App() {
                   } else if (item.type === 'tool_call') {
                     return (
                       <ToolCallMessage 
-                        key={item.id}
+                        key={item.key}
                         toolCall={item.data}
                         terminals={(activeTimeline?.terminals ?? []).filter((terminal) =>
                           Array.isArray(item.data.terminal_ids_json) && item.data.terminal_ids_json.includes(terminal.terminal_id),
@@ -1009,7 +1120,28 @@ export default function App() {
                       />
                     );
                   }
-                  return <PermissionMessage key={item.id} request={item.data} />;
+                  return (
+                    <PermissionMessage
+                      key={item.key}
+                      request={item.data}
+                      toolCall={
+                        (activeTimeline?.tool_calls ?? []).find(
+                          (toolCall) => toolCall.tool_call_id === item.data.tool_call_id,
+                        ) ?? null
+                      }
+                      requestMeta={
+                        permissionRequestMeta.get(item.data.id)
+                        ?? permissionRequestMeta.get(item.data.tool_call_id)
+                        ?? null
+                      }
+                      decision={
+                        permissionDecisions
+                          .filter((record) => record.tool_call_id === item.data.tool_call_id)
+                          .sort((a, b) => compareIsoTimestamp(a.created_at, b.created_at))
+                          .at(-1) ?? null
+                      }
+                    />
+                  );
                 })}
               </div>
               <div className="sticky bottom-0 bg-pure-white z-10 pb-4 md:pb-6 px-4 md:px-6">
@@ -1026,7 +1158,8 @@ export default function App() {
                   onModelChange={(value) => void handleModelChange(String(value))}
                   isSettingModel={isSettingModel}
                   onAttachClick={() => fileInputRef.current?.click()}
-                  onWorkspaceClick={() => void pickWorkspace()}
+                  onWorkspaceClick={isWorkspaceLocked ? undefined : () => void pickWorkspace()}
+                  workspaceLocked={isWorkspaceLocked}
                   onDrop={handleDrop}
                   onPaste={handlePaste}
                   onRemoveAttachment={removeAttachment}
@@ -1155,6 +1288,7 @@ function Composer({
   isSettingModel,
   onAttachClick,
   onWorkspaceClick,
+  workspaceLocked,
   onDrop,
   onPaste,
   onRemoveAttachment,
@@ -1176,6 +1310,7 @@ function Composer({
   isSettingModel: boolean;
   onAttachClick: () => void;
   onWorkspaceClick?: () => void;
+  workspaceLocked?: boolean;
   onDrop: (event: React.DragEvent<HTMLDivElement>) => void;
   onPaste: (event: React.ClipboardEvent<HTMLTextAreaElement>) => void;
   onRemoveAttachment: (id: string) => void;
@@ -1312,10 +1447,16 @@ function Composer({
 
           <button
             onClick={onWorkspaceClick}
-            className={`flex items-center gap-1.5 ${isCompact ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-small"} text-stone bg-pure-white border border-light-gray rounded-pill hover:bg-snow hover:text-pure-black transition-colors`}
+            disabled={workspaceLocked || !onWorkspaceClick}
+            className={`flex items-center gap-1.5 ${isCompact ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-small"} bg-pure-white border border-light-gray rounded-pill transition-colors ${
+              workspaceLocked || !onWorkspaceClick
+                ? "text-silver opacity-60 cursor-not-allowed"
+                : "text-stone hover:bg-snow hover:text-pure-black"
+            }`}
+            title={workspaceLocked ? "Workspace is locked after a conversation is created" : "Change workspace"}
           >
             <Folder className={isCompact ? "w-3 h-3" : "w-3.5 h-3.5"} />
-            <span className="truncate max-w-[120px]">{activeWorkspace?.display_name || "Workspace"}</span>
+            <span className="truncate max-w-[120px]">{getWorkspaceLabel(activeWorkspace)}</span>
           </button>
         </div>
 
@@ -1350,21 +1491,21 @@ function SidebarItem({
 }) {
   return (
     <div
-      className={`group w-full rounded-md flex items-center gap-1 min-w-0 border border-transparent ${active ? "bg-light-gray/50" : "hover:bg-light-gray/50"}`}
+      className={`group w-full rounded-container flex items-center gap-1 min-w-0 border border-transparent transition-colors ${active ? "bg-light-gray" : "hover:bg-light-gray/50"}`}
     >
       <button
         type="button"
         onClick={onClick}
-        className="flex-1 text-left px-2 py-1.5 flex items-center gap-2.5 min-w-0 rounded-md"
+        className="flex-1 text-left px-3 py-1 flex items-center gap-2.5 min-w-0 rounded-container"
       >
-        <div className={`w-5 h-5 flex items-center justify-center shrink-0 ${active ? 'opacity-100' : 'opacity-40'}`}>
+        <div className={`w-4 h-4 flex items-center justify-center shrink-0 ${active ? 'opacity-100' : 'opacity-40'}`}>
           {agentCommand ? <AgentLogo command={agentCommand} className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
         </div>
-        <span className={`text-[13px] truncate flex-1 ${active ? "text-pure-black font-medium" : "text-near-black"}`}>{title}</span>
+        <span className={`text-small truncate flex-1 ${active ? "text-pure-black font-medium" : "text-near-black"}`}>{title}</span>
       </button>
       {onDelete && (
         deletePending ? (
-          <div className="flex items-center gap-1 pr-1 shrink-0">
+          <div className="flex items-center gap-1 pr-1.5 shrink-0">
             <button
               type="button"
               onClick={(event) => {
@@ -1372,7 +1513,7 @@ function SidebarItem({
                 event.stopPropagation();
                 onDelete();
               }}
-              className="px-2 py-1 rounded-md bg-rose-600 text-pure-white text-[11px] font-medium hover:bg-rose-700 transition-colors"
+              className="px-2.5 py-1 rounded-container bg-pure-black text-pure-white text-[11px] font-medium hover:opacity-90 transition-opacity"
               title="Confirm delete conversation"
               aria-label={`Confirm delete conversation ${title}`}
             >
@@ -1385,7 +1526,7 @@ function SidebarItem({
                 event.stopPropagation();
                 onCancelDelete?.();
               }}
-              className="p-1 rounded-md text-stone hover:text-pure-black hover:bg-pure-white transition-colors"
+              className="p-1 rounded-container text-stone hover:text-pure-black hover:bg-light-gray transition-colors"
               title="Cancel delete"
               aria-label={`Cancel delete conversation ${title}`}
             >
@@ -1400,7 +1541,7 @@ function SidebarItem({
               event.stopPropagation();
               onDelete();
             }}
-            className="opacity-0 group-hover:opacity-100 p-1 rounded-md text-stone hover:text-rose-600 hover:bg-pure-white transition-all shrink-0 cursor-pointer mr-1"
+            className="opacity-0 group-hover:opacity-100 p-1.5 rounded-container text-stone hover:text-pure-black hover:bg-light-gray transition-all shrink-0 cursor-pointer mr-1"
             title="Delete conversation"
             aria-label={`Delete conversation ${title}`}
           >
@@ -1479,8 +1620,8 @@ function Message({
 
   return (
     <div className={`flex w-full ${isUser ? "justify-end" : "justify-start"}`}>
-      <div className={`flex flex-col gap-2 min-w-0 w-full ${isUser ? "max-w-[95%] md:max-w-[85%] items-end" : "items-start"} mt-1`}>
-        <div className={`text-caption leading-relaxed break-words min-w-0 w-fit max-w-full ${isUser ? "bg-light-gray px-4 py-2 rounded-container" : "text-pure-black py-2 pl-0 pr-4"}`}>
+      <div className={`flex flex-col gap-1 min-w-0 w-full ${isUser ? "max-w-[95%] md:max-w-[85%] items-end" : "items-start"} mt-0.5`}>
+        <div className={`text-chat leading-relaxed break-words min-w-0 w-fit max-w-full ${isUser ? "bg-light-gray px-4 py-2 rounded-container" : "text-pure-black py-2 pl-0 pr-4"}`}>
           {isUser ? (
             <div className="whitespace-pre-wrap">{displayContent}</div>
           ) : isDiff ? (
@@ -1796,13 +1937,56 @@ function ToolCallMessage({
 
 function PermissionMessage({
   request,
+  toolCall,
+  requestMeta,
+  decision,
 }: {
   request: Types.PendingPermissionRequest;
+  toolCall: Types.ToolCallProjection | null;
+  requestMeta: {
+    toolKind?: string;
+    title?: string;
+    paths?: string[];
+    rawInput?: any;
+  } | null;
+  decision: Types.PermissionDecision | null;
 }) {
   const [isSubmitting, setIsSubmitting] = useState<string | null>(null);
   const optionCount = Array.isArray(request.options_json) ? request.options_json.length : 0;
   const options = Array.isArray(request.options_json) ? request.options_json : [];
   const isResolved = request.status !== "pending";
+
+  const decisionLabel = (value: Types.PermissionDecision["decision"] | null | undefined) => {
+    switch (value) {
+      case "allow_once":
+        return "Allowed once";
+      case "allow_always":
+        return "Always allowed";
+      case "reject_once":
+        return "Rejected once";
+      case "reject_always":
+        return "Always rejected";
+      case "cancelled":
+        return "Cancelled";
+      default:
+        return "Resolved";
+    }
+  };
+
+  const toolSummary = useMemo(() => {
+    const input = requestMeta?.rawInput ?? toolCall?.raw_input_json;
+    if (!input) return "";
+    if (typeof input === "string") return input;
+    if (input.command) {
+      return `${input.command}${Array.isArray(input.args) ? ` ${input.args.join(" ")}` : ""}`;
+    }
+    if (input.path) return String(input.path);
+    return "";
+  }, [requestMeta?.rawInput, toolCall?.raw_input_json]);
+
+  const toolTitle = requestMeta?.title || toolCall?.title || "Tool action";
+  const pathPreview = requestMeta?.paths?.slice(0, 3) ?? [];
+  const toolKindLabel = requestMeta?.toolKind || toolCall?.kind || null;
 
   const optionMeta = (option: any) => {
     const kind = String(option?.kind || "");
@@ -1844,24 +2028,61 @@ function PermissionMessage({
     }
   };
 
+  if (isResolved) {
+    return (
+      <div className="flex w-full justify-start mt-1 mb-2">
+        <div className="w-full max-w-[95%] md:max-w-[85%] rounded-container border border-light-gray bg-snow px-4 py-2.5">
+          <div className="flex items-center gap-2 text-stone">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            <span className="text-[11px] font-medium uppercase tracking-wider">Permission Resolved</span>
+          </div>
+          <div className="mt-1 text-[13px] text-near-black">
+            {toolTitle} · {decisionLabel(decision?.decision)}
+          </div>
+          {toolSummary && <div className="mt-1 text-[12px] text-stone font-mono break-all">{toolSummary}</div>}
+          {pathPreview.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {pathPreview.map((path) => (
+                <span key={path} className="rounded-pill border border-light-gray bg-pure-white px-2 py-0.5 text-[11px] text-stone">
+                  {path}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex w-full justify-start mt-1 mb-2">
       <div className="w-full max-w-[95%] md:max-w-[85%] border border-light-gray rounded-container bg-snow px-4 py-3">
         <div className="flex items-center gap-2 mb-1">
           <AlertCircle className="w-4 h-4 text-stone shrink-0" />
           <span className="text-[11px] font-medium uppercase tracking-wider text-stone">
-            Permission {request.status}
+            Permission Required
           </span>
+          {toolKindLabel && (
+            <span className="rounded-pill bg-pure-white px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-stone border border-light-gray">
+              {toolKindLabel}
+            </span>
+          )}
         </div>
         <div className="text-[14px] text-pure-black leading-relaxed">
-          Tool call <span className="font-mono">{request.tool_call_id}</span> requested approval.
+          {toolTitle} needs approval before it can continue.
         </div>
-        <div className="text-[12px] text-stone mt-1">
-          {isResolved
-            ? "Decision recorded."
-            : optionCount > 0
-              ? `${optionCount} options available`
-              : "Waiting for permission options"}
+        {toolSummary && <div className="mt-1 text-[12px] text-stone font-mono break-all">{toolSummary}</div>}
+        {pathPreview.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {pathPreview.map((path) => (
+              <span key={path} className="rounded-pill border border-light-gray bg-pure-white px-2 py-0.5 text-[11px] text-stone">
+                {path}
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="text-[12px] text-stone mt-2">
+          {optionCount > 0 ? `${optionCount} options available` : "Waiting for permission options"}
         </div>
         {options.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-2">

@@ -78,6 +78,18 @@ export interface SessionConfigOption {
   raw: any;
 }
 
+// ACP Models types (unstable API)
+export interface AcpAvailableModel {
+  id?: string;
+  model_id?: string;  // OpenCode uses modelId instead of id
+  name?: string;
+}
+
+export interface AcpSessionModels {
+  current_model_id?: string;
+  available_models?: AcpAvailableModel[];
+}
+
 export interface AgentCapabilities {
   protocol_version: string;
   agent_info: any;
@@ -126,6 +138,7 @@ export interface ConversationState {
   binding?: AgentSessionBinding | null;
   task_run?: TaskRun | null;
   config_options: SessionConfigOption[];
+  models?: AcpSessionModels | null;
   pending_permissions: PendingPermissionRequest[];
 }
 
@@ -291,6 +304,11 @@ export interface CreateConversationInput {
 export interface PreviewSessionConfigInput {
   workspace_id: string;
   agent_profile_id: string;
+}
+
+export interface PreviewSessionConfigResult {
+  config_options: SessionConfigOption[];
+  models?: AcpSessionModels | null;
 }
 
 export interface ImportConversationInput {

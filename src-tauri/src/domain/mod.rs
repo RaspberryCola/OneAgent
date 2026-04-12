@@ -360,6 +360,25 @@ pub struct SessionConfigOption {
     pub raw: serde_json::Value,
 }
 
+/// Available model returned by session/new (unstable API)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AcpAvailableModel {
+    pub id: Option<String>,
+    /// OpenCode uses modelId instead of id
+    #[serde(alias = "modelId")]
+    pub model_id: Option<String>,
+    pub name: Option<String>,
+}
+
+/// Models info returned by session/new (unstable API)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AcpSessionModels {
+    #[serde(alias = "currentModelId")]
+    pub current_model_id: Option<String>,
+    #[serde(alias = "availableModels")]
+    pub available_models: Option<Vec<AcpAvailableModel>>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentCapabilities {
     pub protocol_version: String,
@@ -376,6 +395,8 @@ pub struct ConversationState {
     pub task_run: Option<TaskRun>,
     #[serde(default)]
     pub config_options: Vec<SessionConfigOption>,
+    #[serde(default)]
+    pub models: Option<AcpSessionModels>,
     #[serde(default)]
     pub pending_permissions: Vec<PendingPermissionRequest>,
 }
@@ -428,6 +449,12 @@ pub struct CreateConversationInput {
 pub struct PreviewSessionConfigInput {
     pub workspace_id: String,
     pub agent_profile_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreviewSessionConfigResult {
+    pub config_options: Vec<SessionConfigOption>,
+    pub models: Option<AcpSessionModels>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

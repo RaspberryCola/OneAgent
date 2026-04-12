@@ -21,7 +21,7 @@ use crate::{
     agent_adapters::{AdapterError, AdapterResult, AgentAdapter, AgentSessionHandle, LoadedSession, RuntimeStreamEvent},
     domain::{
         AgentCapabilities, AgentProfile, AgentPromptCapabilities, AgentSessionCapabilities,
-        AttachmentDeliveryPreference, AttachmentInput, AttachmentKind, ExternalSession,
+        AcpAvailableModel, AcpSessionModels, AttachmentDeliveryPreference, AttachmentInput, AttachmentKind, ExternalSession,
         McpServerConfig, PermissionDecisionKind, SessionConfigOption,
     },
 };
@@ -179,6 +179,7 @@ impl AgentAdapter for AcpAdapter {
                 &initialize_response.get("result").cloned().unwrap_or_else(|| json!({})),
             ),
             config_options: parse_config_options(response.get("result")),
+            models: parse_models(response.get("result")),
         })
     }
 
@@ -235,6 +236,7 @@ impl AgentAdapter for AcpAdapter {
                     &initialize_response.get("result").cloned().unwrap_or_else(|| json!({})),
                 ),
                 config_options: parse_config_options(response_result.as_ref()),
+                models: parse_models(response_result.as_ref()),
             },
             replay_events,
         })
@@ -419,6 +421,7 @@ impl AcpLiveSession {
                 &initialize_response.get("result").cloned().unwrap_or_else(|| json!({})),
             ),
             config_options: parse_config_options(response.get("result")),
+            models: parse_models(response.get("result")),
         };
         Ok(spawn_live_actor(process, handle))
     }
@@ -475,6 +478,7 @@ impl AcpLiveSession {
                 &initialize_response.get("result").cloned().unwrap_or_else(|| json!({})),
             ),
             config_options: parse_config_options(response_result.as_ref()),
+            models: parse_models(response_result.as_ref()),
         };
         Ok((spawn_live_actor(process, handle), replay_events))
     }
@@ -1487,6 +1491,42 @@ fn parse_config_options(result: Option<&Value>) -> Vec<SessionConfigOption> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Parse models from session/new or session/load response (unstable API)
+fn parse_models(result: Option<&Value>) -> Option<AcpSessionModels> {
+    result.and_then(|value| {
+        // Check top-level models first
+        let models = value.get("models");
+        // Also check _meta.models (used by some agents like iFlow)
+        let meta_models = value
+            .get("_meta")
+            .and_then(|m| m.get("models"));
+
+        let models_source = models.or(meta_models)?;
+        if models_source.is_null() {
+            return None;
+        }
+
+        Some(AcpSessionModels {
+            current_model_id: models_source
+                .get("currentModelId")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+            available_models: models_source
+                .get("availableModels")
+                .and_then(Value::as_array)
+                .map(|arr| {
+                    arr.iter()
+                        .map(|item| AcpAvailableModel {
+                            id: item.get("id").and_then(Value::as_str).map(ToOwned::to_owned),
+                            model_id: item.get("modelId").and_then(Value::as_str).map(ToOwned::to_owned),
+                            name: item.get("name").and_then(Value::as_str).map(ToOwned::to_owned),
+                        })
+                        .collect()
+                }),
+        })
+    })
 }
 
 fn parse_session_update(message: &Value, turn_id: &str) -> Vec<RuntimeStreamEvent> {
