@@ -135,6 +135,13 @@ impl Gateway {
         Ok(self.runtime.create_conversation(input).await?)
     }
 
+    pub async fn preview_session_config(
+        &self,
+        input: PreviewSessionConfigInput,
+    ) -> GatewayResult<Vec<SessionConfigOption>> {
+        Ok(self.runtime.preview_session_config(input).await?)
+    }
+
     pub async fn import_conversation(
         &self,
         workspace_id: &str,

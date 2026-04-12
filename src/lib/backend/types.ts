@@ -288,6 +288,11 @@ export interface CreateConversationInput {
   title?: string;
 }
 
+export interface PreviewSessionConfigInput {
+  workspace_id: string;
+  agent_profile_id: string;
+}
+
 export interface ImportConversationInput {
   workspace_id: string;
   agent_profile_id: string;

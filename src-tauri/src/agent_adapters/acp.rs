@@ -1461,6 +1461,7 @@ fn parse_config_options(result: Option<&Value>) -> Vec<SessionConfigOption> {
                         .get("name")
                         .and_then(Value::as_str)
                         .or_else(|| item.get("label").and_then(Value::as_str))
+                        .or_else(|| item.get("title").and_then(Value::as_str))
                         .unwrap_or_default()
                         .to_string(),
                     description: item.get("description").and_then(Value::as_str).map(ToOwned::to_owned),
@@ -1470,7 +1471,12 @@ fn parse_config_options(result: Option<&Value>) -> Vec<SessionConfigOption> {
                         .and_then(Value::as_str)
                         .unwrap_or("string")
                         .to_string(),
-                    current_value: item.get("value").cloned().unwrap_or(Value::Null),
+                    current_value: item
+                        .get("currentValue")
+                        .cloned()
+                        .or_else(|| item.get("selectedValue").cloned())
+                        .or_else(|| item.get("value").cloned())
+                        .unwrap_or(Value::Null),
                     options: item
                         .get("options")
                         .cloned()
@@ -1520,7 +1526,7 @@ fn parse_session_update(message: &Value, turn_id: &str) -> Vec<RuntimeStreamEven
                 }
             }
         }
-        "thought" | "thinking" => {
+        "agent_thought_chunk" | "thought" | "thinking" => {
             let content = update
                 .get("content")
                 .and_then(|v| v.get("text"))
@@ -1609,15 +1615,21 @@ fn extract_and_strip_think_tags(content: &str) -> (String, String) {
     for (open_tag, close_tag) in [("<think>", "</think>"), ("<thinking>", "</thinking>")] {
         while let Some(start) = remaining.find(open_tag) {
             let after_open = start + open_tag.len();
-            let Some(rel_end) = remaining[after_open..].find(close_tag) else {
+            if let Some(rel_end) = remaining[after_open..].find(close_tag) {
+                let end = after_open + rel_end;
+                let part = remaining[after_open..end].trim();
+                if !part.is_empty() {
+                    thinking_parts.push(part.to_string());
+                }
+                remaining.replace_range(start..end + close_tag.len(), "");
+            } else {
+                let part = remaining[after_open..].trim();
+                if !part.is_empty() {
+                    thinking_parts.push(part.to_string());
+                }
+                remaining.replace_range(start.., "");
                 break;
-            };
-            let end = after_open + rel_end;
-            let part = remaining[after_open..end].trim();
-            if !part.is_empty() {
-                thinking_parts.push(part.to_string());
             }
-            remaining.replace_range(start..end + close_tag.len(), "");
         }
     }
 
@@ -1897,6 +1909,38 @@ mod tests {
             }
             other => panic!("expected agent text chunk, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_agent_thought_chunk_updates() {
+        let message = json!({
+            "params": {
+                "update": {
+                    "sessionUpdate": "agent_thought_chunk",
+                    "content": { "type": "text", "text": "reasoning chunk" }
+                }
+            }
+        });
+        let events = parse_session_update(&message, "turn");
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            RuntimeStreamEvent::ThinkingChunk { content, .. } => assert_eq!(content, "reasoning chunk"),
+            other => panic!("expected thinking chunk, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn extracts_open_ended_think_chunks() {
+        let (thinking, stripped) = extract_and_strip_think_tags("<think>reasoning in progress");
+        assert_eq!(thinking, "reasoning in progress");
+        assert_eq!(stripped, "");
+    }
+
+    #[test]
+    fn extracts_orphan_closing_think_chunks() {
+        let (thinking, stripped) = extract_and_strip_think_tags("continued reasoning</think>final answer");
+        assert_eq!(thinking, "continued reasoning");
+        assert_eq!(stripped, "final answer");
     }
 
     #[test]

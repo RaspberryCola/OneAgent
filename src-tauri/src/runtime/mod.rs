@@ -159,6 +159,32 @@ impl Runtime {
         Ok(state)
     }
 
+    pub async fn preview_session_config(
+        &self,
+        input: PreviewSessionConfigInput,
+    ) -> RuntimeResult<Vec<SessionConfigOption>> {
+        let workspace = self.db.get_workspace(&input.workspace_id)?;
+        let profile = self.db.get_agent_profile(&input.agent_profile_id)?;
+        let mcp_servers = self.mcp_registry.list_for_workspace(&workspace.id)?;
+        match profile.kind {
+            AgentKind::Acp => {
+                let session = AcpLiveSession::start_new(&profile, &workspace.cwd, &mcp_servers).await?;
+                let config_options = session.handle.config_options.clone();
+                session.close();
+                Ok(config_options)
+            }
+            AgentKind::Compat => {
+                let handle = self
+                    .adapter_for(&profile)
+                    .new_session(&profile, &workspace.cwd, &mcp_servers)
+                    .await?;
+                let config_options = handle.config_options.clone();
+                self.adapter_for(&profile).close(&profile, &handle).await?;
+                Ok(config_options)
+            }
+        }
+    }
+
     pub async fn import_conversation(
         &self,
         workspace_id: &str,
@@ -697,6 +723,16 @@ impl Runtime {
         Ok(())
     }
 
+    fn conversation_config_options(&self, conversation_id: &str) -> Vec<SessionConfigOption> {
+        self.db
+            .get_snapshot(conversation_id)
+            .ok()
+            .flatten()
+            .and_then(|snapshot| serde_json::from_value::<ConversationState>(snapshot.state_json).ok())
+            .map(|state| state.config_options)
+            .unwrap_or_default()
+    }
+
     fn finalize_thinking_stream(&self, conversation_id: &str, turn_id: &str) -> RuntimeResult<()> {
         let stream_key = Self::stream_message_key(
             conversation_id,
@@ -888,7 +924,7 @@ impl Runtime {
             RuntimeStreamEvent::Plan { entries, .. } => {
                 self.finalize_thinking_stream(conversation_id, turn_id)?;
                 let message = MessageProjection {
-                    id: Uuid::new_v4().to_string(),
+                    id: format!("{conversation_id}:{turn_id}:plan"),
                     conversation_id: conversation_id.to_string(),
                     turn_id: turn_id.to_string(),
                     role: MessageRole::System,
@@ -922,7 +958,7 @@ impl Runtime {
             } => {
                 self.finalize_thinking_stream(conversation_id, turn_id)?;
                 let call = ToolCallProjection {
-                    id: Uuid::new_v4().to_string(),
+                    id: format!("{conversation_id}:{tool_call_id}"),
                     conversation_id: conversation_id.to_string(),
                     turn_id: turn_id.to_string(),
                     tool_call_id,
@@ -1103,7 +1139,10 @@ impl Runtime {
                 self.db.upsert_terminal(&record)?;
                 if let Some(chunk) = content {
                     let message = MessageProjection {
-                        id: Uuid::new_v4().to_string(),
+                        id: format!(
+                            "{conversation_id}:{turn_id}:terminal:{terminal_id}:{}",
+                            record.stdout_buffer.len() + record.stderr_buffer.len()
+                        ),
                         conversation_id: conversation_id.to_string(),
                         turn_id: turn_id.to_string(),
                         role: MessageRole::Tool,
@@ -1118,6 +1157,10 @@ impl Runtime {
                         created_at: Utc::now(),
                     };
                     self.db.upsert_message(&message)?;
+                    self.emit(
+                        "conversation.message_appended",
+                        &json!({ "conversation_id": conversation_id, "message": message }),
+                    );
                     self.emit(
                         "conversation.terminal_output",
                         &json!({
@@ -1224,25 +1267,11 @@ impl Runtime {
     }
 
     pub fn conversation_state(&self, conversation_id: &str) -> RuntimeResult<ConversationState> {
-        if let Some(snapshot) = self.db.get_snapshot(conversation_id)? {
-            if let Ok(state) = serde_json::from_value::<ConversationState>(snapshot.state_json.clone()) {
-                return Ok(state);
-            }
-            if let Ok(timeline) = serde_json::from_value::<TimelineResponse>(snapshot.state_json) {
-                return Ok(ConversationState {
-                    conversation: self.db.get_conversation(conversation_id)?,
-                    binding: self.db.get_binding(conversation_id)?,
-                    task_run: self.db.get_task_run(conversation_id)?,
-                    config_options: Vec::new(),
-                    pending_permissions: timeline.pending_permissions,
-                });
-            }
-        }
         Ok(ConversationState {
             conversation: self.db.get_conversation(conversation_id)?,
             binding: self.db.get_binding(conversation_id)?,
             task_run: self.db.get_task_run(conversation_id)?,
-            config_options: Vec::new(),
+            config_options: self.conversation_config_options(conversation_id),
             pending_permissions: self.db.list_pending_permissions(conversation_id)?,
         })
     }

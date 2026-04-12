@@ -425,6 +425,12 @@ pub struct CreateConversationInput {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PreviewSessionConfigInput {
+    pub workspace_id: String,
+    pub agent_profile_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateTaskRunInput {
     pub workspace_id: String,
     pub agent_profile_id: String,

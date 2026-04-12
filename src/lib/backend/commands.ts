@@ -47,6 +47,12 @@ export async function createConversation(input: Types.CreateConversationInput): 
   return invoke('create_conversation', { input });
 }
 
+export async function previewSessionConfig(
+  input: Types.PreviewSessionConfigInput,
+): Promise<Types.SessionConfigOption[]> {
+  return invoke('preview_session_config', { input });
+}
+
 export async function importConversation(input: Types.ImportConversationInput): Promise<Types.ConversationState> {
   return invoke('import_conversation', { input });
 }

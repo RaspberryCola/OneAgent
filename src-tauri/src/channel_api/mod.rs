@@ -128,6 +128,18 @@ pub async fn create_conversation(
 }
 
 #[tauri::command]
+pub async fn preview_session_config(
+    state: State<'_, AppState>,
+    input: PreviewSessionConfigInput,
+) -> Result<Vec<SessionConfigOption>, BackendError> {
+    state
+        .gateway
+        .preview_session_config(input)
+        .await
+        .map_err(BackendError::from)
+}
+
+#[tauri::command]
 pub async fn import_conversation(
     state: State<'_, AppState>,
     input: ImportConversationInput,
