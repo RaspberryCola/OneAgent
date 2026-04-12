@@ -1,0 +1,6 @@
+{
+  "identifier": "oneagent.desktop",
+  "description": "Capabilities for the OneAgent desktop shell.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

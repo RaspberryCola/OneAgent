@@ -1,0 +1,110 @@
+import { invoke } from '@tauri-apps/api/core';
+import type * as Types from './types';
+
+// Agent / Workspace
+export async function bootstrapWorkspace(input: Types.BootstrapWorkspaceInput): Promise<Types.WorkspaceBootstrap> {
+  return invoke('bootstrap_workspace', { input });
+}
+
+export async function listAgentProfiles(): Promise<Types.AgentProfile[]> {
+  return invoke('list_agent_profiles');
+}
+
+export async function listAgentDiscoveryStatus(): Promise<Types.AgentDiscoveryStatus[]> {
+  return invoke('list_agent_discovery_status');
+}
+
+export async function refreshAgentDiscovery(): Promise<Types.AgentProfile[]> {
+  return invoke('refresh_agent_discovery');
+}
+
+export async function upsertAgentProfile(input: Types.UpsertAgentProfileInput): Promise<Types.AgentProfile> {
+  return invoke('upsert_agent_profile', { input });
+}
+
+export async function probeAgentProfile(profileId: string): Promise<Types.AgentCapabilities> {
+  return invoke('probe_agent_profile', { profileId });
+}
+
+export async function listWorkspaces(): Promise<Types.Workspace[]> {
+  return invoke('list_workspaces');
+}
+
+export async function openWorkspace(cwd: string): Promise<Types.Workspace> {
+  return invoke('open_workspace', { cwd });
+}
+
+// Conversation / Task
+export async function listConversations(workspaceId: string, filter?: Types.ConversationFilter): Promise<Types.Conversation[]> {
+  return invoke('list_conversations', { workspaceId, filter });
+}
+
+export async function listDiscoveredSessions(workspaceId: string, agentProfileId: string, scope: string): Promise<Types.ExternalSession[]> {
+  return invoke('list_discovered_sessions', { workspaceId, agentProfileId, scope });
+}
+
+export async function createConversation(input: Types.CreateConversationInput): Promise<Types.ConversationState> {
+  return invoke('create_conversation', { input });
+}
+
+export async function importConversation(input: Types.ImportConversationInput): Promise<Types.ConversationState> {
+  return invoke('import_conversation', { input });
+}
+
+export async function createTaskRun(input: Types.CreateTaskRunInput): Promise<Types.ConversationState> {
+  return invoke('create_task_run', { input });
+}
+
+export async function listTaskRuns(workspaceId: string): Promise<Types.TaskRun[]> {
+  return invoke('list_task_runs', { workspaceId });
+}
+
+export async function getConversationState(conversationId: string): Promise<Types.ConversationState> {
+  return invoke('get_conversation_state', { conversationId });
+}
+
+export async function getConversationTimeline(conversationId: string): Promise<Types.TimelineResponse> {
+  return invoke('get_conversation_timeline', { conversationId });
+}
+
+// Messaging / Runtime Control
+export async function sendUserMessage(input: Types.SendUserMessageInput): Promise<Types.TimelineResponse> {
+  return invoke('send_user_message', { input });
+}
+
+export async function cancelTurn(conversationId: string): Promise<void> {
+  return invoke('cancel_turn', { conversationId });
+}
+
+export async function deleteConversation(conversationId: string): Promise<void> {
+  return invoke('delete_conversation', { conversationId });
+}
+
+export async function setSessionConfig(input: Types.SessionConfigInput): Promise<void> {
+  return invoke('set_session_config', { input });
+}
+
+export async function persistAttachmentBlob(input: Types.PersistAttachmentBlobInput): Promise<Types.PersistAttachmentBlobOutput> {
+  return invoke('persist_attachment_blob', { input });
+}
+
+// Permission / MCP / Skills
+export async function listPermissions(conversationId: string): Promise<Types.PermissionDecision[]> {
+  return invoke('list_permissions', { conversationId });
+}
+
+export async function resolvePermissionRequest(input: Types.ResolvePermissionInput): Promise<Types.PermissionDecision> {
+  return invoke('resolve_permission_request', { input });
+}
+
+export async function listWorkspaceMcp(workspaceId: string): Promise<Types.McpServerConfig[]> {
+  return invoke('list_workspace_mcp', { workspaceId });
+}
+
+export async function upsertWorkspaceMcp(config: Types.McpServerConfig): Promise<Types.McpServerConfig> {
+  return invoke('upsert_workspace_mcp', { config });
+}
+
+export async function listWorkspaceSkills(workspaceId: string): Promise<Types.SkillRecord[]> {
+  return invoke('list_workspace_skills', { workspaceId });
+}

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <line
+    x1="16"
+    y1="11"
+    x2="16"
+    y2="23"
+    fill="none"
+    stroke="#000"
+    stroke-width="2"
+    stroke-miterlimit="10"
+  />
+  <polyline
+    points="10.3,16 16,10.3 21.7,16"
+    fill="none"
+    stroke="#000"
+    stroke-width="2"
+    stroke-miterlimit="10"
+  />
+</svg>

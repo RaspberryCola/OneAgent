@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  background-color: #ffffff;
+  color: #000000;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+#root {
+  width: 100%;
+  height: 100vh;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: "SF Pro Rounded", "system-ui", "-apple-system", sans-serif;
+}
+
+/* Custom button styles based on DESIGN.md */
+.btn-pill-black {
+  @apply bg-pure-black text-pure-white px-6 py-[10px] rounded-pill text-body font-medium transition-opacity hover:opacity-90;
+}
+
+.btn-pill-gray {
+  @apply bg-light-gray text-near-black border border-light-gray px-6 py-[10px] rounded-pill text-body font-medium transition-opacity hover:opacity-90;
+}
+
+.btn-pill-white {
+  @apply bg-pure-white text-button-text-dark border border-border-light px-6 py-[10px] rounded-pill text-body font-medium transition-opacity hover:opacity-90;
+}
