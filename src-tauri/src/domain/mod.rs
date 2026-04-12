@@ -14,6 +14,36 @@ pub enum AgentKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+pub enum AgentLaunchMode {
+    Native,
+    NpmAdapter,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentRuntimePreference {
+    BundledBun,
+    SystemBun,
+    SystemNode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentDisplaySource {
+    Native,
+    Bridge,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentAvailability {
+    Ready,
+    Degraded,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum ConversationOrigin {
     OneagentManaged,
     AgentDiscovered,
@@ -149,6 +179,16 @@ pub struct AgentProfile {
     pub command: String,
     pub args: Vec<String>,
     pub env: JsonMap,
+    #[serde(default = "default_agent_launch_mode")]
+    pub launch_mode: AgentLaunchMode,
+    #[serde(default)]
+    pub runtime_preference: Option<AgentRuntimePreference>,
+    #[serde(default)]
+    pub package_name: Option<String>,
+    #[serde(default)]
+    pub package_version: Option<String>,
+    #[serde(default = "default_agent_display_source")]
+    pub display_source: AgentDisplaySource,
     pub capabilities_cache: serde_json::Value,
     pub enabled: bool,
 }
@@ -309,6 +349,14 @@ pub struct ConversationFilter {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchConversationsInput {
+    pub workspace_id: String,
+    pub query: String,
+    #[serde(default)]
+    pub include_tasks: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspaceBootstrapInput {
     pub workspace_id: String,
     pub agent_profile_id: Option<String>,
@@ -435,6 +483,16 @@ pub struct UpsertAgentProfileInput {
     pub command: String,
     pub args: Vec<String>,
     pub env: JsonMap,
+    #[serde(default = "default_agent_launch_mode")]
+    pub launch_mode: AgentLaunchMode,
+    #[serde(default)]
+    pub runtime_preference: Option<AgentRuntimePreference>,
+    #[serde(default)]
+    pub package_name: Option<String>,
+    #[serde(default)]
+    pub package_version: Option<String>,
+    #[serde(default = "default_agent_display_source")]
+    pub display_source: AgentDisplaySource,
     pub enabled: bool,
 }
 
@@ -506,6 +564,11 @@ pub enum ErrorCode {
     PermissionFingerprintMismatch,
     // Adapter/Runtime errors
     AdapterError,
+    RuntimeNotFound,
+    AdapterNotFound,
+    AdapterSpawnFailed,
+    ClaudeAuthRequired,
+    AcpInitializeFailed,
     RuntimeError,
     StorageError,
     // Unknown
@@ -529,7 +592,11 @@ impl BackendError {
         }
     }
 
-    pub fn with_details(code: ErrorCode, message: impl Into<String>, details: serde_json::Value) -> Self {
+    pub fn with_details(
+        code: ErrorCode,
+        message: impl Into<String>,
+        details: serde_json::Value,
+    ) -> Self {
         Self {
             code,
             message: message.into(),
@@ -540,7 +607,12 @@ impl BackendError {
 
 impl std::fmt::Display for BackendError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{}] {}", serde_json::to_string(&self.code).unwrap_or_default(), self.message)
+        write!(
+            f,
+            "[{}] {}",
+            serde_json::to_string(&self.code).unwrap_or_default(),
+            self.message
+        )
     }
 }
 
@@ -563,27 +635,44 @@ impl From<crate::gateway::GatewayError> for BackendError {
                     BackendError::new(ErrorCode::StorageError, e.to_string())
                 }
             }
-            crate::gateway::GatewayError::Runtime(e) => {
-                match e {
-                    crate::runtime::RuntimeError::InvalidState(msg) => {
-                        if msg.contains("active turn") {
-                            BackendError::new(ErrorCode::ActiveTurnRunning, msg)
-                        } else if msg.contains("missing binding") {
-                            BackendError::new(ErrorCode::MissingBinding, msg)
-                        } else if msg.contains("pending permission") && msg.contains("not found") {
-                            BackendError::new(ErrorCode::PendingPermissionNotFound, msg)
-                        } else if msg.contains("permission") && msg.contains("no longer pending") {
-                            BackendError::new(ErrorCode::PermissionNotPending, msg)
-                        } else if msg.contains("fingerprint") {
-                            BackendError::new(ErrorCode::PermissionFingerprintMismatch, msg)
-                        } else {
-                            BackendError::new(ErrorCode::ConversationNotReady, msg)
-                        }
+            crate::gateway::GatewayError::Runtime(e) => match e {
+                crate::runtime::RuntimeError::InvalidState(msg) => {
+                    if msg.contains("active turn") {
+                        BackendError::new(ErrorCode::ActiveTurnRunning, msg)
+                    } else if msg.contains("missing binding") {
+                        BackendError::new(ErrorCode::MissingBinding, msg)
+                    } else if msg.contains("pending permission") && msg.contains("not found") {
+                        BackendError::new(ErrorCode::PendingPermissionNotFound, msg)
+                    } else if msg.contains("permission") && msg.contains("no longer pending") {
+                        BackendError::new(ErrorCode::PermissionNotPending, msg)
+                    } else if msg.contains("fingerprint") {
+                        BackendError::new(ErrorCode::PermissionFingerprintMismatch, msg)
+                    } else {
+                        BackendError::new(ErrorCode::ConversationNotReady, msg)
                     }
-                    crate::runtime::RuntimeError::Adapter(_) => BackendError::new(ErrorCode::AdapterError, e.to_string()),
-                    crate::runtime::RuntimeError::Storage(_) => BackendError::new(ErrorCode::StorageError, e.to_string()),
                 }
-            }
+                crate::runtime::RuntimeError::Adapter(ref adapter_error) => match adapter_error {
+                    crate::agent_adapters::AdapterError::RuntimeNotFound(msg) => {
+                        BackendError::new(ErrorCode::RuntimeNotFound, msg.clone())
+                    }
+                    crate::agent_adapters::AdapterError::AdapterNotFound(msg) => {
+                        BackendError::new(ErrorCode::AdapterNotFound, msg.clone())
+                    }
+                    crate::agent_adapters::AdapterError::AdapterSpawnFailed(msg) => {
+                        BackendError::new(ErrorCode::AdapterSpawnFailed, msg.clone())
+                    }
+                    crate::agent_adapters::AdapterError::ClaudeAuthRequired(msg) => {
+                        BackendError::new(ErrorCode::ClaudeAuthRequired, msg.clone())
+                    }
+                    crate::agent_adapters::AdapterError::AcpInitializeFailed(msg) => {
+                        BackendError::new(ErrorCode::AcpInitializeFailed, msg.clone())
+                    }
+                    _ => BackendError::new(ErrorCode::AdapterError, e.to_string()),
+                },
+                crate::runtime::RuntimeError::Storage(_) => {
+                    BackendError::new(ErrorCode::StorageError, e.to_string())
+                }
+            },
             crate::gateway::GatewayError::Validation(msg) => {
                 if msg.contains("cannot be empty") && msg.contains("message") {
                     BackendError::new(ErrorCode::EmptyMessage, msg)
@@ -604,7 +693,18 @@ pub struct AgentDiscoveryStatus {
     pub name: String,
     pub command: String,
     pub installed: bool,
+    pub source: AgentDisplaySource,
+    pub availability: AgentAvailability,
+    pub detail: Option<String>,
     pub profile_id: Option<String>,
+}
+
+fn default_agent_launch_mode() -> AgentLaunchMode {
+    AgentLaunchMode::Native
+}
+
+fn default_agent_display_source() -> AgentDisplaySource {
+    AgentDisplaySource::Native
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

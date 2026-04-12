@@ -1,13 +1,16 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
 use crate::{
-    capability_services::agent_discovery::{discover_installed_agents, get_discovery_status},
+    capability_services::{
+        agent_discovery::{claude_code_preset, discover_installed_agents, get_discovery_status},
+        agent_launch::is_claude_bridge_profile,
+    },
     domain::*,
     runtime::{Runtime, RuntimeResult},
     storage::{Database, StorageError},
 };
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
 
 #[derive(thiserror::Error, Debug)]
 pub enum GatewayError {
@@ -47,11 +50,15 @@ impl Gateway {
             .collect::<std::collections::BTreeSet<_>>();
         let existing_profiles = self.db.list_agent_profiles()?;
         for profile in existing_profiles {
-            if profile.id.starts_with("auto-") && !discovered_ids.contains(&profile.id) {
+            if profile.id.starts_with("auto-")
+                && !discovered_ids.contains(&profile.id)
+                && !is_claude_bridge_profile(&profile)
+            {
                 self.db.delete_agent_profile(&profile.id)?;
             }
         }
-        let mut profiles = Vec::with_capacity(discovered.len());
+        let mut profiles = Vec::with_capacity(discovered.len() + 1);
+        profiles.push(self.db.upsert_agent_profile(claude_code_preset())?);
         for input in discovered {
             profiles.push(self.db.upsert_agent_profile(input)?);
         }
@@ -73,24 +80,27 @@ impl Gateway {
         let discovery = get_discovery_status();
         Ok(discovery
             .into_iter()
-            .map(|(name, command, installed)| {
-                let profile_id = profiles
+            .map(|mut status| {
+                status.profile_id = profiles
                     .iter()
-                    .find(|p| p.command == command)
+                    .find(|p| {
+                        p.id == status.profile_id.clone().unwrap_or_default()
+                            || (p.command == status.command && p.name == status.name)
+                    })
                     .map(|p| p.id.clone());
-                AgentDiscoveryStatus {
-                    name,
-                    command,
-                    installed,
-                    profile_id,
-                }
+                status
             })
             .collect())
     }
 
-    pub fn upsert_agent_profile(&self, input: UpsertAgentProfileInput) -> GatewayResult<AgentProfile> {
+    pub fn upsert_agent_profile(
+        &self,
+        input: UpsertAgentProfileInput,
+    ) -> GatewayResult<AgentProfile> {
         if input.command.trim().is_empty() {
-            return Err(GatewayError::Validation("agent command cannot be empty".to_string()));
+            return Err(GatewayError::Validation(
+                "agent command cannot be empty".to_string(),
+            ));
         }
         Ok(self.db.upsert_agent_profile(input)?)
     }
@@ -116,7 +126,23 @@ impl Gateway {
         workspace_id: &str,
         filter: ConversationFilter,
     ) -> GatewayResult<Vec<Conversation>> {
-        Ok(self.db.list_conversations(workspace_id, filter.include_tasks)?)
+        Ok(self
+            .db
+            .list_conversations(workspace_id, filter.include_tasks)?)
+    }
+
+    pub fn search_conversations(
+        &self,
+        input: SearchConversationsInput,
+    ) -> GatewayResult<Vec<Conversation>> {
+        if input.query.trim().is_empty() {
+            return Err(GatewayError::Validation(
+                "search query cannot be empty".to_string(),
+            ));
+        }
+        Ok(self
+            .db
+            .search_conversations(&input.workspace_id, &input.query, input.include_tasks)?)
     }
 
     pub async fn list_discovered_sessions(
@@ -131,7 +157,10 @@ impl Gateway {
             .await?)
     }
 
-    pub async fn create_conversation(&self, input: CreateConversationInput) -> GatewayResult<ConversationState> {
+    pub async fn create_conversation(
+        &self,
+        input: CreateConversationInput,
+    ) -> GatewayResult<ConversationState> {
         Ok(self.runtime.create_conversation(input).await?)
     }
 
@@ -154,7 +183,10 @@ impl Gateway {
             .await?)
     }
 
-    pub async fn create_task_run(&self, input: CreateTaskRunInput) -> GatewayResult<ConversationState> {
+    pub async fn create_task_run(
+        &self,
+        input: CreateTaskRunInput,
+    ) -> GatewayResult<ConversationState> {
         Ok(self.runtime.create_task_run(input).await?)
     }
 
@@ -165,7 +197,9 @@ impl Gateway {
         attachments: Vec<AttachmentInput>,
     ) -> GatewayResult<TimelineResponse> {
         if text.trim().is_empty() {
-            return Err(GatewayError::Validation("message cannot be empty".to_string()));
+            return Err(GatewayError::Validation(
+                "message cannot be empty".to_string(),
+            ));
         }
         Ok(self
             .runtime
@@ -191,7 +225,9 @@ impl Gateway {
     ) -> GatewayResult<PersistAttachmentBlobOutput> {
         let bytes = BASE64_STANDARD
             .decode(input.base64_data.as_bytes())
-            .map_err(|err| GatewayError::Validation(format!("invalid attachment payload: {err}")))?;
+            .map_err(|err| {
+                GatewayError::Validation(format!("invalid attachment payload: {err}"))
+            })?;
         let extension = input
             .mime_type
             .as_deref()
@@ -210,17 +246,22 @@ impl Gateway {
             .join("oneagent-attachments")
             .join(format!("{stem}-{timestamp}.{extension}"));
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|err| GatewayError::Validation(format!("failed to create temp attachment dir: {err}")))?;
+            std::fs::create_dir_all(parent).map_err(|err| {
+                GatewayError::Validation(format!("failed to create temp attachment dir: {err}"))
+            })?;
         }
-        std::fs::write(&path, bytes)
-            .map_err(|err| GatewayError::Validation(format!("failed to persist attachment: {err}")))?;
+        std::fs::write(&path, bytes).map_err(|err| {
+            GatewayError::Validation(format!("failed to persist attachment: {err}"))
+        })?;
         Ok(PersistAttachmentBlobOutput {
             path: path.to_string_lossy().to_string(),
         })
     }
 
-    pub fn list_permissions(&self, conversation_id: &str) -> GatewayResult<Vec<PermissionDecision>> {
+    pub fn list_permissions(
+        &self,
+        conversation_id: &str,
+    ) -> GatewayResult<Vec<PermissionDecision>> {
         Ok(self.runtime.list_permissions(conversation_id)?)
     }
 
@@ -250,11 +291,17 @@ impl Gateway {
         Ok(self.runtime.refresh_workspace_skills(workspace_id)?)
     }
 
-    pub fn get_conversation_timeline(&self, conversation_id: &str) -> GatewayResult<TimelineResponse> {
+    pub fn get_conversation_timeline(
+        &self,
+        conversation_id: &str,
+    ) -> GatewayResult<TimelineResponse> {
         Ok(self.runtime.timeline(conversation_id)?)
     }
 
-    pub fn get_conversation_state(&self, conversation_id: &str) -> GatewayResult<ConversationState> {
+    pub fn get_conversation_state(
+        &self,
+        conversation_id: &str,
+    ) -> GatewayResult<ConversationState> {
         Ok(self.runtime.conversation_state(conversation_id)?)
     }
 
@@ -267,26 +314,23 @@ impl Gateway {
         input: WorkspaceBootstrapInput,
     ) -> GatewayResult<WorkspaceBootstrap> {
         let workspace = self.db.get_workspace(&input.workspace_id)?;
+        self.refresh_agent_discovery()?;
         let agent_profiles = self.db.list_agent_profiles()?;
-        let conversations = self
-            .db
-            .list_conversations(&input.workspace_id, true)?;
+        let conversations = self.db.list_conversations(&input.workspace_id, true)?;
         let mcp = self.db.list_workspace_mcp(&input.workspace_id)?;
         let skills = self.runtime.refresh_workspace_skills(&input.workspace_id)?;
-        let selected_agent_profile_id = input
-            .agent_profile_id
-            .clone()
-            .or_else(|| agent_profiles.iter().find(|profile| profile.enabled).map(|profile| profile.id.clone()));
+        let selected_agent_profile_id = input.agent_profile_id.clone().or_else(|| {
+            agent_profiles
+                .iter()
+                .find(|profile| profile.enabled)
+                .map(|profile| profile.id.clone())
+        });
         let discovered_sessions = if let (Some(agent_profile_id), Some(discovered_scope)) = (
             selected_agent_profile_id.as_deref(),
             input.discovered_scope.as_deref(),
         ) {
             self.runtime
-                .list_discovered_sessions(
-                    &input.workspace_id,
-                    agent_profile_id,
-                    discovered_scope,
-                )
+                .list_discovered_sessions(&input.workspace_id, agent_profile_id, discovered_scope)
                 .await?
         } else {
             Vec::new()

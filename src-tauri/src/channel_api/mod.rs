@@ -4,7 +4,10 @@ use serde::Deserialize;
 use tauri::State;
 use tauri_plugin_dialog::DialogExt;
 
-use crate::{domain::{BackendError, *}, gateway::Gateway};
+use crate::{
+    domain::{BackendError, *},
+    gateway::Gateway,
+};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -46,18 +49,33 @@ pub async fn bootstrap_workspace(
 }
 
 #[tauri::command]
-pub async fn list_agent_profiles(state: State<'_, AppState>) -> Result<Vec<AgentProfile>, BackendError> {
-    state.gateway.list_agent_profiles().map_err(BackendError::from)
+pub async fn list_agent_profiles(
+    state: State<'_, AppState>,
+) -> Result<Vec<AgentProfile>, BackendError> {
+    state
+        .gateway
+        .list_agent_profiles()
+        .map_err(BackendError::from)
 }
 
 #[tauri::command]
-pub async fn list_agent_discovery_status(state: State<'_, AppState>) -> Result<Vec<AgentDiscoveryStatus>, BackendError> {
-    state.gateway.list_agent_discovery_status().map_err(BackendError::from)
+pub async fn list_agent_discovery_status(
+    state: State<'_, AppState>,
+) -> Result<Vec<AgentDiscoveryStatus>, BackendError> {
+    state
+        .gateway
+        .list_agent_discovery_status()
+        .map_err(BackendError::from)
 }
 
 #[tauri::command]
-pub async fn refresh_agent_discovery(state: State<'_, AppState>) -> Result<Vec<AgentProfile>, BackendError> {
-    state.gateway.refresh_agent_discovery().map_err(BackendError::from)
+pub async fn refresh_agent_discovery(
+    state: State<'_, AppState>,
+) -> Result<Vec<AgentProfile>, BackendError> {
+    state
+        .gateway
+        .refresh_agent_discovery()
+        .map_err(BackendError::from)
 }
 
 #[tauri::command]
@@ -65,7 +83,10 @@ pub async fn upsert_agent_profile(
     state: State<'_, AppState>,
     input: UpsertAgentProfileInput,
 ) -> Result<AgentProfile, BackendError> {
-    state.gateway.upsert_agent_profile(input).map_err(BackendError::from)
+    state
+        .gateway
+        .upsert_agent_profile(input)
+        .map_err(BackendError::from)
 }
 
 #[tauri::command]
@@ -86,8 +107,14 @@ pub async fn list_workspaces(state: State<'_, AppState>) -> Result<Vec<Workspace
 }
 
 #[tauri::command]
-pub async fn open_workspace(state: State<'_, AppState>, cwd: String) -> Result<Workspace, BackendError> {
-    state.gateway.open_workspace(&cwd).map_err(BackendError::from)
+pub async fn open_workspace(
+    state: State<'_, AppState>,
+    cwd: String,
+) -> Result<Workspace, BackendError> {
+    state
+        .gateway
+        .open_workspace(&cwd)
+        .map_err(BackendError::from)
 }
 
 /// Get or create the default workspace at ~/.oneagent
@@ -96,20 +123,30 @@ pub async fn get_or_create_default_workspace(
     state: State<'_, AppState>,
 ) -> Result<Workspace, BackendError> {
     // Get the home directory
-    let home_dir = dirs::home_dir()
-        .ok_or_else(|| BackendError::new(ErrorCode::InvalidWorkspacePath, "Could not determine home directory"))?;
+    let home_dir = dirs::home_dir().ok_or_else(|| {
+        BackendError::new(
+            ErrorCode::InvalidWorkspacePath,
+            "Could not determine home directory",
+        )
+    })?;
 
     // Create ~/.oneagent directory
     let default_workspace_dir = home_dir.join(".oneagent");
     if !default_workspace_dir.exists() {
         std::fs::create_dir_all(&default_workspace_dir).map_err(|e| {
-            BackendError::new(ErrorCode::InvalidWorkspacePath, format!("Failed to create default workspace directory: {e}"))
+            BackendError::new(
+                ErrorCode::InvalidWorkspacePath,
+                format!("Failed to create default workspace directory: {e}"),
+            )
         })?;
     }
 
     // Open the workspace
     let cwd = default_workspace_dir.to_string_lossy().to_string();
-    state.gateway.open_workspace(&cwd).map_err(BackendError::from)
+    state
+        .gateway
+        .open_workspace(&cwd)
+        .map_err(BackendError::from)
 }
 
 /// Pick a workspace directory using the system file dialog
@@ -124,7 +161,10 @@ pub async fn pick_workspace_directory(
     match folder_path {
         Some(path) => {
             let cwd = path.to_string();
-            let workspace = state.gateway.open_workspace(&cwd).map_err(BackendError::from)?;
+            let workspace = state
+                .gateway
+                .open_workspace(&cwd)
+                .map_err(BackendError::from)?;
             Ok(Some(workspace))
         }
         None => Ok(None), // User cancelled the dialog
@@ -140,6 +180,17 @@ pub async fn list_conversations(
     state
         .gateway
         .list_conversations(&workspace_id, filter)
+        .map_err(BackendError::from)
+}
+
+#[tauri::command]
+pub async fn search_conversations(
+    state: State<'_, AppState>,
+    input: SearchConversationsInput,
+) -> Result<Vec<Conversation>, BackendError> {
+    state
+        .gateway
+        .search_conversations(input)
         .map_err(BackendError::from)
 }
 
@@ -188,7 +239,11 @@ pub async fn import_conversation(
 ) -> Result<ConversationState, BackendError> {
     state
         .gateway
-        .import_conversation(&input.workspace_id, &input.agent_profile_id, &input.remote_session_id)
+        .import_conversation(
+            &input.workspace_id,
+            &input.agent_profile_id,
+            &input.remote_session_id,
+        )
         .await
         .map_err(BackendError::from)
 }

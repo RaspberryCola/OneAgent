@@ -3,6 +3,9 @@ export interface AgentDiscoveryStatus {
   name: string;
   command: string;
   installed: boolean;
+  source: 'native' | 'bridge';
+  availability: 'ready' | 'degraded' | 'unavailable';
+  detail?: string | null;
   profile_id?: string | null;
 }
 
@@ -24,6 +27,11 @@ export type ErrorCode =
   | 'permission_not_pending'
   | 'permission_fingerprint_mismatch'
   | 'adapter_error'
+  | 'runtime_not_found'
+  | 'adapter_not_found'
+  | 'adapter_spawn_failed'
+  | 'claude_auth_required'
+  | 'acp_initialize_failed'
   | 'runtime_error'
   | 'storage_error'
   | 'unknown';
@@ -50,6 +58,11 @@ export interface AgentProfile {
   command: string;
   args: string[];
   env: Record<string, string>;
+  launch_mode: 'native' | 'npm_adapter';
+  runtime_preference?: 'bundled_bun' | 'system_bun' | 'system_node' | null;
+  package_name?: string | null;
+  package_version?: string | null;
+  display_source: 'native' | 'bridge';
   capabilities_cache: AgentCapabilities | null;
   enabled: boolean;
 }
@@ -268,7 +281,8 @@ export interface BackendError {
     | 'active_turn_running' | 'conversation_not_ready' | 'missing_binding'
     | 'workspace_not_found' | 'agent_profile_not_found' | 'conversation_not_found' | 'pending_permission_not_found'
     | 'permission_not_pending' | 'permission_fingerprint_mismatch'
-    | 'adapter_error' | 'runtime_error' | 'storage_error' | 'unknown';
+    | 'adapter_error' | 'runtime_not_found' | 'adapter_not_found' | 'adapter_spawn_failed'
+    | 'claude_auth_required' | 'acp_initialize_failed' | 'runtime_error' | 'storage_error' | 'unknown';
   message: string;
   details?: any;
 }
@@ -288,6 +302,11 @@ export interface UpsertAgentProfileInput {
   command: string;
   args: string[];
   env: Record<string, string>;
+  launch_mode: 'native' | 'npm_adapter';
+  runtime_preference?: 'bundled_bun' | 'system_bun' | 'system_node' | null;
+  package_name?: string | null;
+  package_version?: string | null;
+  display_source: 'native' | 'bridge';
   enabled: boolean;
 }
 
@@ -365,4 +384,11 @@ export interface PersistAttachmentBlobOutput {
 // TaskRun list input (optional, workspace_id passed directly)
 export interface ListTaskRunsInput {
   workspace_id: string;
+}
+
+// Search Conversations
+export interface SearchConversationsInput {
+  workspace_id: string;
+  query: string;
+  include_tasks?: boolean;
 }

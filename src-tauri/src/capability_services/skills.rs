@@ -22,7 +22,10 @@ impl SkillRegistry {
         Self { db }
     }
 
-    pub fn refresh_workspace_skills(&self, workspace: &Workspace) -> StorageResult<Vec<SkillRecord>> {
+    pub fn refresh_workspace_skills(
+        &self,
+        workspace: &Workspace,
+    ) -> StorageResult<Vec<SkillRecord>> {
         let mut skills = Vec::new();
         skills.extend(scan_common_dir(
             &PathBuf::from(&workspace.cwd).join(".agents/skills"),
@@ -99,11 +102,7 @@ fn build_skill_record(path: &Path, scope: SkillScope, owner: SkillOwner) -> Skil
         name: title,
         description,
         location: path.to_string_lossy().to_string(),
-        source_dir: path
-            .parent()
-            .unwrap_or(path)
-            .to_string_lossy()
-            .to_string(),
+        source_dir: path.parent().unwrap_or(path).to_string_lossy().to_string(),
         owner,
         enabled: true,
         diagnostics_json: json!({
@@ -115,7 +114,10 @@ fn build_skill_record(path: &Path, scope: SkillScope, owner: SkillOwner) -> Skil
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, time::{SystemTime, UNIX_EPOCH}};
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     use super::scan_common_dir;
     use crate::domain::{SkillOwner, SkillScope};

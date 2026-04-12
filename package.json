@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "prepare:claude-runtime": "node scripts/prepare-claude-runtime.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",

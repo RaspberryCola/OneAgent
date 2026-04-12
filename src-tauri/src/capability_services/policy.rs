@@ -17,7 +17,12 @@ impl PolicyEngine {
         Self { db }
     }
 
-    pub fn fingerprint(tool_kind: &str, title: &str, raw_input: &Value, paths: &[String]) -> String {
+    pub fn fingerprint(
+        tool_kind: &str,
+        title: &str,
+        raw_input: &Value,
+        paths: &[String],
+    ) -> String {
         let normalized = serde_json::json!({
             "tool_kind": tool_kind,
             "title": title,

@@ -1,7 +1,10 @@
 use async_trait::async_trait;
 
 use crate::{
-    agent_adapters::{AdapterError, AdapterResult, AgentAdapter, AgentSessionHandle, LoadedSession, RuntimeStreamEvent},
+    agent_adapters::{
+        AdapterError, AdapterResult, AgentAdapter, AgentSessionHandle, LoadedSession,
+        RuntimeStreamEvent,
+    },
     domain::{AgentCapabilities, AgentProfile, AttachmentInput, ExternalSession, McpServerConfig},
 };
 
@@ -59,7 +62,11 @@ impl AgentAdapter for CompatAdapter {
         ))
     }
 
-    async fn cancel(&self, _profile: &AgentProfile, _handle: &AgentSessionHandle) -> AdapterResult<()> {
+    async fn cancel(
+        &self,
+        _profile: &AgentProfile,
+        _handle: &AgentSessionHandle,
+    ) -> AdapterResult<()> {
         Ok(())
     }
 
@@ -73,7 +80,11 @@ impl AgentAdapter for CompatAdapter {
         Ok(Vec::new())
     }
 
-    async fn close(&self, _profile: &AgentProfile, _handle: &AgentSessionHandle) -> AdapterResult<()> {
+    async fn close(
+        &self,
+        _profile: &AgentProfile,
+        _handle: &AgentSessionHandle,
+    ) -> AdapterResult<()> {
         Ok(())
     }
 }

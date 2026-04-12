@@ -5,8 +5,8 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::domain::{
-    AgentCapabilities, AgentProfile, AgentPromptCapabilities, AcpSessionModels, AttachmentInput, ExternalSession,
-    McpServerConfig, SessionConfigOption,
+    AcpSessionModels, AgentCapabilities, AgentProfile, AgentPromptCapabilities, AttachmentInput,
+    ExternalSession, McpServerConfig, SessionConfigOption,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -15,6 +15,16 @@ pub enum AdapterError {
     Io(#[from] std::io::Error),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("runtime_not_found: {0}")]
+    RuntimeNotFound(String),
+    #[error("adapter_not_found: {0}")]
+    AdapterNotFound(String),
+    #[error("adapter_spawn_failed: {0}")]
+    AdapterSpawnFailed(String),
+    #[error("claude_auth_required: {0}")]
+    ClaudeAuthRequired(String),
+    #[error("acp_initialize_failed: {0}")]
+    AcpInitializeFailed(String),
     #[error("protocol error: {0}")]
     Protocol(String),
 }
@@ -54,12 +64,30 @@ pub struct LoadedSession {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeStreamEvent {
-    StateChanged { status: String },
-    ThinkingChunk { turn_id: String, content: String },
-    ThinkingComplete { turn_id: String },
-    MessageChunk { turn_id: String, role: String, content: String },
-    MessageComplete { turn_id: String, role: String, content: String },
-    Plan { turn_id: String, entries: serde_json::Value },
+    StateChanged {
+        status: String,
+    },
+    ThinkingChunk {
+        turn_id: String,
+        content: String,
+    },
+    ThinkingComplete {
+        turn_id: String,
+    },
+    MessageChunk {
+        turn_id: String,
+        role: String,
+        content: String,
+    },
+    MessageComplete {
+        turn_id: String,
+        role: String,
+        content: String,
+    },
+    Plan {
+        turn_id: String,
+        entries: serde_json::Value,
+    },
     ToolCall {
         turn_id: String,
         tool_call_id: String,
@@ -93,8 +121,12 @@ pub enum RuntimeStreamEvent {
         content: Option<String>,
         exit_code: Option<i64>,
     },
-    Error { message: String },
-    TurnFinished { turn_id: String },
+    Error {
+        message: String,
+    },
+    TurnFinished {
+        turn_id: String,
+    },
 }
 
 #[async_trait]
@@ -125,7 +157,11 @@ pub trait AgentAdapter: Send + Sync {
         input: &str,
         attachments: &[AttachmentInput],
     ) -> AdapterResult<Vec<RuntimeStreamEvent>>;
-    async fn cancel(&self, profile: &AgentProfile, handle: &AgentSessionHandle) -> AdapterResult<()>;
+    async fn cancel(
+        &self,
+        profile: &AgentProfile,
+        handle: &AgentSessionHandle,
+    ) -> AdapterResult<()>;
     async fn set_config_option(
         &self,
         profile: &AgentProfile,
@@ -133,5 +169,6 @@ pub trait AgentAdapter: Send + Sync {
         config_id: &str,
         value: &serde_json::Value,
     ) -> AdapterResult<Vec<SessionConfigOption>>;
-    async fn close(&self, profile: &AgentProfile, handle: &AgentSessionHandle) -> AdapterResult<()>;
+    async fn close(&self, profile: &AgentProfile, handle: &AgentSessionHandle)
+        -> AdapterResult<()>;
 }

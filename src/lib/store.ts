@@ -498,7 +498,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return capabilities;
     } catch (error) {
       console.error('Failed to probe agent capabilities', error);
-      return null;
+      throw error;
     }
   },
 

@@ -61,6 +61,11 @@ impl Database {
               command TEXT NOT NULL,
               args_json TEXT NOT NULL,
               env_json TEXT NOT NULL,
+              launch_mode TEXT,
+              runtime_preference TEXT,
+              package_name TEXT,
+              package_version TEXT,
+              display_source TEXT,
               capabilities_cache_json TEXT NOT NULL,
               enabled INTEGER NOT NULL
             );
@@ -193,6 +198,31 @@ impl Database {
             "#,
         )?;
         self.ensure_column(
+            "agent_profiles",
+            "launch_mode",
+            "ALTER TABLE agent_profiles ADD COLUMN launch_mode TEXT",
+        )?;
+        self.ensure_column(
+            "agent_profiles",
+            "runtime_preference",
+            "ALTER TABLE agent_profiles ADD COLUMN runtime_preference TEXT",
+        )?;
+        self.ensure_column(
+            "agent_profiles",
+            "package_name",
+            "ALTER TABLE agent_profiles ADD COLUMN package_name TEXT",
+        )?;
+        self.ensure_column(
+            "agent_profiles",
+            "package_version",
+            "ALTER TABLE agent_profiles ADD COLUMN package_version TEXT",
+        )?;
+        self.ensure_column(
+            "agent_profiles",
+            "display_source",
+            "ALTER TABLE agent_profiles ADD COLUMN display_source TEXT",
+        )?;
+        self.ensure_column(
             "tool_call_projections",
             "content_json",
             "ALTER TABLE tool_call_projections ADD COLUMN content_json TEXT NOT NULL DEFAULT '{}'",
@@ -225,13 +255,17 @@ impl Database {
     pub fn list_agent_profiles(&self) -> StorageResult<Vec<AgentProfile>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, kind, name, command, args_json, env_json, capabilities_cache_json, enabled FROM agent_profiles ORDER BY name",
+            "SELECT id, kind, name, command, args_json, env_json, launch_mode, runtime_preference, package_name, package_version, display_source, capabilities_cache_json, enabled FROM agent_profiles ORDER BY name",
         )?;
         let rows = stmt.query_map([], Self::read_agent_profile)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(StorageError::from)
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StorageError::from)
     }
 
-    pub fn upsert_agent_profile(&self, input: UpsertAgentProfileInput) -> StorageResult<AgentProfile> {
+    pub fn upsert_agent_profile(
+        &self,
+        input: UpsertAgentProfileInput,
+    ) -> StorageResult<AgentProfile> {
         let profile_id = input.id.unwrap_or_else(|| Uuid::new_v4().to_string());
         let existing_capabilities = self
             .conn
@@ -251,20 +285,33 @@ impl Database {
             command: input.command,
             args: input.args,
             env: input.env,
+            launch_mode: input.launch_mode,
+            runtime_preference: input.runtime_preference,
+            package_name: input.package_name,
+            package_version: input.package_version,
+            display_source: input.display_source,
             capabilities_cache: existing_capabilities,
             enabled: input.enabled,
         };
         let conn = self.conn.lock();
         conn.execute(
             r#"
-            INSERT INTO agent_profiles (id, kind, name, command, args_json, env_json, capabilities_cache_json, enabled)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            INSERT INTO agent_profiles (
+              id, kind, name, command, args_json, env_json, launch_mode, runtime_preference,
+              package_name, package_version, display_source, capabilities_cache_json, enabled
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
             ON CONFLICT(id) DO UPDATE SET
               kind = excluded.kind,
               name = excluded.name,
               command = excluded.command,
               args_json = excluded.args_json,
               env_json = excluded.env_json,
+              launch_mode = excluded.launch_mode,
+              runtime_preference = excluded.runtime_preference,
+              package_name = excluded.package_name,
+              package_version = excluded.package_version,
+              display_source = excluded.display_source,
               enabled = excluded.enabled
             "#,
             params![
@@ -274,6 +321,11 @@ impl Database {
                 profile.command,
                 to_json(&profile.args)?,
                 to_json(&profile.env)?,
+                enum_text(&profile.launch_mode),
+                profile.runtime_preference.as_ref().map(enum_text),
+                profile.package_name,
+                profile.package_version,
+                enum_text(&profile.display_source),
                 profile.capabilities_cache.to_string(),
                 profile.enabled as i64
             ],
@@ -294,9 +346,10 @@ impl Database {
     }
 
     pub fn delete_agent_profile(&self, profile_id: &str) -> StorageResult<()> {
-        self.conn
-            .lock()
-            .execute("DELETE FROM agent_profiles WHERE id = ?1", params![profile_id])?;
+        self.conn.lock().execute(
+            "DELETE FROM agent_profiles WHERE id = ?1",
+            params![profile_id],
+        )?;
         Ok(())
     }
 
@@ -304,7 +357,7 @@ impl Database {
         self.conn
             .lock()
             .query_row(
-                "SELECT id, kind, name, command, args_json, env_json, capabilities_cache_json, enabled FROM agent_profiles WHERE id = ?1",
+                "SELECT id, kind, name, command, args_json, env_json, launch_mode, runtime_preference, package_name, package_version, display_source, capabilities_cache_json, enabled FROM agent_profiles WHERE id = ?1",
                 params![profile_id],
                 Self::read_agent_profile,
             )
@@ -316,7 +369,8 @@ impl Database {
         let mut stmt =
             conn.prepare("SELECT id, cwd, display_name, trusted, created_at, updated_at FROM workspaces ORDER BY updated_at DESC")?;
         let rows = stmt.query_map([], Self::read_workspace)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(StorageError::from)
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StorageError::from)
     }
 
     pub fn open_workspace(&self, cwd: &str) -> StorageResult<Workspace> {
@@ -440,7 +494,33 @@ impl Database {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(sql)?;
         let rows = stmt.query_map(params![workspace_id], Self::read_conversation)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(StorageError::from)
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StorageError::from)
+    }
+
+    pub fn search_conversations(
+        &self,
+        workspace_id: &str,
+        query: &str,
+        include_tasks: bool,
+    ) -> StorageResult<Vec<Conversation>> {
+        let search_pattern = format!("%{}%", query);
+        let sql = if include_tasks {
+            "SELECT id, workspace_id, agent_profile_id, origin, status, title, created_at, updated_at, last_event_seq \
+             FROM conversations \
+             WHERE workspace_id = ?1 AND title LIKE ?2 \
+             ORDER BY updated_at DESC"
+        } else {
+            "SELECT id, workspace_id, agent_profile_id, origin, status, title, created_at, updated_at, last_event_seq \
+             FROM conversations \
+             WHERE workspace_id = ?1 AND origin != 'worker_task' AND title LIKE ?2 \
+             ORDER BY updated_at DESC"
+        };
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(sql)?;
+        let rows = stmt.query_map(params![workspace_id, search_pattern], Self::read_conversation)?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StorageError::from)
     }
 
     pub fn get_conversation(&self, conversation_id: &str) -> StorageResult<Conversation> {
@@ -457,18 +537,50 @@ impl Database {
     pub fn delete_conversation(&self, conversation_id: &str) -> StorageResult<()> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction()?;
-        tx.execute("DELETE FROM terminal_records WHERE conversation_id = ?1", params![conversation_id])?;
-        tx.execute("DELETE FROM pending_permission_requests WHERE conversation_id = ?1", params![conversation_id])?;
-        tx.execute("DELETE FROM permission_decisions WHERE conversation_id = ?1", params![conversation_id])?;
-        tx.execute("DELETE FROM tool_call_projections WHERE conversation_id = ?1", params![conversation_id])?;
-        tx.execute("DELETE FROM message_projections WHERE conversation_id = ?1", params![conversation_id])?;
-        tx.execute("DELETE FROM runtime_events WHERE conversation_id = ?1", params![conversation_id])?;
-        tx.execute("DELETE FROM conversation_snapshots WHERE conversation_id = ?1", params![conversation_id])?;
-        tx.execute("DELETE FROM task_runs WHERE conversation_id = ?1", params![conversation_id])?;
-        tx.execute("DELETE FROM agent_session_bindings WHERE conversation_id = ?1", params![conversation_id])?;
-        let deleted = tx.execute("DELETE FROM conversations WHERE id = ?1", params![conversation_id])?;
+        tx.execute(
+            "DELETE FROM terminal_records WHERE conversation_id = ?1",
+            params![conversation_id],
+        )?;
+        tx.execute(
+            "DELETE FROM pending_permission_requests WHERE conversation_id = ?1",
+            params![conversation_id],
+        )?;
+        tx.execute(
+            "DELETE FROM permission_decisions WHERE conversation_id = ?1",
+            params![conversation_id],
+        )?;
+        tx.execute(
+            "DELETE FROM tool_call_projections WHERE conversation_id = ?1",
+            params![conversation_id],
+        )?;
+        tx.execute(
+            "DELETE FROM message_projections WHERE conversation_id = ?1",
+            params![conversation_id],
+        )?;
+        tx.execute(
+            "DELETE FROM runtime_events WHERE conversation_id = ?1",
+            params![conversation_id],
+        )?;
+        tx.execute(
+            "DELETE FROM conversation_snapshots WHERE conversation_id = ?1",
+            params![conversation_id],
+        )?;
+        tx.execute(
+            "DELETE FROM task_runs WHERE conversation_id = ?1",
+            params![conversation_id],
+        )?;
+        tx.execute(
+            "DELETE FROM agent_session_bindings WHERE conversation_id = ?1",
+            params![conversation_id],
+        )?;
+        let deleted = tx.execute(
+            "DELETE FROM conversations WHERE id = ?1",
+            params![conversation_id],
+        )?;
         if deleted == 0 {
-            return Err(StorageError::NotFound(format!("conversation {conversation_id}")));
+            return Err(StorageError::NotFound(format!(
+                "conversation {conversation_id}"
+            )));
         }
         tx.commit()?;
         Ok(())
@@ -588,7 +700,8 @@ impl Database {
             "SELECT id, conversation_id, workspace_id, agent_profile_id, goal, status, result_summary, created_at, updated_at FROM task_runs WHERE workspace_id = ?1 ORDER BY updated_at DESC",
         )?;
         let rows = stmt.query_map(params![workspace_id], Self::read_task_run)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(StorageError::from)
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StorageError::from)
     }
 
     pub fn append_event(
@@ -623,7 +736,8 @@ impl Database {
             "SELECT seq, conversation_id, event_type, payload_json, created_at FROM runtime_events WHERE conversation_id = ?1 ORDER BY seq ASC",
         )?;
         let rows = stmt.query_map(params![conversation_id], Self::read_runtime_event)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(StorageError::from)
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StorageError::from)
     }
 
     pub fn replace_snapshot(
@@ -648,7 +762,10 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_snapshot(&self, conversation_id: &str) -> StorageResult<Option<ConversationSnapshot>> {
+    pub fn get_snapshot(
+        &self,
+        conversation_id: &str,
+    ) -> StorageResult<Option<ConversationSnapshot>> {
         self.conn
             .lock()
             .query_row(
@@ -686,7 +803,8 @@ impl Database {
             "SELECT id, conversation_id, turn_id, role, kind, content_json, created_at FROM message_projections WHERE conversation_id = ?1 ORDER BY created_at ASC",
         )?;
         let rows = stmt.query_map(params![conversation_id], Self::read_message)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(StorageError::from)
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StorageError::from)
     }
 
     pub fn upsert_tool_call(&self, call: &ToolCallProjection) -> StorageResult<()> {
@@ -730,7 +848,8 @@ impl Database {
             "SELECT id, conversation_id, turn_id, tool_call_id, title, kind, status, raw_input_json, raw_output_json, content_json, diffs_json, terminal_ids_json, locations_json, started_at, ended_at FROM tool_call_projections WHERE conversation_id = ?1 ORDER BY COALESCE(started_at, '') ASC",
         )?;
         let rows = stmt.query_map(params![conversation_id], Self::read_tool_call)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(StorageError::from)
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StorageError::from)
     }
 
     pub fn record_permission_decision(&self, decision: &PermissionDecision) -> StorageResult<()> {
@@ -749,16 +868,23 @@ impl Database {
         Ok(())
     }
 
-    pub fn list_permissions(&self, conversation_id: &str) -> StorageResult<Vec<PermissionDecision>> {
+    pub fn list_permissions(
+        &self,
+        conversation_id: &str,
+    ) -> StorageResult<Vec<PermissionDecision>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT id, conversation_id, tool_call_id, scope, fingerprint, decision, created_at FROM permission_decisions WHERE conversation_id = ?1 ORDER BY created_at DESC",
         )?;
         let rows = stmt.query_map(params![conversation_id], Self::read_permission)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(StorageError::from)
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StorageError::from)
     }
 
-    pub fn upsert_pending_permission(&self, request: &PendingPermissionRequest) -> StorageResult<()> {
+    pub fn upsert_pending_permission(
+        &self,
+        request: &PendingPermissionRequest,
+    ) -> StorageResult<()> {
         self.conn.lock().execute(
             r#"
             INSERT INTO pending_permission_requests (id, conversation_id, turn_id, tool_call_id, fingerprint, options_json, status, created_at, resolved_at)
@@ -809,7 +935,8 @@ impl Database {
             "SELECT id, conversation_id, turn_id, tool_call_id, fingerprint, options_json, status, created_at, resolved_at FROM pending_permission_requests WHERE conversation_id = ?1 ORDER BY created_at ASC",
         )?;
         let rows = stmt.query_map(params![conversation_id], Self::read_pending_permission)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(StorageError::from)
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StorageError::from)
     }
 
     pub fn update_pending_permission_status(
@@ -824,10 +951,7 @@ impl Database {
         Ok(())
     }
 
-    pub fn cancel_pending_permissions_for_turn(
-        &self,
-        conversation_id: &str,
-    ) -> StorageResult<()> {
+    pub fn cancel_pending_permissions_for_turn(&self, conversation_id: &str) -> StorageResult<()> {
         self.conn.lock().execute(
             "UPDATE pending_permission_requests SET status = 'cancelled', resolved_at = ?2 WHERE conversation_id = ?1 AND status = 'pending'",
             params![conversation_id, Utc::now().to_rfc3339()],
@@ -886,7 +1010,8 @@ impl Database {
             "SELECT id, conversation_id, turn_id, terminal_id, cwd, command, args_json, status, stdout_buffer, stderr_buffer, started_at, ended_at FROM terminal_records WHERE conversation_id = ?1 ORDER BY started_at ASC",
         )?;
         let rows = stmt.query_map(params![conversation_id], Self::read_terminal)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(StorageError::from)
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StorageError::from)
     }
 
     pub fn list_workspace_mcp(&self, workspace_id: &str) -> StorageResult<Vec<McpServerConfig>> {
@@ -895,7 +1020,8 @@ impl Database {
             "SELECT id, workspace_id, name, command, args_json, env_json, enabled FROM mcp_server_configs WHERE workspace_id = ?1 ORDER BY name",
         )?;
         let rows = stmt.query_map(params![workspace_id], Self::read_mcp)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(StorageError::from)
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StorageError::from)
     }
 
     pub fn upsert_workspace_mcp(&self, config: &McpServerConfig) -> StorageResult<()> {
@@ -929,10 +1055,15 @@ impl Database {
         skills: &[SkillRecord],
     ) -> StorageResult<()> {
         let conn = self.conn.lock();
-        conn.execute("DELETE FROM skill_records WHERE scope = 'project' OR scope = 'agent_specific'", [])?;
+        conn.execute(
+            "DELETE FROM skill_records WHERE scope = 'project' OR scope = 'agent_specific'",
+            [],
+        )?;
         for skill in skills {
             let enabled = match skill.scope {
-                SkillScope::Project | SkillScope::AgentSpecific => workspace.trusted && skill.enabled,
+                SkillScope::Project | SkillScope::AgentSpecific => {
+                    workspace.trusted && skill.enabled
+                }
                 SkillScope::User => skill.enabled,
             };
             conn.execute(
@@ -959,7 +1090,8 @@ impl Database {
             "SELECT id, scope, name, description, location, source_dir, owner, enabled, diagnostics_json FROM skill_records ORDER BY name",
         )?;
         let rows = stmt.query_map([], Self::read_skill)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(StorageError::from)
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StorageError::from)
     }
 
     fn read_workspace(row: &Row<'_>) -> rusqlite::Result<Workspace> {
@@ -981,9 +1113,25 @@ impl Database {
             command: row.get(3)?,
             args: from_json(&row.get::<_, String>(4)?)?,
             env: from_json(&row.get::<_, String>(5)?)?,
-            capabilities_cache: serde_json::from_str(&row.get::<_, String>(6)?)
+            launch_mode: row
+                .get::<_, Option<String>>(6)?
+                .map(|value| parse_enum(&value))
+                .transpose()?
+                .unwrap_or(AgentLaunchMode::Native),
+            runtime_preference: row
+                .get::<_, Option<String>>(7)?
+                .map(|value| parse_enum(&value))
+                .transpose()?,
+            package_name: row.get(8)?,
+            package_version: row.get(9)?,
+            display_source: row
+                .get::<_, Option<String>>(10)?
+                .map(|value| parse_enum(&value))
+                .transpose()?
+                .unwrap_or(AgentDisplaySource::Native),
+            capabilities_cache: serde_json::from_str(&row.get::<_, String>(11)?)
                 .unwrap_or_else(|_| serde_json::json!({})),
-            enabled: row.get::<_, i64>(7)? != 0,
+            enabled: row.get::<_, i64>(12)? != 0,
         })
     }
 
@@ -1084,8 +1232,14 @@ impl Database {
                 .unwrap_or_else(|_| serde_json::json!([])),
             locations_json: serde_json::from_str(&row.get::<_, String>(12)?)
                 .unwrap_or_else(|_| serde_json::json!({})),
-            started_at: row.get::<_, Option<String>>(13)?.map(parse_dt).transpose()?,
-            ended_at: row.get::<_, Option<String>>(14)?.map(parse_dt).transpose()?,
+            started_at: row
+                .get::<_, Option<String>>(13)?
+                .map(parse_dt)
+                .transpose()?,
+            ended_at: row
+                .get::<_, Option<String>>(14)?
+                .map(parse_dt)
+                .transpose()?,
         })
     }
 
@@ -1159,7 +1313,10 @@ impl Database {
             stdout_buffer: row.get(8)?,
             stderr_buffer: row.get(9)?,
             started_at: parse_dt(row.get::<_, String>(10)?)?,
-            ended_at: row.get::<_, Option<String>>(11)?.map(parse_dt).transpose()?,
+            ended_at: row
+                .get::<_, Option<String>>(11)?
+                .map(parse_dt)
+                .transpose()?,
         })
     }
 }
@@ -1172,14 +1329,17 @@ fn enum_text<T: Serialize>(value: &T) -> String {
 }
 
 fn parse_enum<T: DeserializeOwned>(value: &str) -> rusqlite::Result<T> {
-    serde_json::from_value(serde_json::Value::String(value.to_string()))
-        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))
+    serde_json::from_value(serde_json::Value::String(value.to_string())).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
+    })
 }
 
 fn parse_dt(value: String) -> rusqlite::Result<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(&value)
         .map(|v| v.with_timezone(&Utc))
-        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))
+        .map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
+        })
 }
 
 fn to_json<T: Serialize>(value: &T) -> StorageResult<String> {
@@ -1187,6 +1347,7 @@ fn to_json<T: Serialize>(value: &T) -> StorageResult<String> {
 }
 
 fn from_json<T: DeserializeOwned>(value: &str) -> rusqlite::Result<T> {
-    serde_json::from_str(value)
-        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))
+    serde_json::from_str(value).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
+    })
 }

@@ -5,7 +5,7 @@
   "identifier": "com.oneagent.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run prepare:claude-runtime && npm run build",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../dist"
   },
@@ -20,6 +20,10 @@
     ]
   },
   "bundle": {
-    "active": false
+    "active": true,
+    "resources": [
+      "resources/bundled-bun/**/*",
+      "resources/external_agents/**/*"
+    ]
   }
 }

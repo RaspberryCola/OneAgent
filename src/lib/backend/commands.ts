@@ -73,6 +73,12 @@ export async function listTaskRuns(workspaceId: string): Promise<Types.TaskRun[]
   return invoke('list_task_runs', { workspaceId });
 }
 
+export async function searchConversations(
+  input: Types.SearchConversationsInput
+): Promise<Types.Conversation[]> {
+  return invoke('search_conversations', { input });
+}
+
 export async function getConversationState(conversationId: string): Promise<Types.ConversationState> {
   return invoke('get_conversation_state', { conversationId });
 }

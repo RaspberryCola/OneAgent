@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, VecDeque},
     path::{Path, PathBuf},
     process::Stdio,
     sync::Arc,
@@ -9,20 +9,25 @@ use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
 use serde_json::{json, Value};
 use tokio::{
+    io::AsyncRead,
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, ChildStdin, ChildStdout, Command},
-    io::AsyncRead,
     sync::{mpsc, oneshot, Mutex},
     time::{timeout, Duration},
 };
 use uuid::Uuid;
 
 use crate::{
-    agent_adapters::{AdapterError, AdapterResult, AgentAdapter, AgentSessionHandle, LoadedSession, RuntimeStreamEvent},
+    agent_adapters::{
+        AdapterError, AdapterResult, AgentAdapter, AgentSessionHandle, LoadedSession,
+        RuntimeStreamEvent,
+    },
+    capability_services::agent_launch::{resolve_launch, LaunchResolutionError},
     domain::{
-        AgentCapabilities, AgentProfile, AgentPromptCapabilities, AgentSessionCapabilities,
-        AcpAvailableModel, AcpSessionModels, AttachmentDeliveryPreference, AttachmentInput, AttachmentKind, ExternalSession,
-        McpServerConfig, PermissionDecisionKind, SessionConfigOption,
+        AcpAvailableModel, AcpSessionModels, AgentCapabilities, AgentProfile,
+        AgentPromptCapabilities, AgentSessionCapabilities, AttachmentDeliveryPreference,
+        AttachmentInput, AttachmentKind, ExternalSession, McpServerConfig, PermissionDecisionKind,
+        SessionConfigOption,
     },
 };
 
@@ -88,7 +93,10 @@ impl AgentAdapter for AcpAdapter {
                 .and_then(Value::as_str)
                 .unwrap_or(ACP_PROTOCOL_VERSION)
                 .to_string(),
-            agent_info: result.get("agentInfo").cloned().unwrap_or_else(|| json!({})),
+            agent_info: result
+                .get("agentInfo")
+                .cloned()
+                .unwrap_or_else(|| json!({})),
             prompt_capabilities: parse_prompt_capabilities(&result),
             session_capabilities: parse_session_capabilities(&result),
             raw: response,
@@ -103,7 +111,10 @@ impl AgentAdapter for AcpAdapter {
         let mut process = JsonRpcProcess::spawn(profile).await?;
         let capabilities = process.initialize().await?;
         if !parse_session_capabilities(
-            &capabilities.get("result").cloned().unwrap_or_else(|| json!({})),
+            &capabilities
+                .get("result")
+                .cloned()
+                .unwrap_or_else(|| json!({})),
         )
         .list
         {
@@ -114,7 +125,9 @@ impl AgentAdapter for AcpAdapter {
         if let Some(cwd) = cwd {
             params.insert("cwd".to_string(), json!(cwd));
         }
-        let response = process.request("session/list", Value::Object(params)).await?;
+        let response = process
+            .request("session/list", Value::Object(params))
+            .await?;
         process.close().await?;
         Ok(response
             .get("result")
@@ -134,7 +147,10 @@ impl AgentAdapter for AcpAdapter {
                     .and_then(Value::as_str)
                     .unwrap_or_default()
                     .to_string(),
-                title: session.get("title").and_then(Value::as_str).map(ToOwned::to_owned),
+                title: session
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned),
                 updated_at: session
                     .get("updatedAt")
                     .and_then(Value::as_str)
@@ -152,8 +168,12 @@ impl AgentAdapter for AcpAdapter {
         let mut process = JsonRpcProcess::spawn(profile).await?;
         process.set_session_cwd(cwd);
         let initialize_response = process.initialize().await?;
-        let capabilities =
-            parse_session_capabilities(&initialize_response.get("result").cloned().unwrap_or_else(|| json!({})));
+        let capabilities = parse_session_capabilities(
+            &initialize_response
+                .get("result")
+                .cloned()
+                .unwrap_or_else(|| json!({})),
+        );
         let response = process
             .request(
                 "session/new",
@@ -176,7 +196,10 @@ impl AgentAdapter for AcpAdapter {
             cwd: cwd.to_string(),
             load_supported: capabilities.load,
             prompt_capabilities: parse_prompt_capabilities(
-                &initialize_response.get("result").cloned().unwrap_or_else(|| json!({})),
+                &initialize_response
+                    .get("result")
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
             ),
             config_options: parse_config_options(response.get("result")),
             models: parse_models(response.get("result")),
@@ -193,11 +216,17 @@ impl AgentAdapter for AcpAdapter {
         let mut process = JsonRpcProcess::spawn(profile).await?;
         process.set_session_cwd(cwd);
         let initialize_response = process.initialize().await?;
-        let capabilities =
-            parse_session_capabilities(&initialize_response.get("result").cloned().unwrap_or_else(|| json!({})));
+        let capabilities = parse_session_capabilities(
+            &initialize_response
+                .get("result")
+                .cloned()
+                .unwrap_or_else(|| json!({})),
+        );
         if !capabilities.load {
             process.close().await?;
-            return Err(AdapterError::Protocol("agent does not support session/load".to_string()));
+            return Err(AdapterError::Protocol(
+                "agent does not support session/load".to_string(),
+            ));
         }
         let request_id = process.next_id();
         process
@@ -233,7 +262,10 @@ impl AgentAdapter for AcpAdapter {
                 cwd: cwd.to_string(),
                 load_supported: capabilities.load,
                 prompt_capabilities: parse_prompt_capabilities(
-                    &initialize_response.get("result").cloned().unwrap_or_else(|| json!({})),
+                    &initialize_response
+                        .get("result")
+                        .cloned()
+                        .unwrap_or_else(|| json!({})),
                 ),
                 config_options: parse_config_options(response_result.as_ref()),
                 models: parse_models(response_result.as_ref()),
@@ -267,7 +299,9 @@ impl AgentAdapter for AcpAdapter {
         }
         let turn_id = Uuid::new_v4().to_string();
         let request_id = process.next_id();
-        let prompt = build_prompt_blocks_from_message(input, attachments, &capabilities.prompt_capabilities).await?;
+        let prompt =
+            build_prompt_blocks_from_message(input, attachments, &capabilities.prompt_capabilities)
+                .await?;
         process
             .write_message(json!({
                 "jsonrpc": "2.0",
@@ -341,7 +375,11 @@ impl AgentAdapter for AcpAdapter {
         Ok(events)
     }
 
-    async fn cancel(&self, profile: &AgentProfile, handle: &AgentSessionHandle) -> AdapterResult<()> {
+    async fn cancel(
+        &self,
+        profile: &AgentProfile,
+        handle: &AgentSessionHandle,
+    ) -> AdapterResult<()> {
         let mut process = JsonRpcProcess::spawn(profile).await?;
         process.set_session_cwd(&handle.cwd);
         process.initialize().await?;
@@ -381,7 +419,11 @@ impl AgentAdapter for AcpAdapter {
         Ok(parse_config_options(response.get("result")))
     }
 
-    async fn close(&self, _profile: &AgentProfile, _handle: &AgentSessionHandle) -> AdapterResult<()> {
+    async fn close(
+        &self,
+        _profile: &AgentProfile,
+        _handle: &AgentSessionHandle,
+    ) -> AdapterResult<()> {
         Ok(())
     }
 }
@@ -395,8 +437,12 @@ impl AcpLiveSession {
         let mut process = JsonRpcProcess::spawn(profile).await?;
         process.set_session_cwd(cwd);
         let initialize_response = process.initialize().await?;
-        let capabilities =
-            parse_session_capabilities(&initialize_response.get("result").cloned().unwrap_or_else(|| json!({})));
+        let capabilities = parse_session_capabilities(
+            &initialize_response
+                .get("result")
+                .cloned()
+                .unwrap_or_else(|| json!({})),
+        );
         let response = process
             .request(
                 "session/new",
@@ -418,7 +464,10 @@ impl AcpLiveSession {
             cwd: cwd.to_string(),
             load_supported: capabilities.load,
             prompt_capabilities: parse_prompt_capabilities(
-                &initialize_response.get("result").cloned().unwrap_or_else(|| json!({})),
+                &initialize_response
+                    .get("result")
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
             ),
             config_options: parse_config_options(response.get("result")),
             models: parse_models(response.get("result")),
@@ -435,11 +484,17 @@ impl AcpLiveSession {
         let mut process = JsonRpcProcess::spawn(profile).await?;
         process.set_session_cwd(cwd);
         let initialize_response = process.initialize().await?;
-        let capabilities =
-            parse_session_capabilities(&initialize_response.get("result").cloned().unwrap_or_else(|| json!({})));
+        let capabilities = parse_session_capabilities(
+            &initialize_response
+                .get("result")
+                .cloned()
+                .unwrap_or_else(|| json!({})),
+        );
         if !capabilities.load {
             process.close().await?;
-            return Err(AdapterError::Protocol("agent does not support session/load".to_string()));
+            return Err(AdapterError::Protocol(
+                "agent does not support session/load".to_string(),
+            ));
         }
         let request_id = process.next_id();
         process
@@ -475,7 +530,10 @@ impl AcpLiveSession {
             cwd: cwd.to_string(),
             load_supported: capabilities.load,
             prompt_capabilities: parse_prompt_capabilities(
-                &initialize_response.get("result").cloned().unwrap_or_else(|| json!({})),
+                &initialize_response
+                    .get("result")
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
             ),
             config_options: parse_config_options(response_result.as_ref()),
             models: parse_models(response_result.as_ref()),
@@ -487,7 +545,10 @@ impl AcpLiveSession {
         &self,
         input: &str,
         attachments: &[AttachmentInput],
-    ) -> AdapterResult<(mpsc::UnboundedReceiver<RuntimeStreamEvent>, oneshot::Receiver<AdapterResult<()>>)> {
+    ) -> AdapterResult<(
+        mpsc::UnboundedReceiver<RuntimeStreamEvent>,
+        oneshot::Receiver<AdapterResult<()>>,
+    )> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let (completion_tx, completion_rx) = oneshot::channel();
         self.command_tx
@@ -533,7 +594,11 @@ impl AcpLiveSession {
             .map_err(|_| AdapterError::Protocol("cancel response dropped".to_string()))?
     }
 
-    pub async fn set_config_option(&self, config_id: &str, value: &Value) -> AdapterResult<Vec<SessionConfigOption>> {
+    pub async fn set_config_option(
+        &self,
+        config_id: &str,
+        value: &Value,
+    ) -> AdapterResult<Vec<SessionConfigOption>> {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.command_tx
             .send(LiveSessionCommand::SetConfig {
@@ -564,7 +629,14 @@ fn spawn_live_actor(process: JsonRpcProcess, handle: AgentSessionHandle) -> AcpL
                     event_tx,
                     completion_tx,
                 } => {
-                    let result = run_turn_loop(&mut process, &live_handle, prompt, &event_tx, &mut command_rx).await;
+                    let result = run_turn_loop(
+                        &mut process,
+                        &live_handle,
+                        prompt,
+                        &event_tx,
+                        &mut command_rx,
+                    )
+                    .await;
                     let _ = completion_tx.send(result);
                 }
                 LiveSessionCommand::ResolvePermission { resp, .. } => {
@@ -589,19 +661,19 @@ fn spawn_live_actor(process: JsonRpcProcess, handle: AgentSessionHandle) -> AcpL
                     value,
                     resp,
                 } => {
-                        let result = process
-                            .request(
-                                "session/set_config_option",
-                                json!({
-                                    "sessionId": live_handle.remote_session_id,
-                                    "configId": config_id,
-                                    "value": value
-                                }),
-                            )
-                            .await
-                            .map(|response| parse_config_options(response.get("result")));
-                        let _ = resp.send(result);
-                    }
+                    let result = process
+                        .request(
+                            "session/set_config_option",
+                            json!({
+                                "sessionId": live_handle.remote_session_id,
+                                "configId": config_id,
+                                "value": value
+                            }),
+                        )
+                        .await
+                        .map(|response| parse_config_options(response.get("result")));
+                    let _ = resp.send(result);
+                }
                 LiveSessionCommand::Close => {
                     let _ = process.close().await;
                     break;
@@ -744,20 +816,29 @@ struct JsonRpcProcess {
     current_turn_id: Option<String>,
     current_event_tx: Option<mpsc::UnboundedSender<RuntimeStreamEvent>>,
     terminals: Arc<Mutex<BTreeMap<String, TerminalHandle>>>,
+    stderr_lines: Arc<Mutex<VecDeque<String>>>,
 }
 
 impl JsonRpcProcess {
     async fn spawn(profile: &AgentProfile) -> AdapterResult<Self> {
-        let mut command = Command::new(&profile.command);
-        command.args(&profile.args);
-        command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
-        let envs: BTreeMap<String, String> = profile
-            .env
-            .iter()
-            .filter_map(|(k, v)| v.as_str().map(|value| (k.clone(), value.to_string())))
-            .collect();
-        command.envs(envs);
-        let mut child = command.spawn()?;
+        let resolved = resolve_launch(profile).map_err(map_launch_resolution_error)?;
+        eprintln!("OneAgent ACP launch: {}", resolved.summary);
+        let mut command = Command::new(&resolved.command);
+        command
+            .args(&resolved.args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if let Some(cwd) = &resolved.cwd {
+            command.current_dir(cwd);
+        }
+        command.envs(resolved.env);
+        let mut child = command.spawn().map_err(|error| {
+            AdapterError::AdapterSpawnFailed(format!(
+                "Failed to spawn {}: {error}",
+                resolved.summary
+            ))
+        })?;
         let stdin = child
             .stdin
             .take()
@@ -766,6 +847,12 @@ impl JsonRpcProcess {
             .stdout
             .take()
             .ok_or_else(|| AdapterError::Protocol("child stdout unavailable".to_string()))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| AdapterError::Protocol("child stderr unavailable".to_string()))?;
+        let stderr_lines = Arc::new(Mutex::new(VecDeque::with_capacity(12)));
+        spawn_stderr_reader(stderr, stderr_lines.clone());
         Ok(Self {
             child,
             stdin,
@@ -775,6 +862,7 @@ impl JsonRpcProcess {
             current_turn_id: None,
             current_event_tx: None,
             terminals: Arc::new(Mutex::new(BTreeMap::new())),
+            stderr_lines,
         })
     }
 
@@ -819,25 +907,33 @@ impl JsonRpcProcess {
     }
 
     async fn initialize(&mut self) -> AdapterResult<Value> {
-        self.request(
-            "initialize",
-            json!({
-                "protocolVersion": ACP_PROTOCOL_VERSION,
-                "clientCapabilities": {
-                    "fs": {
-                        "readTextFile": true,
-                        "writeTextFile": true
+        match self
+            .request(
+                "initialize",
+                json!({
+                    "protocolVersion": ACP_PROTOCOL_VERSION,
+                    "clientCapabilities": {
+                        "fs": {
+                            "readTextFile": true,
+                            "writeTextFile": true
+                        },
+                        "terminal": true
                     },
-                    "terminal": true
-                },
-                "clientInfo": {
-                    "name": "oneagent",
-                    "title": "OneAgent Desktop",
-                    "version": "0.1.0"
-                }
-            }),
-        )
-        .await
+                    "clientInfo": {
+                        "name": "oneagent",
+                        "title": "OneAgent Desktop",
+                        "version": "0.1.0"
+                    }
+                }),
+            )
+            .await
+        {
+            Ok(value) => Ok(value),
+            Err(error) => Err(classify_initialize_error(
+                error,
+                self.stderr_excerpt().await,
+            )),
+        }
     }
 
     fn next_id(&mut self) -> i64 {
@@ -879,7 +975,13 @@ impl JsonRpcProcess {
         let mut line = String::new();
         self.stdout.read_line(&mut line).await?;
         if line.trim().is_empty() {
-            return Err(AdapterError::Protocol("empty response from agent".to_string()));
+            let stderr_excerpt = self.stderr_excerpt().await;
+            return Err(AdapterError::Protocol(match stderr_excerpt {
+                Some(stderr_excerpt) => {
+                    format!("empty response from agent; stderr: {stderr_excerpt}")
+                }
+                None => "empty response from agent".to_string(),
+            }));
         }
         Ok(serde_json::from_str(line.trim())?)
     }
@@ -887,6 +989,15 @@ impl JsonRpcProcess {
     async fn close(&mut self) -> AdapterResult<()> {
         let _ = self.child.kill().await;
         Ok(())
+    }
+
+    async fn stderr_excerpt(&self) -> Option<String> {
+        let lines = self.stderr_lines.lock().await;
+        if lines.is_empty() {
+            None
+        } else {
+            Some(lines.iter().cloned().collect::<Vec<_>>().join(" | "))
+        }
     }
 
     async fn handle_client_request(&mut self, message: &Value) -> AdapterResult<()> {
@@ -948,9 +1059,9 @@ impl JsonRpcProcess {
 
     async fn handle_fs_write(&mut self, message: &Value) -> AdapterResult<()> {
         let id = message_id(message)?;
-        let params = message
-            .get("params")
-            .ok_or_else(|| AdapterError::Protocol("fs/write_text_file missing params".to_string()))?;
+        let params = message.get("params").ok_or_else(|| {
+            AdapterError::Protocol("fs/write_text_file missing params".to_string())
+        })?;
         let path = params
             .get("path")
             .and_then(Value::as_str)
@@ -958,7 +1069,9 @@ impl JsonRpcProcess {
         let content = params
             .get("content")
             .and_then(Value::as_str)
-            .ok_or_else(|| AdapterError::Protocol("fs/write_text_file missing content".to_string()))?;
+            .ok_or_else(|| {
+                AdapterError::Protocol("fs/write_text_file missing content".to_string())
+            })?;
         let resolved = self.resolve_workspace_path(path)?;
         if let Some(parent) = resolved.parent() {
             tokio::fs::create_dir_all(parent).await?;
@@ -994,7 +1107,11 @@ impl JsonRpcProcess {
         }
         let terminal_id = Uuid::new_v4().to_string();
         let mut child = Command::new(command);
-        child.args(&args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        child
+            .args(&args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
         if let Some(cwd) = cwd {
             child.current_dir(cwd);
         }
@@ -1038,7 +1155,9 @@ impl JsonRpcProcess {
             .get("params")
             .and_then(|v| v.get("terminalId"))
             .and_then(Value::as_str)
-            .ok_or_else(|| AdapterError::Protocol("terminal/read missing terminalId".to_string()))?;
+            .ok_or_else(|| {
+                AdapterError::Protocol("terminal/read missing terminalId".to_string())
+            })?;
         let (stdout, stderr, cwd, command, args) = {
             let terminals = self.terminals.lock().await;
             let handle = terminals
@@ -1095,7 +1214,9 @@ impl JsonRpcProcess {
             .get("params")
             .and_then(|v| v.get("terminalId"))
             .and_then(Value::as_str)
-            .ok_or_else(|| AdapterError::Protocol("terminal/wait_for_exit missing terminalId".to_string()))?;
+            .ok_or_else(|| {
+                AdapterError::Protocol("terminal/wait_for_exit missing terminalId".to_string())
+            })?;
         let (child, cwd, command, args) = {
             let terminals = self.terminals.lock().await;
             let handle = terminals
@@ -1135,7 +1256,9 @@ impl JsonRpcProcess {
             .get("params")
             .and_then(|v| v.get("terminalId"))
             .and_then(Value::as_str)
-            .ok_or_else(|| AdapterError::Protocol("terminal/kill missing terminalId".to_string()))?;
+            .ok_or_else(|| {
+                AdapterError::Protocol("terminal/kill missing terminalId".to_string())
+            })?;
         let (child, cwd, command, args) = {
             let terminals = self.terminals.lock().await;
             let handle = terminals
@@ -1173,7 +1296,9 @@ impl JsonRpcProcess {
             .get("params")
             .and_then(|v| v.get("terminalId"))
             .and_then(Value::as_str)
-            .ok_or_else(|| AdapterError::Protocol("terminal/release missing terminalId".to_string()))?;
+            .ok_or_else(|| {
+                AdapterError::Protocol("terminal/release missing terminalId".to_string())
+            })?;
         let metadata = self.terminals.lock().await.remove(terminal_id);
         let (cwd, command, args) = if let Some(handle) = metadata {
             (handle.cwd, Some(handle.command), json!(handle.args))
@@ -1220,6 +1345,63 @@ impl JsonRpcProcess {
             )))
         }
     }
+}
+
+fn map_launch_resolution_error(error: LaunchResolutionError) -> AdapterError {
+    match error {
+        LaunchResolutionError::RuntimeNotFound(message) => AdapterError::RuntimeNotFound(message),
+        LaunchResolutionError::AdapterNotFound(message) => AdapterError::AdapterNotFound(message),
+        LaunchResolutionError::AdapterSpawnFailed(message) => {
+            AdapterError::AdapterSpawnFailed(message)
+        }
+    }
+}
+
+fn classify_initialize_error(error: AdapterError, stderr_excerpt: Option<String>) -> AdapterError {
+    let stderr_text = stderr_excerpt.unwrap_or_default();
+    let combined = if stderr_text.is_empty() {
+        error.to_string()
+    } else {
+        format!("{}; stderr: {}", error, stderr_text)
+    };
+    let lower = combined.to_lowercase();
+    if lower.contains("auth")
+        || lower.contains("login")
+        || lower.contains("anthropic_api_key")
+        || lower.contains("api key")
+        || lower.contains("credential")
+    {
+        AdapterError::ClaudeAuthRequired(combined)
+    } else {
+        AdapterError::AcpInitializeFailed(combined)
+    }
+}
+
+fn spawn_stderr_reader<R>(stderr: R, buffer: Arc<Mutex<VecDeque<String>>>)
+where
+    R: tokio::io::AsyncRead + Unpin + Send + 'static,
+{
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr);
+        loop {
+            let mut line = String::new();
+            match reader.read_line(&mut line).await {
+                Ok(0) => break,
+                Ok(_) => {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    let mut buffer = buffer.lock().await;
+                    if buffer.len() >= 12 {
+                        buffer.pop_front();
+                    }
+                    buffer.push_back(trimmed.to_string());
+                }
+                Err(_) => break,
+            }
+        }
+    });
 }
 
 #[derive(Clone)]
@@ -1303,14 +1485,22 @@ async fn build_attachment_block(
         });
     let uri = format!("file://{}", path.display());
 
-    if capabilities.resource_link && matches!(attachment.delivery_preference, AttachmentDeliveryPreference::ResourceLink) {
+    if capabilities.resource_link
+        && matches!(
+            attachment.delivery_preference,
+            AttachmentDeliveryPreference::ResourceLink
+        )
+    {
         return Ok(resource_link_block(&attachment.name, &uri, &inferred_mime));
     }
 
     match attachment.kind {
         AttachmentKind::Image if capabilities.image => {
             if metadata.len() <= MAX_EMBEDDED_IMAGE_BYTES
-                && !matches!(attachment.delivery_preference, AttachmentDeliveryPreference::ResourceLink)
+                && !matches!(
+                    attachment.delivery_preference,
+                    AttachmentDeliveryPreference::ResourceLink
+                )
             {
                 let bytes = tokio::fs::read(&path).await?;
                 return Ok(json!({
@@ -1323,7 +1513,10 @@ async fn build_attachment_block(
         }
         AttachmentKind::Audio if capabilities.audio => {
             if metadata.len() <= MAX_EMBEDDED_AUDIO_BYTES
-                && !matches!(attachment.delivery_preference, AttachmentDeliveryPreference::ResourceLink)
+                && !matches!(
+                    attachment.delivery_preference,
+                    AttachmentDeliveryPreference::ResourceLink
+                )
             {
                 let bytes = tokio::fs::read(&path).await?;
                 return Ok(json!({
@@ -1336,7 +1529,10 @@ async fn build_attachment_block(
         }
         AttachmentKind::File if capabilities.embedded_context => {
             if metadata.len() <= MAX_EMBEDDED_TEXT_BYTES
-                && !matches!(attachment.delivery_preference, AttachmentDeliveryPreference::ResourceLink)
+                && !matches!(
+                    attachment.delivery_preference,
+                    AttachmentDeliveryPreference::ResourceLink
+                )
                 && is_text_like_mime(&inferred_mime)
             {
                 let text = tokio::fs::read_to_string(&path).await?;
@@ -1397,7 +1593,10 @@ fn parse_agent_capabilities(response: &Value) -> AgentCapabilities {
             .and_then(Value::as_str)
             .unwrap_or(ACP_PROTOCOL_VERSION)
             .to_string(),
-        agent_info: result.get("agentInfo").cloned().unwrap_or_else(|| json!({})),
+        agent_info: result
+            .get("agentInfo")
+            .cloned()
+            .unwrap_or_else(|| json!({})),
         prompt_capabilities: parse_prompt_capabilities(&result),
         session_capabilities: parse_session_capabilities(&result),
         raw: response.clone(),
@@ -1460,7 +1659,11 @@ fn parse_config_options(result: Option<&Value>) -> Vec<SessionConfigOption> {
             items
                 .iter()
                 .map(|item| SessionConfigOption {
-                    id: item.get("id").and_then(Value::as_str).unwrap_or_default().to_string(),
+                    id: item
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string(),
                     name: item
                         .get("name")
                         .and_then(Value::as_str)
@@ -1468,8 +1671,14 @@ fn parse_config_options(result: Option<&Value>) -> Vec<SessionConfigOption> {
                         .or_else(|| item.get("title").and_then(Value::as_str))
                         .unwrap_or_default()
                         .to_string(),
-                    description: item.get("description").and_then(Value::as_str).map(ToOwned::to_owned),
-                    category: item.get("category").and_then(Value::as_str).map(ToOwned::to_owned),
+                    description: item
+                        .get("description")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned),
+                    category: item
+                        .get("category")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned),
                     option_type: item
                         .get("type")
                         .and_then(Value::as_str)
@@ -1499,9 +1708,7 @@ fn parse_models(result: Option<&Value>) -> Option<AcpSessionModels> {
         // Check top-level models first
         let models = value.get("models");
         // Also check _meta.models (used by some agents like iFlow)
-        let meta_models = value
-            .get("_meta")
-            .and_then(|m| m.get("models"));
+        let meta_models = value.get("_meta").and_then(|m| m.get("models"));
 
         let models_source = models.or(meta_models)?;
         if models_source.is_null() {
@@ -1519,9 +1726,18 @@ fn parse_models(result: Option<&Value>) -> Option<AcpSessionModels> {
                 .map(|arr| {
                     arr.iter()
                         .map(|item| AcpAvailableModel {
-                            id: item.get("id").and_then(Value::as_str).map(ToOwned::to_owned),
-                            model_id: item.get("modelId").and_then(Value::as_str).map(ToOwned::to_owned),
-                            name: item.get("name").and_then(Value::as_str).map(ToOwned::to_owned),
+                            id: item
+                                .get("id")
+                                .and_then(Value::as_str)
+                                .map(ToOwned::to_owned),
+                            model_id: item
+                                .get("modelId")
+                                .and_then(Value::as_str)
+                                .map(ToOwned::to_owned),
+                            name: item
+                                .get("name")
+                                .and_then(Value::as_str)
+                                .map(ToOwned::to_owned),
                         })
                         .collect()
                 }),
@@ -1573,13 +1789,11 @@ fn parse_session_update(message: &Value, turn_id: &str) -> Vec<RuntimeStreamEven
                 .and_then(Value::as_str)
                 .or_else(|| update.get("description").and_then(Value::as_str))
                 .or_else(|| update.get("subject").and_then(Value::as_str))
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            if !content.is_empty() {
+                .unwrap_or_default();
+            if !content.trim().is_empty() {
                 events.push(RuntimeStreamEvent::ThinkingChunk {
                     turn_id: turn_id.to_string(),
-                    content,
+                    content: content.to_string(),
                 });
             }
         }
@@ -1624,14 +1838,8 @@ fn parse_session_update(message: &Value, turn_id: &str) -> Vec<RuntimeStreamEven
                 ),
                 raw_input: update.get("input").cloned().unwrap_or_else(|| json!({})),
                 raw_output,
-                content: content
-                    .get("content")
-                    .cloned()
-                    .unwrap_or_else(|| json!([])),
-                diffs: content
-                    .get("diffs")
-                    .cloned()
-                    .unwrap_or_else(|| json!([])),
+                content: content.get("content").cloned().unwrap_or_else(|| json!([])),
+                diffs: content.get("diffs").cloned().unwrap_or_else(|| json!([])),
                 terminal_ids: terminal_refs.clone(),
                 locations: json!({
                     "terminals": terminal_refs,
@@ -1657,14 +1865,14 @@ fn extract_and_strip_think_tags(content: &str) -> (String, String) {
             let after_open = start + open_tag.len();
             if let Some(rel_end) = remaining[after_open..].find(close_tag) {
                 let end = after_open + rel_end;
-                let part = remaining[after_open..end].trim();
-                if !part.is_empty() {
+                let part = &remaining[after_open..end];
+                if !part.trim().is_empty() {
                     thinking_parts.push(part.to_string());
                 }
                 remaining.replace_range(start..end + close_tag.len(), "");
             } else {
-                let part = remaining[after_open..].trim();
-                if !part.is_empty() {
+                let part = &remaining[after_open..];
+                if !part.trim().is_empty() {
                     thinking_parts.push(part.to_string());
                 }
                 remaining.replace_range(start.., "");
@@ -1678,8 +1886,8 @@ fn extract_and_strip_think_tags(content: &str) -> (String, String) {
             .find("</think>")
             .or_else(|| remaining.find("</thinking>"));
         if let Some(end) = orphan_end {
-            let part = remaining[..end].trim();
-            if !part.is_empty() {
+            let part = &remaining[..end];
+            if !part.trim().is_empty() {
                 thinking_parts.push(part.to_string());
             }
             let close_len = if remaining[end..].starts_with("</thinking>") {
@@ -1696,7 +1904,6 @@ fn extract_and_strip_think_tags(content: &str) -> (String, String) {
         .replace("</think>", "")
         .replace("<thinking>", "")
         .replace("</thinking>", "")
-        .trim()
         .to_string();
 
     (thinking_parts.join("\n\n"), stripped)
@@ -1775,7 +1982,11 @@ fn extract_content(content: Option<&Value>) -> Value {
         .collect();
     let terminal_ids: Vec<String> = items
         .iter()
-        .filter_map(|item| item.get("terminalId").and_then(Value::as_str).map(ToOwned::to_owned))
+        .filter_map(|item| {
+            item.get("terminalId")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+        })
         .collect();
     json!({
         "text": { "text": texts.join("\n") },
@@ -1835,7 +2046,10 @@ async fn send_permission_decision(
         .await
 }
 
-async fn send_cancelled_permission(process: &mut JsonRpcProcess, request_id: i64) -> AdapterResult<()> {
+async fn send_cancelled_permission(
+    process: &mut JsonRpcProcess,
+    request_id: i64,
+) -> AdapterResult<()> {
     process
         .write_message(json!({
             "jsonrpc": "2.0",
@@ -1853,7 +2067,9 @@ fn selected_option(options: &[PermissionOption], kind: &str) -> AdapterResult<Va
     let option = options
         .iter()
         .find(|option| option.kind == kind)
-        .ok_or_else(|| AdapterError::Protocol(format!("permission option {kind} not offered by agent")))?;
+        .ok_or_else(|| {
+            AdapterError::Protocol(format!("permission option {kind} not offered by agent"))
+        })?;
     Ok(json!({
         "outcome": "selected",
         "optionId": option.option_id
@@ -1864,7 +2080,10 @@ fn selected_option(options: &[PermissionOption], kind: &str) -> AdapterResult<Va
 mod tests {
     use std::path::Path;
 
-    use super::{extract_content, normalize_path, normalize_tool_status, parse_permission_request, parse_session_update};
+    use super::{
+        extract_and_strip_think_tags, extract_content, normalize_path, normalize_tool_status,
+        parse_permission_request, parse_session_update,
+    };
     use crate::agent_adapters::RuntimeStreamEvent;
     use serde_json::json;
 
@@ -1964,7 +2183,41 @@ mod tests {
         let events = parse_session_update(&message, "turn");
         assert_eq!(events.len(), 1);
         match &events[0] {
-            RuntimeStreamEvent::ThinkingChunk { content, .. } => assert_eq!(content, "reasoning chunk"),
+            RuntimeStreamEvent::ThinkingChunk { content, .. } => {
+                assert_eq!(content, "reasoning chunk")
+            }
+            other => panic!("expected thinking chunk, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn preserves_chunk_boundary_spaces_in_agent_thought_updates() {
+        let first = json!({
+            "params": {
+                "update": {
+                    "sessionUpdate": "agent_thought_chunk",
+                    "content": { "type": "text", "text": "The user " }
+                }
+            }
+        });
+        let second = json!({
+            "params": {
+                "update": {
+                    "sessionUpdate": "agent_thought_chunk",
+                    "content": { "type": "text", "text": "is asking" }
+                }
+            }
+        });
+
+        let first_events = parse_session_update(&first, "turn");
+        let second_events = parse_session_update(&second, "turn");
+
+        match &first_events[0] {
+            RuntimeStreamEvent::ThinkingChunk { content, .. } => assert_eq!(content, "The user "),
+            other => panic!("expected thinking chunk, got {other:?}"),
+        }
+        match &second_events[0] {
+            RuntimeStreamEvent::ThinkingChunk { content, .. } => assert_eq!(content, "is asking"),
             other => panic!("expected thinking chunk, got {other:?}"),
         }
     }
@@ -1978,8 +2231,17 @@ mod tests {
 
     #[test]
     fn extracts_orphan_closing_think_chunks() {
-        let (thinking, stripped) = extract_and_strip_think_tags("continued reasoning</think>final answer");
+        let (thinking, stripped) =
+            extract_and_strip_think_tags("continued reasoning</think>final answer");
         assert_eq!(thinking, "continued reasoning");
+        assert_eq!(stripped, "final answer");
+    }
+
+    #[test]
+    fn preserves_spaces_inside_inline_think_tags() {
+        let (thinking, stripped) =
+            extract_and_strip_think_tags("<think>The user </think>final answer");
+        assert_eq!(thinking, "The user ");
         assert_eq!(stripped, "final answer");
     }
 

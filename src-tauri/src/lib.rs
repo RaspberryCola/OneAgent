@@ -47,6 +47,7 @@ pub fn run() {
             channel_api::get_or_create_default_workspace,
             channel_api::pick_workspace_directory,
             channel_api::list_conversations,
+            channel_api::search_conversations,
             channel_api::list_discovered_sessions,
             channel_api::create_conversation,
             channel_api::preview_session_config,

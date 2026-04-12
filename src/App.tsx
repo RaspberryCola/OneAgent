@@ -64,6 +64,7 @@ type ModelSelectorState = {
 };
 
 const MODEL_CONFIG_CACHE_KEY = "oneagent.model-config-cache.v1";
+const MODEL_MODELS_CACHE_KEY = "oneagent.model-metadata-cache.v1";
 const MODEL_SELECTION_CACHE_KEY = "oneagent.model-selection-cache.v1";
 
 const markdownComponents = {
@@ -115,8 +116,17 @@ const AGENT_LOGOS: Record<string, string> = {
   opencode: "/src/assets/logos/tools/coding/opencode.svg",
 };
 
-function getAgentLogo(command: string) {
-  const cmd = command.toLowerCase();
+type AgentLogoSource =
+  | Pick<Types.AgentProfile, "command" | "name" | "package_name" | "display_source">
+  | Pick<Types.AgentDiscoveryStatus, "command" | "name" | "source">
+  | string;
+
+function getAgentLogo(agent: AgentLogoSource) {
+  const cmd = typeof agent === "string"
+    ? agent.toLowerCase()
+    : `${agent.command} ${agent.name} ${"package_name" in agent ? agent.package_name ?? "" : ""} ${
+        "display_source" in agent ? agent.display_source : agent.source
+      }`.toLowerCase();
   for (const key in AGENT_LOGOS) {
     if (cmd.includes(key)) return AGENT_LOGOS[key];
   }
@@ -133,12 +143,47 @@ function getWorkspaceLabel(workspace: Types.Workspace | null | undefined): strin
   return workspace.display_name;
 }
 
-function AgentLogo({ command, className = "w-4 h-4" }: { command: string; className?: string }) {
-  const logo = getAgentLogo(command);
+function AgentLogo({
+  agent,
+  className = "w-4 h-4",
+}: {
+  agent: AgentLogoSource;
+  className?: string;
+}) {
+  const logo = getAgentLogo(agent);
   if (logo) {
-    return <img src={logo} alt={command} className={`${className} object-contain`} />;
+    const alt = typeof agent === "string" ? agent : agent.name;
+    return <img src={logo} alt={alt} className={`${className} object-contain`} />;
   }
   return <Bot className={className} />;
+}
+
+function formatDiscoveryNotice(status: Types.AgentDiscoveryStatus | null | undefined): string | null {
+  if (!status) return null;
+  if (status.availability === "ready" || status.availability === "degraded") return null;
+  if (status.detail?.trim()) return status.detail;
+  return "This agent is currently unavailable.";
+}
+
+function formatProbeError(error: unknown): string {
+  if (!error || typeof error !== "object") {
+    return "Failed to probe agent capabilities.";
+  }
+  const backendError = error as Types.BackendError;
+  switch (backendError.code) {
+    case "runtime_not_found":
+      return "Claude Code runtime not found. Bundled Bun is missing and no system bun/node fallback is available.";
+    case "adapter_not_found":
+      return "Claude Code adapter files are missing from the app bundle.";
+    case "adapter_spawn_failed":
+      return "Claude Code adapter failed to start.";
+    case "claude_auth_required":
+      return "Claude Code authentication is required. Configure Claude credentials and try again.";
+    case "acp_initialize_failed":
+      return backendError.message || "Claude Code ACP initialization failed.";
+    default:
+      return backendError.message || "Failed to probe agent capabilities.";
+  }
 }
 
 function inferAttachmentKind(mimeType: string): Types.AttachmentInput["kind"] {
@@ -425,6 +470,10 @@ export default function App() {
   const [draftModels, setDraftModels] = useState<Types.AcpSessionModels | null>(null);
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(new Set());
   const [permissionDecisions, setPermissionDecisions] = useState<Types.PermissionDecision[]>([]);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Types.Conversation[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
 
@@ -520,9 +569,17 @@ export default function App() {
       .join("|"),
   ]);
 
+  const sortedDiscoveryStatus = useMemo(() => {
+    const order = { ready: 0, degraded: 1, unavailable: 2 };
+    return [...agentDiscoveryStatus].sort((a, b) => order[a.availability] - order[b.availability]);
+  }, [agentDiscoveryStatus]);
+
   const activeAgent = agentProfiles.find((agent) => agent.id === activeAgentProfileId) ?? null;
+  const activeDiscoveryStatus =
+    agentDiscoveryStatus.find((status) => status.profile_id === activeAgentProfileId)
+    ?? agentDiscoveryStatus.find((status) => status.command === activeAgent?.command);
   const activeCapabilities = activeAgent?.capabilities_cache ?? null;
-  const installedAgents = agentDiscoveryStatus.filter((agent) => agent.installed);
+  const availableAgents = agentDiscoveryStatus.filter((agent) => agent.installed);
   const conversationModelSelector = useMemo(
     () => buildModelSelectorState(
       activeConversationState?.config_options ?? [],
@@ -549,11 +606,19 @@ export default function App() {
   const conversationStatus = statusMeta(currentConversation?.status);
 
   useEffect(() => {
+    if (activeConversationId || !activeAgentProfileId) return;
+    setComposerNotice(formatDiscoveryNotice(activeDiscoveryStatus));
+  }, [activeConversationId, activeAgentProfileId, activeDiscoveryStatus]);
+
+  useEffect(() => {
     if (activeConversationId || !activeWorkspace || !activeAgentProfileId) return;
 
     const cachedConfig =
       readJsonStorage<Record<string, Types.SessionConfigOption[]>>(MODEL_CONFIG_CACHE_KEY)?.[activeAgentProfileId] ?? [];
+    const cachedModels =
+      readJsonStorage<Record<string, Types.AcpSessionModels | null>>(MODEL_MODELS_CACHE_KEY)?.[activeAgentProfileId] ?? null;
     setDraftConfigOptions(cachedConfig);
+    setDraftModels(cachedModels);
 
     let cancelled = false;
     void API.previewSessionConfig({
@@ -564,14 +629,22 @@ export default function App() {
         if (cancelled) return;
         setDraftConfigOptions(result.config_options);
         setDraftModels(result.models ?? null);
-        const nextCache = {
+        const nextConfigCache = {
           ...(readJsonStorage<Record<string, Types.SessionConfigOption[]>>(MODEL_CONFIG_CACHE_KEY) ?? {}),
           [activeAgentProfileId]: result.config_options,
         };
-        writeJsonStorage(MODEL_CONFIG_CACHE_KEY, nextCache);
+        const nextModelsCache = {
+          ...(readJsonStorage<Record<string, Types.AcpSessionModels | null>>(MODEL_MODELS_CACHE_KEY) ?? {}),
+          [activeAgentProfileId]: result.models ?? null,
+        };
+        writeJsonStorage(MODEL_CONFIG_CACHE_KEY, nextConfigCache);
+        writeJsonStorage(MODEL_MODELS_CACHE_KEY, nextModelsCache);
       })
       .catch((error) => {
         console.error("Failed to preview session config", error);
+        if (!cancelled) {
+          setComposerNotice(formatProbeError(error));
+        }
       });
 
     return () => {
@@ -666,7 +739,7 @@ export default function App() {
     try {
       const capabilities = await ensureAgentCapabilities(activeAgentProfileId);
       if (!capabilities?.prompt_capabilities) {
-        setComposerNotice("This agent has not returned ACP prompt capabilities yet.");
+        setComposerNotice(formatDiscoveryNotice(activeDiscoveryStatus) ?? "This agent has not returned ACP prompt capabilities yet.");
         return;
       }
       const next = await Promise.all(Array.from(files).map((file) => materializeAttachment(file, source)));
@@ -814,21 +887,24 @@ export default function App() {
                   resetComposer();
                 }}
                 className={`w-full text-left px-3 py-1.5 rounded-container flex items-center gap-2.5 transition-colors min-w-0 ${
-                  activeConversationId === null ? "text-pure-black font-medium bg-light-gray" : "text-near-black hover:bg-snow"
+                  activeConversationId === null ? "text-pure-black font-medium bg-light-gray" : "text-near-black hover:bg-light-gray/60"
                 }`}
               >
                 <Plus className="w-3.5 h-3.5 shrink-0" />
                 <span className="text-caption truncate w-full block">New Chat</span>
               </button>
-              <button className="w-full text-left px-3 py-1.5 rounded-container flex items-center gap-2.5 transition-colors min-w-0 text-near-black hover:bg-snow">
+              <button
+                onClick={() => setIsSearchOpen(true)}
+                className="w-full text-left px-3 py-1.5 rounded-container flex items-center gap-2.5 transition-colors min-w-0 text-near-black hover:bg-light-gray/60"
+              >
                 <Search className="w-3.5 h-3.5 shrink-0" />
                 <span className="text-caption truncate w-full block">Search</span>
               </button>
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-3 py-2">
-            <div className="px-3 mb-2 mt-4 flex items-center justify-between gap-2">
+          <div className="px-3 shrink-0">
+            <div className="px-3 mb-0.5 mt-2 flex items-center justify-between gap-2">
               <span className="text-[10px] font-medium text-stone uppercase tracking-widest opacity-80">
                 Workspaces
               </span>
@@ -842,6 +918,9 @@ export default function App() {
                 <Plus className="h-3.5 w-3.5" />
               </button>
             </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-3 pb-4 no-scrollbar">
             {/* Workspaces Tree */}
             <div className="space-y-1">
               {workspaces.length === 0 && <div className="px-2 py-1 text-[13px] text-silver">No workspaces</div>}
@@ -971,7 +1050,7 @@ export default function App() {
               <div className="flex items-center gap-3 min-w-0">
                 <div className="flex items-center gap-2 min-w-0">
                   <div className="w-8 h-8 flex items-center justify-center shrink-0">
-                    <AgentLogo command={activeAgent.command} className="w-5 h-5 object-contain" />
+                    <AgentLogo agent={activeAgent} className="w-5 h-5 object-contain" />
                   </div>
                   <span className="font-display font-medium text-bodyLarge truncate">{activeAgent.name}</span>
                 </div>
@@ -1028,7 +1107,7 @@ export default function App() {
                       )}
                       <motion.div layout className="relative z-10 flex items-center gap-2.5">
                         <AgentLogo
-                          command={profile.command}
+                          agent={profile}
                           className={`w-5 h-5 object-contain shrink-0 transition-all duration-200 ${
                             isActive ? "brightness-0 invert" : "grayscale opacity-60 hover:opacity-100"
                           }`}
@@ -1043,10 +1122,9 @@ export default function App() {
                   );
                 })}
               </div>
-              {installedAgents.length === 0 && (
+              {availableAgents.length === 0 && (
                 <div className="text-small text-stone text-center max-w-xl">
-                  No ACP-compatible agent was detected in your PATH. Install at least <span className="font-mono">qwen</span> or{" "}
-                  <span className="font-mono">opencode</span> and restart OneAgent.
+                  No available agent is ready yet. Claude Code can run from the bundled bridge when resources are present, or native ACP agents can be detected from your PATH.
                 </div>
               )}
             </div>
@@ -1209,22 +1287,22 @@ export default function App() {
                   <div className="space-y-8">
                     <section>
                       <div className="flex items-center justify-between mb-3 px-1">
-                        <div className="text-[10px] text-silver font-medium uppercase tracking-wider">Installed Agents</div>
+                        <div className="text-[10px] text-silver font-medium uppercase tracking-wider">Agents</div>
                       </div>
                       
                       <div className="border border-light-gray/60 rounded-container overflow-hidden bg-pure-white">
-                        {agentDiscoveryStatus.map((agent, index) => (
+                        {sortedDiscoveryStatus.map((agent, index) => (
                           <div 
                             key={agent.command} 
                             className={`group relative flex items-center justify-between py-3 px-4 transition-colors hover:bg-snow ${
-                              index !== agentDiscoveryStatus.length - 1 ? 'border-b border-light-gray/30' : ''
+                              index !== sortedDiscoveryStatus.length - 1 ? 'border-b border-light-gray/30' : ''
                             }`}
                           >
                             <div className="flex items-center gap-3">
                               <div className={`w-8 h-8 rounded-md flex items-center justify-center border border-light-gray/50 transition-colors p-1.5 ${
-                                agent.installed ? 'bg-pure-white' : 'bg-snow opacity-50'
+                                agent.availability !== "unavailable" ? 'bg-pure-white' : 'bg-snow opacity-50'
                               }`}>
-                                <AgentLogo command={agent.command} className="w-full h-full object-contain" />
+                                <AgentLogo agent={agent} className="w-full h-full object-contain" />
                               </div>
                               <div className="flex items-baseline gap-2 min-w-0">
                                 <span className="font-display font-medium text-[13px] text-pure-black leading-tight shrink-0">
@@ -1237,28 +1315,47 @@ export default function App() {
                             </div>
                             
                             <div className="flex items-center gap-3">
-                              {agent.installed ? (
-                                <span className="flex items-center gap-1 px-2 py-0.5 rounded-pill bg-light-gray/40 text-near-black text-[9px] font-medium uppercase tracking-wide">
-                                  <div className="w-1.5 h-1.5 rounded-full bg-[#10b981]" />
-                                  Ready
-                                </span>
-                              ) : (
-                                <span className="px-2 py-0.5 rounded-pill border border-light-gray/40 text-silver text-[9px] font-medium uppercase tracking-wide">
-                                  Missing
-                                </span>
-                              )}
+                              <span className={`flex items-center gap-1 px-2 py-0.5 rounded-pill text-[9px] font-medium uppercase tracking-wide ${
+                                agent.availability === 'ready'
+                                  ? 'bg-light-gray/40 text-near-black'
+                                  : agent.availability === 'degraded'
+                                    ? 'border border-light-gray/40 text-stone'
+                                    : 'border border-light-gray/40 text-silver'
+                              }`}>
+                                <div className={`w-1.5 h-1.5 rounded-full ${
+                                  agent.availability === 'ready'
+                                    ? 'bg-[#10b981]'
+                                    : agent.availability === 'degraded'
+                                      ? 'bg-[#f59e0b]'
+                                      : 'bg-[#9ca3af]'
+                                }`} />
+                                {agent.availability}
+                              </span>
                             </div>
                           </div>
                         ))}
                       </div>
                     </section>
 
-                    {installedAgents.length > 0 && (
+                    <section className="px-1 space-y-2">
+                      {sortedDiscoveryStatus
+                        .filter((agent) => agent.detail && agent.availability !== 'degraded')
+                        .map((agent) => (
+                          <div key={`${agent.command}-detail`} className="flex gap-3 p-3 rounded-container bg-snow border border-light-gray/20">
+                            <AlertCircle className="w-3.5 h-3.5 text-stone shrink-0 mt-0.5" />
+                            <p className="text-[11px] text-stone leading-relaxed">
+                              <span className="font-medium text-pure-black">{agent.name}:</span> {agent.detail}
+                            </p>
+                          </div>
+                        ))}
+                    </section>
+
+                    {availableAgents.length > 0 && (
                       <section className="px-1">
                         <div className="flex gap-3 p-3 rounded-container bg-snow border border-light-gray/20">
                           <AlertCircle className="w-3.5 h-3.5 text-stone shrink-0 mt-0.5" />
                           <p className="text-[11px] text-stone leading-relaxed">
-                            Agents are automatically detected in your system <code className="text-pure-black font-medium">PATH</code>.
+                            Native ACP agents are detected from your system <code className="text-pure-black font-medium">PATH</code>. Claude Code is exposed through a bundled or system bridge runtime.
                           </p>
                         </div>
                       </section>
@@ -1270,6 +1367,31 @@ export default function App() {
           </div>
         </div>
       )}
+
+      <AnimatePresence>
+        {isSearchOpen && (
+          <SearchOverlay
+            query={searchQuery}
+            setQuery={setSearchQuery}
+            results={searchResults}
+            isSearching={isSearching}
+            onClose={() => {
+              setIsSearchOpen(false);
+              setSearchQuery("");
+              setSearchResults([]);
+            }}
+            onSelect={(id) => {
+              void selectConversation(id);
+              setIsSearchOpen(false);
+              setSearchQuery("");
+              setSearchResults([]);
+            }}
+            workspaceId={activeWorkspace?.id ?? ""}
+            setResults={setSearchResults}
+            setIsSearching={setIsSearching}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -1408,7 +1530,7 @@ function Composer({
                         initial={{ opacity: 0, scale: 0.95, y: 5 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95, y: 5 }}
-                        className="absolute bottom-full left-0 mb-2 w-max min-w-[220px] max-w-[320px] max-h-[300px] overflow-y-auto bg-pure-white border border-light-gray rounded-container z-[70] p-1.5"
+                        className="absolute bottom-full left-0 mb-2 w-max min-w-[220px] max-w-[320px] max-h-[300px] overflow-y-auto bg-pure-white border border-light-gray rounded-container z-[70] p-1.5 scrollbar-thin"
                       >
                         {choices.map((choice) => (
                           <button
@@ -1417,7 +1539,8 @@ function Composer({
                               onModelChange(choice.value);
                               setIsModelMenuOpen(false);
                             }}
-                            className={`w-full text-left px-3 py-2 rounded-container text-[13px] transition-colors flex items-center justify-between gap-4 ${
+                            title={choice.label}
+                            className={`w-full text-left px-3 py-2 text-[13px] transition-colors flex items-center justify-between gap-4 ${
                               String(choice.value) === String(selectedModelValue)
                                 ? 'bg-light-gray text-pure-black font-medium'
                                 : 'text-near-black hover:bg-snow'
@@ -1453,7 +1576,7 @@ function Composer({
                 ? "text-silver opacity-60 cursor-not-allowed"
                 : "text-stone hover:bg-snow hover:text-pure-black"
             }`}
-            title={workspaceLocked ? "Workspace is locked after a conversation is created" : "Change workspace"}
+            title={workspaceLocked ? "Workspace is locked after a conversation is created" : activeWorkspace?.cwd || "Change workspace"}
           >
             <Folder className={isCompact ? "w-3 h-3" : "w-3.5 h-3.5"} />
             <span className="truncate max-w-[120px]">{getWorkspaceLabel(activeWorkspace)}</span>
@@ -1499,7 +1622,7 @@ function SidebarItem({
         className="flex-1 text-left px-3 py-1 flex items-center gap-2.5 min-w-0 rounded-container"
       >
         <div className={`w-4 h-4 flex items-center justify-center shrink-0 ${active ? 'opacity-100' : 'opacity-40'}`}>
-          {agentCommand ? <AgentLogo command={agentCommand} className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
+          {agentCommand ? <AgentLogo agent={agentCommand} className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
         </div>
         <span className={`text-small truncate flex-1 ${active ? "text-pure-black font-medium" : "text-near-black"}`}>{title}</span>
       </button>
@@ -2108,5 +2231,178 @@ function PermissionMessage({
         )}
       </div>
     </div>
+  );
+}
+
+function SearchOverlay({
+  query,
+  setQuery,
+  results,
+  isSearching,
+  onClose,
+  onSelect,
+  workspaceId,
+  setResults,
+  setIsSearching,
+}: {
+  query: string;
+  setQuery: (q: string) => void;
+  results: Types.Conversation[];
+  isSearching: boolean;
+  onClose: () => void;
+  onSelect: (id: string) => void;
+  workspaceId: string;
+  setResults: (results: Types.Conversation[]) => void;
+  setIsSearching: (loading: boolean) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const { agentProfiles } = useAppStore();
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!query.trim()) {
+      setResults([]);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      void (async () => {
+        setIsSearching(true);
+        try {
+          const data = await API.searchConversations({
+            workspace_id: workspaceId,
+            query: query,
+          });
+          setResults(data);
+        } catch (error) {
+          console.error("Search failed:", error);
+        } finally {
+          setIsSearching(false);
+        }
+      })();
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [query, workspaceId, setResults, setIsSearching]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh] px-4 bg-pure-white/80 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ y: -20, opacity: 0, scale: 0.98 }}
+        animate={{ y: 0, opacity: 1, scale: 1 }}
+        exit={{ y: -20, opacity: 0, scale: 0.98 }}
+        transition={{ type: "spring", stiffness: 400, damping: 30 }}
+        className="w-full max-w-2xl bg-pure-white rounded-container border border-light-gray flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-4 border-b border-light-gray flex items-center gap-3">
+          <Search className="w-5 h-5 text-stone" />
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search conversations..."
+            className="flex-1 bg-transparent text-bodyLarge focus:outline-none placeholder:text-silver"
+          />
+          {isSearching && <Loader2 className="w-4 h-4 animate-spin text-stone" />}
+          <button
+            onClick={onClose}
+            className="p-1 rounded-pill hover:bg-snow text-stone transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="max-h-[60vh] overflow-y-auto p-2 no-scrollbar">
+          {query.trim() === "" ? (
+            <div className="py-12 text-center text-stone text-caption">
+              Type to search your conversations
+            </div>
+          ) : results.length === 0 && !isSearching ? (
+            <div className="py-12 text-center text-stone text-caption">
+              No conversations found for "{query}"
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {results.map((result) => {
+                const agent = agentProfiles.find(p => p.id === result.agent_profile_id);
+                return (
+                  <button
+                    key={result.id}
+                    onClick={() => onSelect(result.id)}
+                    className="w-full group text-left px-3 py-2.5 rounded-container hover:bg-snow transition-all flex items-center gap-4"
+                  >
+                    <div className="w-10 h-10 rounded-container border border-light-gray bg-pure-white flex items-center justify-center shrink-0">
+                      <AgentLogo agent={agent ?? result.agent_profile_id} className="w-6 h-6 object-contain" />
+                    </div>
+                    
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-[15px] text-pure-black truncate">
+                          {result.title || "Untitled Chat"}
+                        </span>
+                        {result.origin === 'worker_task' && (
+                          <span className="px-2 py-0.5 rounded-pill bg-light-gray/60 text-[9px] font-medium uppercase tracking-tight text-near-black">
+                            Task
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[12px] text-stone mt-0.5 flex items-center gap-2">
+                        <span className="truncate max-w-[120px]">{agent?.name || "Agent"}</span>
+                        <span className="text-silver opacity-50">•</span>
+                        <span>
+                          {new Date(result.updated_at).toLocaleString([], {
+                            year: 'numeric',
+                            month: 'numeric',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            hour12: false
+                          })}
+                        </span>
+                      </div>
+                    </div>
+
+                    <ChevronRight className="w-4 h-4 text-silver opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="p-3 bg-snow border-t border-light-gray flex items-center justify-between text-[11px] text-silver">
+          <div className="flex items-center gap-4">
+            <span className="flex items-center gap-1">
+              <span className="px-1.5 py-0.5 bg-pure-white border border-light-gray rounded-md text-stone">ESC</span>
+              to close
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="px-1.5 py-0.5 bg-pure-white border border-light-gray rounded-md text-stone">ENTER</span>
+              to select
+            </span>
+          </div>
+          <div>{results.length} results</div>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }

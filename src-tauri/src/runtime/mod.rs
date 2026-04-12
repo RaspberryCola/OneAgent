@@ -7,7 +7,11 @@ use tokio::time::{timeout, Duration};
 use uuid::Uuid;
 
 use crate::{
-    agent_adapters::{acp::{AcpAdapter, AcpLiveSession}, compat::CompatAdapter, AgentAdapter, AgentSessionHandle, LoadedSession, RuntimeStreamEvent},
+    agent_adapters::{
+        acp::{AcpAdapter, AcpLiveSession},
+        compat::CompatAdapter,
+        AgentAdapter, AgentSessionHandle, LoadedSession, RuntimeStreamEvent,
+    },
     capability_services::{mcp::McpRegistry, policy::PolicyEngine, skills::SkillRegistry},
     domain::*,
     storage::{Database, StorageResult},
@@ -73,7 +77,8 @@ impl Runtime {
     pub async fn probe_agent_profile(&self, profile_id: &str) -> RuntimeResult<AgentCapabilities> {
         let profile = self.db.get_agent_profile(profile_id)?;
         let capabilities = self.adapter_for(&profile).initialize(&profile).await?;
-        self.db.update_agent_capabilities(profile_id, &capabilities)?;
+        self.db
+            .update_agent_capabilities(profile_id, &capabilities)?;
         self.emit(
             "agent.profile_probed",
             &json!({ "profile_id": profile_id, "capabilities": capabilities }),
@@ -99,11 +104,16 @@ impl Runtime {
             self.adapter_for(&profile).list_sessions(&profile, cwd),
         )
         .await
-        .map_err(|_| RuntimeError::InvalidState("agent session discovery timed out".to_string()))??;
+        .map_err(|_| {
+            RuntimeError::InvalidState("agent session discovery timed out".to_string())
+        })??;
         Ok(sessions)
     }
 
-    pub async fn create_conversation(&self, input: CreateConversationInput) -> RuntimeResult<ConversationState> {
+    pub async fn create_conversation(
+        &self,
+        input: CreateConversationInput,
+    ) -> RuntimeResult<ConversationState> {
         let workspace = self.db.get_workspace(&input.workspace_id)?;
         let profile = self.db.get_agent_profile(&input.agent_profile_id)?;
         let mcp_servers = self.mcp_registry.list_for_workspace(&workspace.id)?;
@@ -111,10 +121,14 @@ impl Runtime {
             &workspace.id,
             &profile.id,
             ConversationOrigin::OneagentManaged,
-            input.title.unwrap_or_else(|| "New conversation".to_string()),
+            input
+                .title
+                .unwrap_or_else(|| "New conversation".to_string()),
         )?;
         let managed_session = match profile.kind {
-            AgentKind::Acp => ManagedSession::Acp(AcpLiveSession::start_new(&profile, &workspace.cwd, &mcp_servers).await?),
+            AgentKind::Acp => ManagedSession::Acp(
+                AcpLiveSession::start_new(&profile, &workspace.cwd, &mcp_servers).await?,
+            ),
             AgentKind::Compat => ManagedSession::Passive(
                 self.adapter_for(&profile)
                     .new_session(&profile, &workspace.cwd, &mcp_servers)
@@ -139,7 +153,11 @@ impl Runtime {
         self.sessions
             .lock()
             .insert(conversation.id.clone(), managed_session);
-        self.record_lifecycle_event(&conversation.id, "ConversationCreated", json!({ "origin": "oneagent_managed" }))?;
+        self.record_lifecycle_event(
+            &conversation.id,
+            "ConversationCreated",
+            json!({ "origin": "oneagent_managed" }),
+        )?;
         self.db
             .update_conversation_status(&conversation.id, ConversationStatus::Ready)?;
         let state = ConversationState {
@@ -169,7 +187,8 @@ impl Runtime {
         let mcp_servers = self.mcp_registry.list_for_workspace(&workspace.id)?;
         match profile.kind {
             AgentKind::Acp => {
-                let session = AcpLiveSession::start_new(&profile, &workspace.cwd, &mcp_servers).await?;
+                let session =
+                    AcpLiveSession::start_new(&profile, &workspace.cwd, &mcp_servers).await?;
                 let result = PreviewSessionConfigResult {
                     config_options: session.handle.config_options.clone(),
                     models: session.handle.models.clone(),
@@ -209,20 +228,27 @@ impl Runtime {
         )?;
         let loaded = match profile.kind {
             AgentKind::Acp => {
-                let (session, replay_events) =
-                    AcpLiveSession::start_loaded(&profile, remote_session_id, &workspace.cwd, &mcp_servers).await?;
-                self.sessions
-                    .lock()
-                    .insert(conversation.id.clone(), ManagedSession::Acp(session.clone()));
+                let (session, replay_events) = AcpLiveSession::start_loaded(
+                    &profile,
+                    remote_session_id,
+                    &workspace.cwd,
+                    &mcp_servers,
+                )
+                .await?;
+                self.sessions.lock().insert(
+                    conversation.id.clone(),
+                    ManagedSession::Acp(session.clone()),
+                );
                 LoadedSession {
                     handle: session.handle.clone(),
                     replay_events,
                 }
             }
-            AgentKind::Compat => self
-                .adapter_for(&profile)
-                .load_session(&profile, remote_session_id, &workspace.cwd, &mcp_servers)
-                .await?,
+            AgentKind::Compat => {
+                self.adapter_for(&profile)
+                    .load_session(&profile, remote_session_id, &workspace.cwd, &mcp_servers)
+                    .await?
+            }
         };
         let binding = AgentSessionBinding {
             id: Uuid::new_v4().to_string(),
@@ -236,9 +262,10 @@ impl Runtime {
         };
         self.db.upsert_binding(&binding)?;
         if !self.sessions.lock().contains_key(&conversation.id) {
-            self.sessions
-                .lock()
-                .insert(conversation.id.clone(), ManagedSession::Passive(loaded.handle.clone()));
+            self.sessions.lock().insert(
+                conversation.id.clone(),
+                ManagedSession::Passive(loaded.handle.clone()),
+            );
         }
         self.record_lifecycle_event(
             &conversation.id,
@@ -266,7 +293,10 @@ impl Runtime {
         Ok(state)
     }
 
-    pub async fn create_task_run(&self, input: CreateTaskRunInput) -> RuntimeResult<ConversationState> {
+    pub async fn create_task_run(
+        &self,
+        input: CreateTaskRunInput,
+    ) -> RuntimeResult<ConversationState> {
         let workspace = self.db.get_workspace(&input.workspace_id)?;
         let profile = self.db.get_agent_profile(&input.agent_profile_id)?;
         let mcp_servers = self.mcp_registry.list_for_workspace(&workspace.id)?;
@@ -278,11 +308,13 @@ impl Runtime {
                 .title
                 .unwrap_or_else(|| input.goal.chars().take(40).collect()),
         )?;
-        let task = self
-            .db
-            .create_task_run(&conversation.id, &workspace.id, &profile.id, &input.goal)?;
+        let task =
+            self.db
+                .create_task_run(&conversation.id, &workspace.id, &profile.id, &input.goal)?;
         let managed_session = match profile.kind {
-            AgentKind::Acp => ManagedSession::Acp(AcpLiveSession::start_new(&profile, &workspace.cwd, &mcp_servers).await?),
+            AgentKind::Acp => ManagedSession::Acp(
+                AcpLiveSession::start_new(&profile, &workspace.cwd, &mcp_servers).await?,
+            ),
             AgentKind::Compat => ManagedSession::Passive(
                 self.adapter_for(&profile)
                     .new_session(&profile, &workspace.cwd, &mcp_servers)
@@ -307,7 +339,11 @@ impl Runtime {
         self.sessions
             .lock()
             .insert(conversation.id.clone(), managed_session);
-        self.record_lifecycle_event(&conversation.id, "TaskRunCreated", json!({ "goal": input.goal }))?;
+        self.record_lifecycle_event(
+            &conversation.id,
+            "TaskRunCreated",
+            json!({ "goal": input.goal }),
+        )?;
         self.db
             .update_conversation_status(&conversation.id, ConversationStatus::Ready)?;
         self.db
@@ -337,20 +373,26 @@ impl Runtime {
         attachments: Vec<AttachmentInput>,
     ) -> RuntimeResult<TimelineResponse> {
         let conversation = self.db.get_conversation(conversation_id)?;
-        if matches!(conversation.status, ConversationStatus::Running | ConversationStatus::Cancelling) {
+        if matches!(
+            conversation.status,
+            ConversationStatus::Running | ConversationStatus::Cancelling
+        ) {
             return Err(RuntimeError::InvalidState(
                 "conversation already has an active turn".to_string(),
             ));
         }
         let profile = self.db.get_agent_profile(&conversation.agent_profile_id)?;
-        let binding = self
-            .db
-            .get_binding(conversation_id)?
-            .ok_or_else(|| RuntimeError::InvalidState("conversation is missing agent session binding".to_string()))?;
+        let binding = self.db.get_binding(conversation_id)?.ok_or_else(|| {
+            RuntimeError::InvalidState("conversation is missing agent session binding".to_string())
+        })?;
         self.db
             .update_conversation_status(conversation_id, ConversationStatus::Running)?;
         let turn_id = Uuid::new_v4().to_string();
-        self.record_lifecycle_event(conversation_id, "TurnStarted", json!({ "turn_id": turn_id }))?;
+        self.record_lifecycle_event(
+            conversation_id,
+            "TurnStarted",
+            json!({ "turn_id": turn_id }),
+        )?;
         let user_message = MessageProjection {
             id: Uuid::new_v4().to_string(),
             conversation_id: conversation_id.to_string(),
@@ -392,7 +434,9 @@ impl Runtime {
                 )
                 .await
             {
-                let _ = runtime.handle_turn_task_error(&conversation_id, &error).await;
+                let _ = runtime
+                    .handle_turn_task_error(&conversation_id, &error)
+                    .await;
             }
         });
 
@@ -410,7 +454,8 @@ impl Runtime {
     ) -> RuntimeResult<()> {
         match self.session_runtime(&conversation_id, binding.clone())? {
             ManagedSession::Acp(session) => {
-                let (mut event_rx, mut completion_rx) = session.run_turn(&text, &attachments).await?;
+                let (mut event_rx, mut completion_rx) =
+                    session.run_turn(&text, &attachments).await?;
                 loop {
                     tokio::select! {
                         maybe_event = event_rx.recv() => {
@@ -434,7 +479,8 @@ impl Runtime {
                     .prompt(&profile, &handle, &text, &attachments)
                     .await?;
                 for event in stream {
-                    self.apply_stream_event(&conversation_id, &turn_id, event).await?;
+                    self.apply_stream_event(&conversation_id, &turn_id, event)
+                        .await?;
                 }
             }
         }
@@ -466,7 +512,11 @@ impl Runtime {
         Ok(())
     }
 
-    async fn handle_turn_task_error(&self, conversation_id: &str, error: &RuntimeError) -> RuntimeResult<()> {
+    async fn handle_turn_task_error(
+        &self,
+        conversation_id: &str,
+        error: &RuntimeError,
+    ) -> RuntimeResult<()> {
         self.db
             .update_conversation_status(conversation_id, ConversationStatus::Failed)?;
         let message = MessageProjection {
@@ -497,19 +547,21 @@ impl Runtime {
         match self.session_runtime(conversation_id, binding.clone())? {
             ManagedSession::Acp(session) => session.cancel().await?,
             ManagedSession::Passive(handle) => {
-                self.adapter_for(&profile)
-                    .cancel(&profile, &handle)
-                    .await?;
+                self.adapter_for(&profile).cancel(&profile, &handle).await?;
             }
         }
         let prefix = format!("{conversation_id}:");
         self.streaming_messages
             .lock()
             .retain(|key, _| !key.starts_with(&prefix));
-        self.db.cancel_pending_permissions_for_turn(conversation_id)?;
+        self.db
+            .cancel_pending_permissions_for_turn(conversation_id)?;
         if self.db.get_task_run(conversation_id)?.is_some() {
-            self.db
-                .update_task_run(conversation_id, TaskRunStatus::Cancelled, Some("cancelled"))?;
+            self.db.update_task_run(
+                conversation_id,
+                TaskRunStatus::Cancelled,
+                Some("cancelled"),
+            )?;
             self.emit(
                 "task_run.state_changed",
                 &json!({ "conversation_id": conversation_id, "task_run": self.db.get_task_run(conversation_id)? }),
@@ -586,15 +638,14 @@ impl Runtime {
             .get_binding(&input.conversation_id)?
             .ok_or_else(|| RuntimeError::InvalidState("missing binding".to_string()))?;
         let config_options = match self.session_runtime(&input.conversation_id, binding.clone())? {
-            ManagedSession::Acp(session) => session.set_config_option(&input.config_id, &input.value).await?,
+            ManagedSession::Acp(session) => {
+                session
+                    .set_config_option(&input.config_id, &input.value)
+                    .await?
+            }
             ManagedSession::Passive(handle) => {
                 self.adapter_for(&profile)
-                    .set_config_option(
-                        &profile,
-                        &handle,
-                        &input.config_id,
-                        &input.value,
-                    )
+                    .set_config_option(&profile, &handle, &input.config_id, &input.value)
                     .await?
             }
         };
@@ -621,7 +672,9 @@ impl Runtime {
         let pending = self
             .db
             .get_pending_permission_by_tool_call(conversation_id, tool_call_id)?
-            .ok_or_else(|| RuntimeError::InvalidState("pending permission request not found".to_string()))?;
+            .ok_or_else(|| {
+                RuntimeError::InvalidState("pending permission request not found".to_string())
+            })?;
         if pending.status != PendingPermissionStatus::Pending {
             return Err(RuntimeError::InvalidState(
                 "permission request is no longer pending".to_string(),
@@ -632,16 +685,20 @@ impl Runtime {
                 "permission fingerprint does not match latest pending request".to_string(),
             ));
         }
-        let record = self
-            .policy_engine
-            .record_decision(conversation_id, tool_call_id, fingerprint, decision)?;
+        let record = self.policy_engine.record_decision(
+            conversation_id,
+            tool_call_id,
+            fingerprint,
+            decision,
+        )?;
         let managed_session = { self.sessions.lock().get(conversation_id).cloned() };
         if let Some(ManagedSession::Acp(session)) = managed_session {
             session
                 .resolve_permission(tool_call_id, record.decision.clone())
                 .await?;
         }
-        self.db.update_pending_permission_status(&pending.id, PendingPermissionStatus::Resolved)?;
+        self.db
+            .update_pending_permission_status(&pending.id, PendingPermissionStatus::Resolved)?;
         self.emit(
             "conversation.permission_resolved",
             &json!({ "conversation_id": conversation_id, "decision": record }),
@@ -649,7 +706,10 @@ impl Runtime {
         Ok(record)
     }
 
-    pub fn list_permissions(&self, conversation_id: &str) -> RuntimeResult<Vec<PermissionDecision>> {
+    pub fn list_permissions(
+        &self,
+        conversation_id: &str,
+    ) -> RuntimeResult<Vec<PermissionDecision>> {
         Ok(self.db.list_permissions(conversation_id)?)
     }
 
@@ -711,7 +771,11 @@ impl Runtime {
         role: &MessageRole,
         kind: &MessageKind,
     ) -> String {
-        format!("{conversation_id}:{turn_id}:{}:{}", enum_text(role), enum_text(kind))
+        format!(
+            "{conversation_id}:{turn_id}:{}:{}",
+            enum_text(role),
+            enum_text(kind)
+        )
     }
 
     fn role_from_stream(role: &str) -> MessageRole {
@@ -730,7 +794,8 @@ impl Runtime {
         event_type: &str,
         payload: serde_json::Value,
     ) -> StorageResult<()> {
-        self.db.append_event(conversation_id, event_type, &payload)?;
+        self.db
+            .append_event(conversation_id, event_type, &payload)?;
         Ok(())
     }
 
@@ -739,7 +804,9 @@ impl Runtime {
             .get_snapshot(conversation_id)
             .ok()
             .flatten()
-            .and_then(|snapshot| serde_json::from_value::<ConversationState>(snapshot.state_json).ok())
+            .and_then(|snapshot| {
+                serde_json::from_value::<ConversationState>(snapshot.state_json).ok()
+            })
             .map(|state| state.config_options)
             .unwrap_or_default()
     }
@@ -749,7 +816,9 @@ impl Runtime {
             .get_snapshot(conversation_id)
             .ok()
             .flatten()
-            .and_then(|snapshot| serde_json::from_value::<ConversationState>(snapshot.state_json).ok())
+            .and_then(|snapshot| {
+                serde_json::from_value::<ConversationState>(snapshot.state_json).ok()
+            })
             .and_then(|state| state.models)
     }
 
@@ -815,15 +884,16 @@ impl Runtime {
                     &MessageKind::Thinking,
                 );
                 let mut stream_messages = self.streaming_messages.lock();
-                let active = stream_messages
-                    .entry(stream_key)
-                    .or_insert_with(|| ActiveStreamMessage {
-                        id: Uuid::new_v4().to_string(),
-                        role: MessageRole::System,
-                        kind: MessageKind::Thinking,
-                        content: String::new(),
-                        started_at: Utc::now(),
-                    });
+                let active =
+                    stream_messages
+                        .entry(stream_key)
+                        .or_insert_with(|| ActiveStreamMessage {
+                            id: Uuid::new_v4().to_string(),
+                            role: MessageRole::System,
+                            kind: MessageKind::Thinking,
+                            content: String::new(),
+                            started_at: Utc::now(),
+                        });
                 active.content.push_str(&content);
                 let message = MessageProjection {
                     id: active.id.clone(),
@@ -864,18 +934,23 @@ impl Runtime {
                 }
                 self.finalize_thinking_stream(conversation_id, turn_id)?;
                 let message_role = Self::role_from_stream(&role);
-                let stream_key =
-                    Self::stream_message_key(conversation_id, turn_id, &message_role, &MessageKind::Text);
+                let stream_key = Self::stream_message_key(
+                    conversation_id,
+                    turn_id,
+                    &message_role,
+                    &MessageKind::Text,
+                );
                 let mut stream_messages = self.streaming_messages.lock();
-                let active = stream_messages
-                    .entry(stream_key)
-                    .or_insert_with(|| ActiveStreamMessage {
-                        id: Uuid::new_v4().to_string(),
-                        role: message_role.clone(),
-                        kind: MessageKind::Text,
-                        content: String::new(),
-                        started_at: Utc::now(),
-                    });
+                let active =
+                    stream_messages
+                        .entry(stream_key)
+                        .or_insert_with(|| ActiveStreamMessage {
+                            id: Uuid::new_v4().to_string(),
+                            role: message_role.clone(),
+                            kind: MessageKind::Text,
+                            content: String::new(),
+                            started_at: Utc::now(),
+                        });
                 active.content.push_str(&content);
                 let message = MessageProjection {
                     id: active.id.clone(),
@@ -903,7 +978,10 @@ impl Runtime {
                 } else {
                     "conversation.message_updated"
                 };
-                self.emit(event_name, &json!({ "conversation_id": conversation_id, "message": message }));
+                self.emit(
+                    event_name,
+                    &json!({ "conversation_id": conversation_id, "message": message }),
+                );
             }
             RuntimeStreamEvent::MessageComplete { role, content, .. } => {
                 if role == "user" && !turn_id.starts_with("history-") {
@@ -911,8 +989,12 @@ impl Runtime {
                 }
                 self.finalize_thinking_stream(conversation_id, turn_id)?;
                 let message_role = Self::role_from_stream(&role);
-                let stream_key =
-                    Self::stream_message_key(conversation_id, turn_id, &message_role, &MessageKind::Text);
+                let stream_key = Self::stream_message_key(
+                    conversation_id,
+                    turn_id,
+                    &message_role,
+                    &MessageKind::Text,
+                );
                 let active = self.streaming_messages.lock().remove(&stream_key);
                 let message = MessageProjection {
                     id: active
@@ -924,7 +1006,10 @@ impl Runtime {
                     role: message_role,
                     kind: MessageKind::Text,
                     content_json: json!({ "text": content, "stream": false }),
-                    created_at: active.as_ref().map(|stream| stream.started_at).unwrap_or_else(Utc::now),
+                    created_at: active
+                        .as_ref()
+                        .map(|stream| stream.started_at)
+                        .unwrap_or_else(Utc::now),
                 };
                 self.db.upsert_message(&message)?;
                 self.record_lifecycle_event(
@@ -1153,7 +1238,13 @@ impl Runtime {
                     "failed" => TerminalStatus::Failed,
                     _ => TerminalStatus::Running,
                 };
-                if matches!(record.status, TerminalStatus::Exited | TerminalStatus::Killed | TerminalStatus::Released | TerminalStatus::Failed) {
+                if matches!(
+                    record.status,
+                    TerminalStatus::Exited
+                        | TerminalStatus::Killed
+                        | TerminalStatus::Released
+                        | TerminalStatus::Failed
+                ) {
                     record.ended_at = Some(Utc::now());
                 }
                 self.db.upsert_terminal(&record)?;
@@ -1228,7 +1319,8 @@ impl Runtime {
                     serde_json::to_value(&message).unwrap_or_else(|_| json!({})),
                 )?;
                 if self.db.get_task_run(conversation_id)?.is_some() {
-                    self.db.update_task_run(conversation_id, TaskRunStatus::Failed, None)?;
+                    self.db
+                        .update_task_run(conversation_id, TaskRunStatus::Failed, None)?;
                     self.emit(
                         "task_run.state_changed",
                         &json!({ "conversation_id": conversation_id, "task_run": self.db.get_task_run(conversation_id)? }),
@@ -1245,7 +1337,11 @@ impl Runtime {
                 self.streaming_messages
                     .lock()
                     .retain(|key, _| !key.starts_with(&prefix));
-                self.record_lifecycle_event(conversation_id, "TurnCompleted", json!({ "turn_id": turn_id }))?;
+                self.record_lifecycle_event(
+                    conversation_id,
+                    "TurnCompleted",
+                    json!({ "turn_id": turn_id }),
+                )?;
                 self.emit(
                     "conversation.turn_finished",
                     &json!({ "conversation_id": conversation_id, "turn_id": turn_id, "status": "completed" }),
@@ -1264,7 +1360,10 @@ impl Runtime {
         let mut replay_turn_index = 0_u64;
         for event in &loaded.replay_events {
             match event {
-                RuntimeStreamEvent::MessageChunk { role, .. } | RuntimeStreamEvent::MessageComplete { role, .. } if role == "user" => {
+                RuntimeStreamEvent::MessageChunk { role, .. }
+                | RuntimeStreamEvent::MessageComplete { role, .. }
+                    if role == "user" =>
+                {
                     replay_turn_index += 1;
                     replay_turn_id = format!("history-{replay_turn_index}");
                 }
@@ -1324,9 +1423,15 @@ impl Runtime {
         Ok(())
     }
 
-    fn conversation_prompt_capabilities(&self, conversation_id: &str) -> Option<AgentPromptCapabilities> {
+    fn conversation_prompt_capabilities(
+        &self,
+        conversation_id: &str,
+    ) -> Option<AgentPromptCapabilities> {
         let conversation = self.db.get_conversation(conversation_id).ok()?;
-        let profile = self.db.get_agent_profile(&conversation.agent_profile_id).ok()?;
+        let profile = self
+            .db
+            .get_agent_profile(&conversation.agent_profile_id)
+            .ok()?;
         serde_json::from_value::<AgentCapabilities>(profile.capabilities_cache)
             .ok()
             .map(|capabilities| capabilities.prompt_capabilities)
@@ -1356,13 +1461,21 @@ fn enum_text<T: serde::Serialize>(value: &T) -> String {
         .unwrap_or_default()
 }
 
-fn summarize_task_timeline(timeline: &TimelineResponse, status: &ConversationStatus) -> Option<String> {
+fn summarize_task_timeline(
+    timeline: &TimelineResponse,
+    status: &ConversationStatus,
+) -> Option<String> {
     let final_agent_text = timeline
         .messages
         .iter()
         .rev()
         .find(|message| message.role == MessageRole::Agent && message.kind == MessageKind::Text)
-        .and_then(|message| message.content_json.get("text").and_then(serde_json::Value::as_str))
+        .and_then(|message| {
+            message
+                .content_json
+                .get("text")
+                .and_then(serde_json::Value::as_str)
+        })
         .map(ToOwned::to_owned);
     match status {
         ConversationStatus::Cancelled => Some("cancelled".to_string()),
@@ -1370,7 +1483,12 @@ fn summarize_task_timeline(timeline: &TimelineResponse, status: &ConversationSta
         _ => {
             if let Some(text) = final_agent_text {
                 Some(text)
-            } else if let Some(last_diff) = timeline.messages.iter().rev().find(|message| message.kind == MessageKind::Diff) {
+            } else if let Some(last_diff) = timeline
+                .messages
+                .iter()
+                .rev()
+                .find(|message| message.kind == MessageKind::Diff)
+            {
                 Some(
                     last_diff
                         .content_json
@@ -1379,7 +1497,10 @@ fn summarize_task_timeline(timeline: &TimelineResponse, status: &ConversationSta
                         .unwrap_or_else(|| "completed with diff output".to_string()),
                 )
             } else if !timeline.tool_calls.is_empty() {
-                Some(format!("completed with {} tool call(s)", timeline.tool_calls.len()))
+                Some(format!(
+                    "completed with {} tool call(s)",
+                    timeline.tool_calls.len()
+                ))
             } else {
                 Some("completed".to_string())
             }
