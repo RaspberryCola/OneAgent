@@ -328,7 +328,17 @@ impl Gateway {
         let workspace = self.db.get_workspace(&input.workspace_id)?;
         self.refresh_agent_discovery()?;
         let agent_profiles = self.db.list_agent_profiles()?;
-        let conversations = self.db.list_conversations(&input.workspace_id, true)?;
+        let mut conversations = self.db.list_conversations(&input.workspace_id, true)?;
+        
+        // Mark conversations not in memory as Sleep
+        for conversation in &mut conversations {
+            if !self.runtime.is_session_in_memory(&conversation.id)
+                && conversation.status == ConversationStatus::Connected {
+                self.db.update_conversation_status(&conversation.id, ConversationStatus::Sleep)?;
+                conversation.status = ConversationStatus::Sleep;
+            }
+        }
+        
         let mcp = self.db.list_workspace_mcp(&input.workspace_id)?;
         let skills = self.runtime.refresh_workspace_skills(&input.workspace_id)?;
         let selected_agent_profile_id = input.agent_profile_id.clone().or_else(|| {

@@ -403,9 +403,22 @@ function writeJsonStorage<T>(key: string, value: T) {
 
 function statusMeta(status?: Types.Conversation["status"]) {
   switch (status) {
+    case "sleep":
+      return {
+        label: "Sleep",
+        dot: "bg-stone-400",
+        pulse: false,
+      };
+    case "initializing":
     case "starting":
       return {
         label: "Initializing",
+        dot: "bg-amber-500",
+        pulse: true,
+      };
+    case "recovering":
+      return {
+        label: "Recovering",
         dot: "bg-amber-500",
         pulse: true,
       };
@@ -415,10 +428,11 @@ function statusMeta(status?: Types.Conversation["status"]) {
         dot: "bg-blue-500",
         pulse: true,
       };
+    case "connected":
     case "ready":
     case "idle":
       return {
-        label: "Ready",
+        label: "Connected",
         dot: "bg-emerald-500",
         pulse: false,
       };

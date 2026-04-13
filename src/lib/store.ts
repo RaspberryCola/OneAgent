@@ -18,7 +18,10 @@ function buildConversationTitle(text: string): string {
 
 function isConversationActive(state: Types.ConversationState | null): boolean {
   if (!state) return false;
-  return state.conversation.status === 'running' || state.conversation.status === 'starting';
+  return state.conversation.status === 'running' 
+    || state.conversation.status === 'initializing'
+    || state.conversation.status === 'recovering'
+    || state.conversation.status === 'starting';  // backward compat
 }
 
 function compareIsoTimestamp(a?: string | null, b?: string | null): number {
@@ -703,25 +706,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     try {
-      if (conversationId) {
-        set((s) => ({
-          activeConversationState:
-            s.activeConversationState?.conversation.id === conversationId
-              ? {
-                  ...s.activeConversationState,
-                  conversation: { ...s.activeConversationState.conversation, status: 'running' },
-                }
-              : s.activeConversationState,
-          activeTimeline: !pendingConversationId && s.activeTimeline && s.activeConversationId === conversationId
-            ? {
-                ...s.activeTimeline,
-                messages: s.activeTimeline.messages,
-              }
-            : s.activeTimeline,
-          activeTimelineItems: s.activeTimelineItems,
-        }));
-      }
-
       const updatedTimeline = await API.sendUserMessage({
         conversation_id: conversationId,
         text,
@@ -729,6 +713,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
 
       if (conversationId) {
+        set((s) => ({
+          activeTimeline:
+            s.activeConversationId === conversationId ? updatedTimeline : s.activeTimeline,
+          activeTimelineItems:
+            s.activeConversationId === conversationId
+              ? mergeTimelineItems(s.activeTimelineItems, updatedTimeline)
+              : s.activeTimelineItems,
+        }));
         startConversationSync(conversationId, set, get);
       }
     } catch (err: any) {

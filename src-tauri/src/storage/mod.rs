@@ -452,7 +452,7 @@ impl Database {
             workspace_id: workspace_id.to_string(),
             agent_profile_id: agent_profile_id.to_string(),
             origin,
-            status: ConversationStatus::Starting,
+            status: ConversationStatus::Initializing,
             title,
             created_at: now,
             updated_at: now,

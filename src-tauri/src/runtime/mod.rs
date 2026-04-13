@@ -74,6 +74,10 @@ impl Runtime {
         *self.emitter.lock() = Some(emitter);
     }
 
+    pub fn is_session_in_memory(&self, conversation_id: &str) -> bool {
+        self.sessions.lock().contains_key(conversation_id)
+    }
+
     pub async fn probe_agent_profile(&self, profile_id: &str) -> RuntimeResult<AgentCapabilities> {
         let profile = self.db.get_agent_profile(profile_id)?;
         let capabilities = self.adapter_for(&profile).initialize(&profile).await?;
@@ -159,7 +163,7 @@ impl Runtime {
             json!({ "origin": "oneagent_managed" }),
         )?;
         self.db
-            .update_conversation_status(&conversation.id, ConversationStatus::Ready)?;
+            .update_conversation_status(&conversation.id, ConversationStatus::Connected)?;
         let state = ConversationState {
             conversation: self.db.get_conversation(&conversation.id)?,
             binding: Some(binding),
@@ -277,7 +281,7 @@ impl Runtime {
         )?;
         self.apply_replay_events(&conversation.id, &loaded).await?;
         self.db
-            .update_conversation_status(&conversation.id, ConversationStatus::Ready)?;
+            .update_conversation_status(&conversation.id, ConversationStatus::Connected)?;
         let state = ConversationState {
             conversation: self.db.get_conversation(&conversation.id)?,
             binding: Some(binding),
@@ -349,7 +353,7 @@ impl Runtime {
             json!({ "goal": input.goal }),
         )?;
         self.db
-            .update_conversation_status(&conversation.id, ConversationStatus::Ready)?;
+            .update_conversation_status(&conversation.id, ConversationStatus::Connected)?;
         self.db
             .update_task_run(&conversation.id, TaskRunStatus::Running, None)?;
         let state = ConversationState {
@@ -390,8 +394,19 @@ impl Runtime {
         let binding = self.db.get_binding(conversation_id)?.ok_or_else(|| {
             RuntimeError::InvalidState("conversation is missing agent session binding".to_string())
         })?;
+        
+        // Check if session is in memory (hot) or needs recovery (cold)
+        let is_session_in_memory = self.is_session_in_memory(conversation_id);
+        let initial_status = if is_session_in_memory {
+            ConversationStatus::Connected  // Hot: stay connected, will change to Running in run_turn_task
+        } else if matches!(conversation.status, ConversationStatus::Sleep) {
+            ConversationStatus::Recovering  // Cold: recovering, will change to Running after load
+        } else {
+            ConversationStatus::Initializing
+        };
+        
         self.db
-            .update_conversation_status(conversation_id, ConversationStatus::Running)?;
+            .update_conversation_status(conversation_id, initial_status)?;
         let turn_id = Uuid::new_v4().to_string();
         self.record_lifecycle_event(
             conversation_id,
@@ -459,6 +474,11 @@ impl Runtime {
     ) -> RuntimeResult<()> {
         match self.session_runtime(&conversation_id, binding.clone())? {
             ManagedSession::Acp(session) => {
+                // Session already in memory, send running status and start prompt
+                self.apply_stream_event(&conversation_id, &turn_id, RuntimeStreamEvent::StateChanged {
+                    status: "running".to_string(),
+                }).await?;
+                
                 let (mut event_rx, mut completion_rx) =
                     session.run_turn(&text, &attachments).await?;
                 loop {
@@ -479,19 +499,71 @@ impl Runtime {
                 }
             }
             ManagedSession::Passive(handle) => {
-                let stream = self
-                    .adapter_for(&profile)
-                    .prompt(&profile, &handle, &text, &attachments)
-                    .await?;
-                for event in stream {
-                    self.apply_stream_event(&conversation_id, &turn_id, event)
+                // For ACP agents with load support, recover session to memory for streaming
+                if profile.kind == AgentKind::Acp && handle.load_supported {
+                    let workspace = self.db.get_conversation(&conversation_id)?.workspace_id;
+                    let workspace = self.db.get_workspace(&workspace)?;
+                    let mcp_servers = self.mcp_registry.list_for_workspace(&workspace.id)?;
+                    
+                    // Load session (recovering status already set in prompt method)
+                    let (session, replay_events) = AcpLiveSession::start_loaded(
+                        &profile,
+                        &handle.remote_session_id,
+                        &handle.cwd,
+                        &mcp_servers,
+                    ).await?;
+
+                    // The conversation timeline is already persisted locally for cold-started
+                    // sessions. Replaying session/load history here only delays recovery and can
+                    // collapse prior turns into a synthetic streaming message before the new prompt.
+                    self.record_lifecycle_event(
+                        &conversation_id,
+                        "ConversationReplaySkippedDuringRecovery",
+                        json!({ "replayed_events": replay_events.len() }),
+                    )?;
+
+                    // Store session in memory
+                    self.sessions.lock().insert(conversation_id.clone(), ManagedSession::Acp(session.clone()));
+                    
+                    // Load complete, now send running status before prompt
+                    self.apply_stream_event(&conversation_id, &turn_id, RuntimeStreamEvent::StateChanged {
+                        status: "running".to_string(),
+                    }).await?;
+                    
+                    // Now run the turn with streaming
+                    let (mut event_rx, mut completion_rx) = session.run_turn(&text, &attachments).await?;
+                    loop {
+                        tokio::select! {
+                            maybe_event = event_rx.recv() => {
+                                if let Some(event) = maybe_event {
+                                    self.apply_stream_event(&conversation_id, &turn_id, event).await?;
+                                }
+                            }
+                            result = &mut completion_rx => {
+                                result.map_err(|_| RuntimeError::InvalidState("prompt completion channel dropped".to_string()))??;
+                                while let Ok(event) = event_rx.try_recv() {
+                                    self.apply_stream_event(&conversation_id, &turn_id, event).await?;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    // Fallback to non-streaming for non-ACP or non-loadable agents
+                    let stream = self
+                        .adapter_for(&profile)
+                        .prompt(&profile, &handle, &text, &attachments)
                         .await?;
+                    for event in stream {
+                        self.apply_stream_event(&conversation_id, &turn_id, event)
+                            .await?;
+                    }
                 }
             }
         }
 
         self.db
-            .update_conversation_status(&conversation_id, ConversationStatus::Idle)?;
+            .update_conversation_status(&conversation_id, ConversationStatus::Connected)?;
         let timeline = self.timeline(&conversation_id)?;
         let state = self.conversation_state(&conversation_id)?;
         self.db.replace_snapshot(
@@ -983,6 +1055,12 @@ impl Runtime {
         match event {
             RuntimeStreamEvent::StateChanged { status } => {
                 self.finalize_thinking_stream(conversation_id, turn_id)?;
+                
+                // Update conversation status based on stream event
+                if status == "running" {
+                    self.db.update_conversation_status(conversation_id, ConversationStatus::Running)?;
+                }
+                
                 self.record_lifecycle_event(
                     conversation_id,
                     "ConversationStateChanged",

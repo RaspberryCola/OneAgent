@@ -54,9 +54,12 @@ pub enum ConversationOrigin {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ConversationStatus {
-    Idle,
-    Starting,
-    Ready,
+    Sleep,
+    Initializing,
+    Recovering,
+    #[serde(alias = "ready", alias = "idle")]
+    Connected,
+    #[serde(alias = "starting")]
     Running,
     Cancelling,
     Cancelled,

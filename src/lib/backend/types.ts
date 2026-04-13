@@ -127,7 +127,7 @@ export interface Conversation {
   workspace_id: string;
   agent_profile_id: string;
   origin: 'oneagent_managed' | 'agent_discovered' | 'imported' | 'worker_task';
-  status: 'idle' | 'starting' | 'ready' | 'running' | 'cancelling' | 'cancelled' | 'failed' | 'completed' | 'closed';
+  status: 'sleep' | 'initializing' | 'recovering' | 'connected' | 'running' | 'cancelling' | 'cancelled' | 'failed' | 'completed' | 'closed' | 'idle' | 'starting' | 'ready';
   title: string;
   created_at: string;
   updated_at: string;
