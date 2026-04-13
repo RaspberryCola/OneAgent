@@ -971,6 +971,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       const isNewWorkspace = !existingWorkspaces.find(w => w.id === workspace.id);
       const nextWorkspaces = isNewWorkspace ? [...existingWorkspaces, workspace] : existingWorkspaces;
 
+      // 保留用户之前选择的 Agent（如果在新工作区中存在）
+      const prevAgentProfileId = get().activeAgentProfileId;
+      const prevAgentExists = bootstrapData.agent_profiles.some(p => p.id === prevAgentProfileId);
+      const nextActiveAgentProfileId = prevAgentExists
+        ? prevAgentProfileId
+        : (bootstrapData.agent_profiles.length > 0 ? bootstrapData.agent_profiles[0].id : null);
+
       set({
         workspaces: nextWorkspaces,
         activeWorkspace: bootstrapData.workspace,
@@ -980,7 +987,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         discoveredSessions: bootstrapData.discovered_sessions,
         mcpServers: bootstrapData.mcp,
         skills: bootstrapData.skills,
-        activeAgentProfileId: bootstrapData.agent_profiles.length > 0 ? bootstrapData.agent_profiles[0].id : null,
+        activeAgentProfileId: nextActiveAgentProfileId,
         activeConversationId: null,
         activeConversationState: null,
         activeTimeline: null,

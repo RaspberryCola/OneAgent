@@ -36,6 +36,7 @@ import { ThoughtDisplay } from "./components/chat/ThoughtDisplay";
 import { ToolCallDisplay } from "./components/chat/ToolCallDisplay";
 import { TerminalDisplay } from "./components/chat/TerminalDisplay";
 import { PermissionDisplay } from "./components/chat/PermissionDisplay";
+import { WorkspaceDropdown } from "./components/ui/WorkspaceDropdown";
 
 const MAX_EMBEDDED_TEXT_BYTES = 128 * 1024;
 const MAX_EMBEDDED_MEDIA_BYTES = 10 * 1024 * 1024;
@@ -1183,9 +1184,13 @@ export default function App() {
         {activeConversationId === null ? (
           <div className="flex-1 flex flex-col items-center justify-center p-4 pb-32 w-full max-w-3xl mx-auto overflow-y-auto overflow-x-hidden">
             <div className="flex flex-col items-center mb-10 gap-8 w-full">
-              <h1 className="text-[40px] leading-none font-display font-medium text-pure-black text-center tracking-tight">
-                What can I help you build?
-              </h1>
+              <WorkspaceDropdown
+                workspaces={workspaces}
+                activeWorkspace={activeWorkspace}
+                onSelectWorkspace={(workspace) => void switchWorkspace(workspace)}
+                onAddWorkspace={() => void pickWorkspace()}
+                disabled={isWorkspaceLocked}
+              />
               <div className="flex flex-wrap items-center justify-center gap-2.5 w-full max-w-[768px]">
                 {agentProfiles.map((profile) => {
                   const isActive = activeAgentProfileId === profile.id;
@@ -1245,7 +1250,6 @@ export default function App() {
                     setInput={setInput}
                     attachments={attachmentStates}
                     composerNotice={composerNotice}
-                    activeWorkspace={activeWorkspace}
                     activeAgent={activeAgent}
                     modelSelector={modelSelector}
                     selectedModelValue={selectedModelValue}
@@ -1258,8 +1262,6 @@ export default function App() {
                     onModeChange={(value) => void handleModeChange(String(value))}
                     isSettingMode={isSettingMode}
                     onAttachClick={() => fileInputRef.current?.click()}
-                    onWorkspaceClick={isWorkspaceLocked ? undefined : () => void pickWorkspace()}
-                    workspaceLocked={isWorkspaceLocked}
                     onDrop={handleDrop}
                     onPaste={handlePaste}
                     onRemoveAttachment={removeAttachment}
@@ -1377,7 +1379,6 @@ export default function App() {
                   setInput={setInput}
                   attachments={attachmentStates}
                   composerNotice={composerNotice}
-                  activeWorkspace={activeWorkspace}
                   activeAgent={activeAgent}
                   modelSelector={modelSelector}
                   selectedModelValue={selectedModelValue}
@@ -1390,8 +1391,6 @@ export default function App() {
                   onModeChange={(value) => void handleModeChange(String(value))}
                   isSettingMode={isSettingMode}
                   onAttachClick={() => fileInputRef.current?.click()}
-                  onWorkspaceClick={isWorkspaceLocked ? undefined : () => void pickWorkspace()}
-                  workspaceLocked={isWorkspaceLocked}
                   onDrop={handleDrop}
                   onPaste={handlePaste}
                   onRemoveAttachment={removeAttachment}
@@ -1557,7 +1556,6 @@ function Composer({
   setInput,
   attachments,
   composerNotice,
-  activeWorkspace,
   activeAgent,
   modelSelector,
   selectedModelValue,
@@ -1570,8 +1568,6 @@ function Composer({
   onModeChange,
   isSettingMode,
   onAttachClick,
-  onWorkspaceClick,
-  workspaceLocked,
   onDrop,
   onPaste,
   onRemoveAttachment,
@@ -1586,7 +1582,6 @@ function Composer({
   setInput: (value: string) => void;
   attachments: Array<{ attachment: LocalAttachment; resolution: AttachmentResolution }>;
   composerNotice: string | null;
-  activeWorkspace: Types.Workspace | null;
   activeAgent: Types.AgentProfile | null;
   modelSelector: ModelSelectorState | null;
   selectedModelValue: any;
@@ -1599,8 +1594,6 @@ function Composer({
   onModeChange?: (value: any) => void;
   isSettingMode?: boolean;
   onAttachClick: () => void;
-  onWorkspaceClick?: () => void;
-  workspaceLocked?: boolean;
   onDrop: (event: React.DragEvent<HTMLDivElement>) => void;
   onPaste: (event: React.ClipboardEvent<HTMLTextAreaElement>) => void;
   onRemoveAttachment: (id: string) => void;
@@ -1705,7 +1698,7 @@ function Composer({
                         transition={{ duration: 0.15, ease: "easeOut" }}
                         className="absolute bottom-full left-0 mb-2 w-max min-w-[220px] max-w-[320px] max-h-[300px] overflow-y-auto bg-pure-white border border-light-gray rounded-container z-[70] py-1.5 flex flex-col scrollbar-thin shadow-none"
                       >
-                        <div className="px-3 py-1.5 mb-1">
+                        <div className="px-3 py-1">
                           <span className="text-[10px] font-medium text-silver uppercase tracking-wider">Models</span>
                         </div>
                         {modelSelector.choices.map((choice) => (
@@ -1783,7 +1776,7 @@ function Composer({
                       transition={{ duration: 0.15, ease: "easeOut" }}
                       className="absolute bottom-full left-0 mb-2 w-max min-w-[220px] max-w-[320px] max-h-[300px] overflow-y-auto bg-pure-white border border-light-gray rounded-container z-[70] py-1.5 flex flex-col scrollbar-thin shadow-none"
                     >
-                      <div className="px-3 py-1.5 mb-1">
+                      <div className="px-3 py-1">
                         <span className="text-[10px] font-medium text-silver uppercase tracking-wider">Available Modes</span>
                       </div>
                       {modeChoices.map((choice: any) => (
@@ -1812,20 +1805,6 @@ function Composer({
               </AnimatePresence>
             </div>
           )}
-
-          <button
-            onClick={onWorkspaceClick}
-            disabled={workspaceLocked || !onWorkspaceClick}
-            className={`flex items-center gap-1.5 ${isCompact ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-small"} bg-pure-white border border-light-gray rounded-pill transition-colors ${
-              workspaceLocked || !onWorkspaceClick
-                ? "text-silver opacity-60 cursor-not-allowed"
-                : "text-stone hover:bg-snow hover:text-pure-black"
-            }`}
-            title={workspaceLocked ? "Workspace is locked after a conversation is created" : activeWorkspace?.cwd || "Change workspace"}
-          >
-            <Folder className={isCompact ? "w-3 h-3" : "w-3.5 h-3.5"} />
-            <span className="truncate max-w-[120px]">{getWorkspaceLabel(activeWorkspace)}</span>
-          </button>
         </div>
 
         {isBusy ? (
