@@ -3,7 +3,9 @@ import {
   AlertCircle,
   ArrowUp,
   Bot,
+  Check,
   ChevronDown,
+
   ChevronRight,
   Code,
   Cpu,
@@ -1681,11 +1683,11 @@ function Composer({
                 <button
                   onClick={() => !isSettingModel && setIsModelMenuOpen(!isModelMenuOpen)}
                   disabled={isSettingModel}
-                  className={`flex items-center gap-1.5 ${isCompact ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-small"} text-stone bg-pure-white border border-light-gray rounded-pill transition-colors select-none ${
+                  className={`flex items-center gap-1.25 ${isCompact ? "px-2 py-1 text-[11px]" : "px-2.5 py-1.5 text-small"} text-stone bg-transparent rounded-pill transition-colors select-none ${
                     !isSettingModel ? "hover:text-pure-black hover:bg-snow" : "opacity-60 cursor-not-allowed"
                   }`}
                 >
-                  {isSettingModel ? <Loader2 className={isCompact ? "w-3 h-3 animate-spin" : "w-3.5 h-3.5 animate-spin"} /> : <Cpu className={isCompact ? "w-3 h-3" : "w-3.5 h-3.5"} />}
+                  {isSettingModel && <Loader2 className={isCompact ? "w-3 h-3 animate-spin" : "w-3.5 h-3.5 animate-spin"} />}
                   <span className="truncate max-w-[150px] font-medium">
                     {selectedChoice?.label || selectedModelLabel || "Select Model"}
                   </span>
@@ -1700,8 +1702,12 @@ function Composer({
                         initial={{ opacity: 0, scale: 0.95, y: 5 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95, y: 5 }}
-                        className="absolute bottom-full left-0 mb-2 w-max min-w-[220px] max-w-[320px] max-h-[300px] overflow-y-auto bg-pure-white border border-light-gray rounded-container z-[70] p-1.5 scrollbar-thin"
+                        transition={{ duration: 0.15, ease: "easeOut" }}
+                        className="absolute bottom-full left-0 mb-2 w-max min-w-[220px] max-w-[320px] max-h-[300px] overflow-y-auto bg-pure-white border border-light-gray rounded-container z-[70] py-1.5 flex flex-col scrollbar-thin shadow-none"
                       >
+                        <div className="px-3 py-1.5 mb-1">
+                          <span className="text-[10px] font-medium text-silver uppercase tracking-wider">Models</span>
+                        </div>
                         {modelSelector.choices.map((choice) => (
                           <button
                             key={String(choice.value)}
@@ -1712,13 +1718,13 @@ function Composer({
                             title={choice.label}
                             className={`w-full text-left px-3 py-2 text-[13px] transition-colors flex items-center justify-between gap-4 ${
                               String(choice.value) === String(selectedModelValue)
-                                ? 'bg-light-gray text-pure-black font-medium'
+                                ? 'bg-light-gray/60 text-pure-black font-medium'
                                 : 'text-near-black hover:bg-snow'
                             }`}
                           >
                             <span className="truncate">{choice.label}</span>
                             {String(choice.value) === String(selectedModelValue) && (
-                              <div className="w-1.5 h-1.5 rounded-full bg-pure-black shrink-0" />
+                              <Check className="w-3.5 h-3.5 text-pure-black shrink-0" />
                             )}
                           </button>
                         ))}
@@ -1755,11 +1761,11 @@ function Composer({
               <button
                 onClick={() => !isSettingMode && setIsModeMenuOpen(!isModeMenuOpen)}
                 disabled={isSettingMode}
-                className={`flex items-center gap-1.5 ${isCompact ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-small"} text-stone bg-pure-white border border-light-gray rounded-pill transition-colors select-none ${
+                className={`flex items-center gap-1.25 ${isCompact ? "px-2 py-1 text-[11px]" : "px-2.5 py-1.5 text-small"} text-stone bg-transparent rounded-pill transition-colors select-none ${
                   !isSettingMode ? "hover:text-pure-black hover:bg-snow" : "opacity-60 cursor-not-allowed"
                 }`}
               >
-                {isSettingMode ? <Loader2 className={isCompact ? "w-3 h-3 animate-spin" : "w-3.5 h-3.5 animate-spin"} /> : <ToggleLeft className={isCompact ? "w-3 h-3" : "w-3.5 h-3.5"} />}
+                {isSettingMode && <Loader2 className={isCompact ? "w-3 h-3 animate-spin" : "w-3.5 h-3.5 animate-spin"} />}
                 <span className="truncate max-w-[150px] font-medium">
                   {selectedModeLabel ?? selectedModeValue ?? "Select Mode"}
                 </span>
@@ -1774,25 +1780,29 @@ function Composer({
                       initial={{ opacity: 0, scale: 0.95, y: 5 }}
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.95, y: 5 }}
-                      className="absolute bottom-full left-0 mb-2 w-max min-w-[220px] max-w-[320px] max-h-[300px] overflow-y-auto bg-pure-white border border-light-gray rounded-container z-[70] p-1.5 scrollbar-thin"
+                      transition={{ duration: 0.15, ease: "easeOut" }}
+                      className="absolute bottom-full left-0 mb-2 w-max min-w-[220px] max-w-[320px] max-h-[300px] overflow-y-auto bg-pure-white border border-light-gray rounded-container z-[70] py-1.5 flex flex-col scrollbar-thin shadow-none"
                     >
-                      {modeChoices.map((choice) => (
+                      <div className="px-3 py-1.5 mb-1">
+                        <span className="text-[10px] font-medium text-silver uppercase tracking-wider">Available Modes</span>
+                      </div>
+                      {modeChoices.map((choice: any) => (
                         <button
                           key={choice.id}
                           onClick={() => {
-                            onModeChange(choice.id);
+                            onModeChange?.(choice.id);
                             setIsModeMenuOpen(false);
                           }}
                           title={choice.description ?? choice.name}
                           className={`w-full text-left px-3 py-2 text-[13px] transition-colors flex items-center justify-between gap-4 ${
                             String(choice.id) === String(selectedModeValue)
-                              ? 'bg-light-gray text-pure-black font-medium'
+                              ? 'bg-light-gray/60 text-pure-black font-medium'
                               : 'text-near-black hover:bg-snow'
                           }`}
                         >
                           <span className="truncate">{modeDisplayLabel(choice)}</span>
                           {String(choice.id) === String(selectedModeValue) && (
-                            <div className="w-1.5 h-1.5 rounded-full bg-pure-black shrink-0" />
+                            <Check className="w-3.5 h-3.5 text-pure-black shrink-0" />
                           )}
                         </button>
                       ))}
