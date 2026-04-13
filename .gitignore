@@ -15,6 +15,7 @@ src-tauri/resources/external_agents/*
 !.env.example
 
 .qwen/
+.claude/
 
 .DS_Store
 Thumbs.db

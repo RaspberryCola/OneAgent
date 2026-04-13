@@ -1169,9 +1169,22 @@ impl JsonRpcProcess {
             self.resolve_workspace_path(cwd)?;
         }
         let terminal_id = Uuid::new_v4().to_string();
-        let mut child = Command::new(command);
+        let mut child = if args.is_empty() && command.contains(' ') {
+            if cfg!(target_os = "windows") {
+                let mut c = Command::new("cmd");
+                c.arg("/D").arg("/C").arg(command);
+                c
+            } else {
+                let mut c = Command::new("sh");
+                c.arg("-c").arg(command);
+                c
+            }
+        } else {
+            let mut c = Command::new(command);
+            c.args(&args);
+            c
+        };
         child
-            .args(&args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
