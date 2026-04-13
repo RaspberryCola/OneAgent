@@ -10,9 +10,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
 const resourcesDir = join(repoRoot, "src-tauri", "resources");
 const bundledBunRoot = join(resourcesDir, "bundled-bun");
-const externalAgentsRoot = join(resourcesDir, "external_agents", "claude-code-acp", "0.16.2");
-const packageName = "@zed-industries/claude-code-acp";
-const packageVersion = "0.16.2";
+const externalAgentsRoot = join(resourcesDir, "external_agents", "claude-agent-acp", "0.26.0");
+const packageName = "@agentclientprotocol/claude-agent-acp";
+const packageVersion = "0.26.0";
 
 function log(message) {
   console.log(`[prepare-claude-runtime] ${message}`);
@@ -153,7 +153,7 @@ async function prepareBundledAdapter() {
     `${packageName}@${packageVersion}`,
   ], { cwd: repoRoot });
 
-  const installedRoot = join(externalAgentsRoot, "node_modules", "@zed-industries", "claude-code-acp");
+  const installedRoot = join(externalAgentsRoot, "node_modules", "@agentclientprotocol", "claude-agent-acp");
   if (!existsSync(installedRoot)) {
     throw new Error(`Expected installed adapter package at ${installedRoot}`);
   }

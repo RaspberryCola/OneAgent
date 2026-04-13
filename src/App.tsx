@@ -29,6 +29,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useAppStore } from "./lib/store";
 import * as API from "./lib/backend/commands";
 import type * as Types from "./lib/backend/types";
+import { ThoughtDisplay } from "./components/chat/ThoughtDisplay";
+import { ToolCallDisplay } from "./components/chat/ToolCallDisplay";
+import { TerminalDisplay } from "./components/chat/TerminalDisplay";
+import { PermissionDisplay } from "./components/chat/PermissionDisplay";
 
 const MAX_EMBEDDED_TEXT_BYTES = 128 * 1024;
 const MAX_EMBEDDED_MEDIA_BYTES = 10 * 1024 * 1024;
@@ -1213,7 +1217,7 @@ export default function App() {
                     const message = item.data;
                     if (message.kind === "thinking") {
                       return (
-                        <ThinkingMessage
+                        <ThoughtDisplay
                           key={message.id}
                           content={message.content_json?.text || ""}
                           status={message.content_json?.status || "done"}
@@ -1230,7 +1234,7 @@ export default function App() {
                     );
                   } else if (item.type === 'tool_call') {
                     return (
-                      <ToolCallMessage 
+                      <ToolCallDisplay 
                         key={item.key}
                         toolCall={item.data}
                         terminals={(activeTimeline?.terminals ?? []).filter((terminal) =>
@@ -1239,8 +1243,11 @@ export default function App() {
                       />
                     );
                   }
+
+                  if (item.data.status === "pending") return null;
+
                   return (
-                    <PermissionMessage
+                    <PermissionDisplay
                       key={item.key}
                       request={item.data}
                       toolCall={
@@ -1264,6 +1271,36 @@ export default function App() {
                 })}
               </div>
               <div className="sticky bottom-0 bg-pure-white z-10 pb-4 md:pb-6 px-4 md:px-6">
+                {activeTimelineItems
+                  .filter((item) => item.type !== 'message' && item.type !== 'tool_call' && item.data.status === "pending")
+                  .map((item) => {
+                    const permReq = item.data as import('./lib/backend/types').PendingPermissionRequest;
+                    return (
+                    <div key={item.key} className="mb-4 flex w-full justify-center">
+                      <div className="w-full">
+                        <PermissionDisplay
+                          request={permReq}
+                          toolCall={
+                            (activeTimeline?.tool_calls ?? []).find(
+                              (toolCall) => toolCall.tool_call_id === permReq.tool_call_id,
+                            ) ?? null
+                          }
+                          requestMeta={
+                            permissionRequestMeta.get(permReq.id)
+                            ?? permissionRequestMeta.get(permReq.tool_call_id)
+                            ?? null
+                          }
+                          decision={
+                            permissionDecisions
+                              .filter((record) => record.tool_call_id === permReq.tool_call_id)
+                              .sort((a, b) => compareIsoTimestamp(a.created_at, b.created_at))
+                              .at(-1) ?? null
+                          }
+                        />
+                      </div>
+                    </div>
+                    );
+                  })}
                 <Composer
                   input={input}
                   setInput={setInput}
@@ -1756,7 +1793,7 @@ function TimelineMessage({
   }
   if (message.kind === "terminal") {
     return (
-      <TerminalMessage
+      <TerminalDisplay
         content={message.content_json?.content || ""}
         stream={message.content_json?.stream || "stdout"}
         event={message.content_json?.event || "running"}
@@ -1907,380 +1944,6 @@ function ErrorMessage({ content }: { content: string }) {
           <span className="text-[11px] font-medium uppercase tracking-wider">Error</span>
         </div>
         <div className="text-[14px] leading-relaxed whitespace-pre-wrap">{content || "Unknown error"}</div>
-      </div>
-    </div>
-  );
-}
-
-function TerminalMessage({
-  content,
-  stream,
-  event,
-  terminal,
-}: {
-  content: string;
-  stream: string;
-  event: string;
-  terminal: Types.TerminalRecord | null;
-}) {
-  return (
-    <div className="flex w-full justify-start mt-1 mb-2">
-      <div className="w-full max-w-[95%] md:max-w-[85%] border border-light-gray rounded-container bg-pure-white overflow-hidden">
-        <div className="px-4 py-2 border-b border-light-gray bg-snow flex items-center gap-2">
-          <Terminal className="w-3.5 h-3.5 text-stone" />
-          <span className="text-[11px] font-medium uppercase tracking-wider text-stone">
-            {terminal?.command || "Terminal"}{stream ? ` · ${stream}` : ""}
-          </span>
-          <span className="text-[10px] text-silver uppercase tracking-wider">{event}</span>
-        </div>
-        <pre className="p-3 text-[12px] font-mono overflow-x-auto whitespace-pre-wrap break-words text-near-black">
-          {content || "..."}
-        </pre>
-      </div>
-    </div>
-  );
-}
-
-function ThinkingMessage({
-  content,
-  status,
-  duration_ms,
-}: {
-  content: string;
-  status: "thinking" | "done";
-  duration_ms?: number | null;
-}) {
-  const [isExpanded, setIsExpanded] = useState(status === "thinking");
-
-  // Auto-expand while thinking, and collapse when done if it was a new message
-  useEffect(() => {
-    if (status === "thinking") {
-      setIsExpanded(true);
-    }
-  }, [status]);
-
-  return (
-    <div className="flex w-full justify-start mt-1 mb-2">
-      <div className="flex flex-col gap-2 min-w-0 w-full max-w-[95%] md:max-w-[85%] items-start">
-        <div className="w-full border border-light-gray rounded-container bg-snow overflow-hidden">
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="w-full flex items-center justify-between px-4 py-2 hover:bg-light-gray/20 transition-colors text-left"
-          >
-            <div className="flex items-center gap-2">
-              {status === "thinking" ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-stone" />
-              ) : (
-                <div className="w-3.5 h-3.5 rounded-full border border-light-gray flex items-center justify-center shrink-0">
-                  <div className="w-1.5 h-1.5 rounded-full bg-stone" />
-                </div>
-              )}
-              <span className="text-[11px] font-medium text-stone uppercase tracking-wider">
-                {status === "thinking" ? "Thinking" : "Thought"}
-              </span>
-              {status === "done" && duration_ms !== undefined && duration_ms !== null && (
-                <span className="text-[11px] text-silver font-mono">
-                  {(duration_ms / 1000).toFixed(1)}s
-                </span>
-              )}
-            </div>
-            <ChevronDown className={`w-3.5 h-3.5 text-silver transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`} />
-          </button>
-          
-          <AnimatePresence initial={false}>
-            {isExpanded && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
-              >
-                <div className="px-4 pb-3 text-caption text-stone leading-relaxed whitespace-pre-wrap border-t border-light-gray/30 pt-2">
-                  {content || "..."}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ToolCallMessage({
-  toolCall,
-  terminals,
-}: {
-  toolCall: Types.ToolCallProjection;
-  terminals: Types.TerminalRecord[];
-}) {
-  const [isExpanded, setIsExpanded] = useState(false);
-  
-  const status = toolCall.status.toLowerCase();
-  const isRunning = status === "running" || status === "declared";
-  const isFailed = status === "failed" || status === "cancelled";
-  
-  const getIcon = () => {
-    const kind = toolCall.kind.toLowerCase();
-    if (kind.includes("terminal") || kind.includes("shell") || kind.includes("execute")) return <Terminal className="w-3.5 h-3.5 text-near-black" />;
-    if (kind.includes("edit") || kind.includes("write") || kind.includes("fs")) return <Code className="w-3.5 h-3.5 text-near-black" />;
-    return <Cpu className="w-3.5 h-3.5 text-near-black" />;
-  };
-
-  return (
-    <div className="flex w-full justify-start mt-1 mb-2">
-      <div className="flex flex-col gap-2 min-w-0 w-full max-w-[95%] md:max-w-[85%] items-start">
-        <div className="w-full border border-light-gray rounded-container bg-snow overflow-hidden transition-all">
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="w-full flex items-center justify-between px-4 py-2 hover:bg-light-gray/20 transition-colors text-left"
-          >
-            <div className="flex items-center gap-3 min-w-0">
-              <div className={`flex items-center justify-center w-7 h-7 rounded-container border bg-pure-white border-light-gray`}>
-                {isRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin text-near-black" /> : getIcon()}
-              </div>
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-[11px] font-medium text-stone uppercase tracking-wider truncate">
-                  {toolCall.title || toolCall.kind}
-                </span>
-                <span className={`text-[10px] px-2 py-0.5 rounded-pill font-medium uppercase tracking-tight shrink-0 ${
-                  isRunning ? "bg-pure-black text-pure-white" : "bg-light-gray text-near-black"
-                }`}>
-                  {status}
-                </span>
-              </div>
-            </div>
-            <ChevronDown className={`w-3.5 h-3.5 text-silver transition-transform duration-200 shrink-0 ${isExpanded ? "rotate-180" : ""}`} />
-          </button>
-          
-          <AnimatePresence initial={false}>
-            {isExpanded && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
-              >
-                <div className="px-4 pb-3 border-t border-light-gray/30 pt-3 space-y-3">
-                  {toolCall.raw_input_json && (
-                    <div>
-                      <div className="text-[10px] text-silver font-medium uppercase tracking-wider mb-1">Input</div>
-                      <pre className="text-[12px] font-mono bg-pure-white p-2 rounded-container border border-light-gray overflow-x-auto text-near-black">
-                        {JSON.stringify(toolCall.raw_input_json, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-                  {toolCall.raw_output_json && (
-                    <div>
-                      <div className="text-[10px] text-silver font-medium uppercase tracking-wider mb-1">Output</div>
-                      <pre className="text-[12px] font-mono bg-pure-white p-2 rounded-container border border-light-gray overflow-x-auto text-stone max-h-[300px] overflow-y-auto">
-                        {typeof toolCall.raw_output_json === 'string' 
-                          ? toolCall.raw_output_json 
-                          : JSON.stringify(toolCall.raw_output_json, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-                  {terminals.length > 0 && (
-                    <div>
-                      <div className="text-[10px] text-silver font-medium uppercase tracking-wider mb-1">Terminals</div>
-                      <div className="space-y-2">
-                        {terminals.map((terminal) => (
-                          <div key={terminal.id} className="rounded-container border border-light-gray bg-pure-white p-2">
-                            <div className="text-[11px] font-mono text-near-black truncate">
-                              {terminal.command} {Array.isArray(terminal.args_json) ? terminal.args_json.join(" ") : ""}
-                            </div>
-                            <div className="text-[11px] text-silver uppercase tracking-wider mt-1">{terminal.status}</div>
-                            {(terminal.stdout_buffer || terminal.stderr_buffer) && (
-                              <pre className="mt-2 text-[11px] font-mono whitespace-pre-wrap break-words max-h-[160px] overflow-y-auto text-stone">
-                                {terminal.stdout_buffer || terminal.stderr_buffer}
-                              </pre>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PermissionMessage({
-  request,
-  toolCall,
-  requestMeta,
-  decision,
-}: {
-  request: Types.PendingPermissionRequest;
-  toolCall: Types.ToolCallProjection | null;
-  requestMeta: {
-    toolKind?: string;
-    title?: string;
-    paths?: string[];
-    rawInput?: any;
-  } | null;
-  decision: Types.PermissionDecision | null;
-}) {
-  const [isSubmitting, setIsSubmitting] = useState<string | null>(null);
-  const optionCount = Array.isArray(request.options_json) ? request.options_json.length : 0;
-  const options = Array.isArray(request.options_json) ? request.options_json : [];
-  const isResolved = request.status !== "pending";
-
-  const decisionLabel = (value: Types.PermissionDecision["decision"] | null | undefined) => {
-    switch (value) {
-      case "allow_once":
-        return "Allowed once";
-      case "allow_always":
-        return "Always allowed";
-      case "reject_once":
-        return "Rejected once";
-      case "reject_always":
-        return "Always rejected";
-      case "cancelled":
-        return "Cancelled";
-      default:
-        return "Resolved";
-    }
-  };
-
-  const toolSummary = useMemo(() => {
-    const input = requestMeta?.rawInput ?? toolCall?.raw_input_json;
-    if (!input) return "";
-    if (typeof input === "string") return input;
-    if (input.command) {
-      return `${input.command}${Array.isArray(input.args) ? ` ${input.args.join(" ")}` : ""}`;
-    }
-    if (input.path) return String(input.path);
-    return "";
-  }, [requestMeta?.rawInput, toolCall?.raw_input_json]);
-
-  const toolTitle = requestMeta?.title || toolCall?.title || "Tool action";
-  const pathPreview = requestMeta?.paths?.slice(0, 3) ?? [];
-  const toolKindLabel = requestMeta?.toolKind || toolCall?.kind || null;
-
-  const optionMeta = (option: any) => {
-    const kind = String(option?.kind || "");
-    switch (kind) {
-      case "allow_once":
-        return { label: "Allow Once", decision: "allow_once" as const, tone: "light" as const };
-      case "allow_always":
-        return { label: "Always Allow", decision: "allow_always" as const, tone: "dark" as const };
-      case "reject_once":
-        return { label: "Reject Once", decision: "reject_once" as const, tone: "light" as const };
-      case "reject_always":
-        return { label: "Always Reject", decision: "reject_always" as const, tone: "light" as const };
-      case "cancelled":
-        return { label: "Cancel", decision: "cancelled" as const, tone: "light" as const };
-      default:
-        return {
-          label: String(option?.name || option?.label || option?.title || kind || "Confirm"),
-          decision: kind as Types.ResolvePermissionInput["decision"],
-          tone: "light" as const,
-        };
-    }
-  };
-
-  const handleResolve = async (option: any) => {
-    const meta = optionMeta(option);
-    if (isResolved || isSubmitting || !meta.decision) return;
-    setIsSubmitting(meta.decision);
-    try {
-      await API.resolvePermissionRequest({
-        conversation_id: request.conversation_id,
-        tool_call_id: request.tool_call_id,
-        fingerprint: request.fingerprint,
-        decision: meta.decision,
-      });
-    } catch (error) {
-      console.error("Failed to resolve permission request", error);
-    } finally {
-      setIsSubmitting(null);
-    }
-  };
-
-  if (isResolved) {
-    return (
-      <div className="flex w-full justify-start mt-1 mb-2">
-        <div className="w-full max-w-[95%] md:max-w-[85%] rounded-container border border-light-gray bg-snow px-4 py-2.5">
-          <div className="flex items-center gap-2 text-stone">
-            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-            <span className="text-[11px] font-medium uppercase tracking-wider">Permission Resolved</span>
-          </div>
-          <div className="mt-1 text-[13px] text-near-black">
-            {toolTitle} · {decisionLabel(decision?.decision)}
-          </div>
-          {toolSummary && <div className="mt-1 text-[12px] text-stone font-mono break-all">{toolSummary}</div>}
-          {pathPreview.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {pathPreview.map((path) => (
-                <span key={path} className="rounded-pill border border-light-gray bg-pure-white px-2 py-0.5 text-[11px] text-stone">
-                  {path}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex w-full justify-start mt-1 mb-2">
-      <div className="w-full max-w-[95%] md:max-w-[85%] border border-light-gray rounded-container bg-snow px-4 py-3">
-        <div className="flex items-center gap-2 mb-1">
-          <AlertCircle className="w-4 h-4 text-stone shrink-0" />
-          <span className="text-[11px] font-medium uppercase tracking-wider text-stone">
-            Permission Required
-          </span>
-          {toolKindLabel && (
-            <span className="rounded-pill bg-pure-white px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-stone border border-light-gray">
-              {toolKindLabel}
-            </span>
-          )}
-        </div>
-        <div className="text-[14px] text-pure-black leading-relaxed">
-          {toolTitle} needs approval before it can continue.
-        </div>
-        {toolSummary && <div className="mt-1 text-[12px] text-stone font-mono break-all">{toolSummary}</div>}
-        {pathPreview.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {pathPreview.map((path) => (
-              <span key={path} className="rounded-pill border border-light-gray bg-pure-white px-2 py-0.5 text-[11px] text-stone">
-                {path}
-              </span>
-            ))}
-          </div>
-        )}
-        <div className="text-[12px] text-stone mt-2">
-          {optionCount > 0 ? `${optionCount} options available` : "Waiting for permission options"}
-        </div>
-        {options.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {options.map((option: any, index: number) => {
-              const meta = optionMeta(option);
-              const isActive = isSubmitting === meta.decision;
-              return (
-                <button
-                  key={option.optionId || option.id || option.kind || index}
-                  onClick={() => void handleResolve(option)}
-                  disabled={isResolved || !!isSubmitting}
-                  className={`inline-flex items-center justify-center rounded-pill border px-4 py-2 text-[12px] font-medium transition-colors ${
-                    meta.tone === "dark"
-                      ? "border-pure-black bg-pure-black text-pure-white"
-                      : "border-light-gray bg-pure-white text-near-black hover:bg-snow"
-                  } ${isResolved || !!isSubmitting ? "opacity-40 cursor-not-allowed" : ""}`}
-                >
-                  {isActive ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : meta.label}
-                </button>
-              );
-            })}
-          </div>
-        )}
       </div>
     </div>
   );

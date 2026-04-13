@@ -326,7 +326,7 @@ impl AgentAdapter for AcpAdapter {
             status: "running".to_string(),
         }];
         for _ in 0..256 {
-            match timeout(Duration::from_millis(250), process.read_message()).await {
+            match timeout(Duration::from_secs(30), process.read_message()).await {
                 Ok(Ok(message)) => {
                     if let Some(method) = message.get("method").and_then(Value::as_str) {
                         if method == "session/update" {
@@ -1075,6 +1075,7 @@ impl JsonRpcProcess {
             "terminal/wait_for_exit" => self.handle_terminal_wait(message).await?,
             "terminal/kill" => self.handle_terminal_kill(message).await?,
             "terminal/release" => self.handle_terminal_release(message).await?,
+            "terminal/output" => self.handle_terminal_output(message).await?,
             "session/request_permission" => {}
             _ => {
                 if let Some(id) = message.get("id").and_then(Value::as_i64) {
@@ -1100,8 +1101,14 @@ impl JsonRpcProcess {
             .and_then(|v| v.get("path"))
             .and_then(Value::as_str)
             .ok_or_else(|| AdapterError::Protocol("fs/read_text_file missing path".to_string()))?;
-        let resolved = self.resolve_workspace_path(path)?;
-        let raw = tokio::fs::read_to_string(&resolved).await?;
+        let resolved = match self.resolve_workspace_path(path) {
+            Ok(p) => p,
+            Err(e) => return self.write_jsonrpc_error(id, -32602, &e.to_string()).await,
+        };
+        let raw = match tokio::fs::read_to_string(&resolved).await {
+            Ok(content) => content,
+            Err(e) => return self.write_jsonrpc_error(id, -32603, &e.to_string()).await,
+        };
         let mime = mime_guess::from_path(&resolved)
             .first_raw()
             .unwrap_or("text/plain")
@@ -1135,11 +1142,18 @@ impl JsonRpcProcess {
             .ok_or_else(|| {
                 AdapterError::Protocol("fs/write_text_file missing content".to_string())
             })?;
-        let resolved = self.resolve_workspace_path(path)?;
+        let resolved = match self.resolve_workspace_path(path) {
+            Ok(p) => p,
+            Err(e) => return self.write_jsonrpc_error(id, -32602, &e.to_string()).await,
+        };
         if let Some(parent) = resolved.parent() {
-            tokio::fs::create_dir_all(parent).await?;
+            if let Err(e) = tokio::fs::create_dir_all(parent).await {
+                return self.write_jsonrpc_error(id, -32603, &e.to_string()).await;
+            }
         }
-        tokio::fs::write(&resolved, content).await?;
+        if let Err(e) = tokio::fs::write(&resolved, content).await {
+            return self.write_jsonrpc_error(id, -32603, &e.to_string()).await;
+        }
         self.write_message(json!({
             "jsonrpc": "2.0",
             "id": id,
@@ -1223,6 +1237,37 @@ impl JsonRpcProcess {
             }
         }))
         .await
+    }
+
+    async fn handle_terminal_output(&mut self, message: &Value) -> AdapterResult<()> {
+        if let Some(params) = message.get("params") {
+            let terminal_id = params.get("terminalId").and_then(Value::as_str).unwrap_or("");
+            let content = params.get("content").and_then(Value::as_str).unwrap_or("");
+            let stream = params.get("stream").and_then(Value::as_str).unwrap_or("stdout");
+            
+            if !content.is_empty() {
+                self.emit_terminal_event(
+                    terminal_id,
+                    "output",
+                    None,
+                    None,
+                    json!([]),
+                    Some(stream.to_string()),
+                    Some(content.to_string()),
+                    None,
+                );
+            }
+        }
+        
+        if let Ok(id) = message_id(message) {
+            self.write_message(json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": null
+            }))
+            .await?;
+        }
+        Ok(())
     }
 
     async fn handle_terminal_read(&mut self, message: &Value) -> AdapterResult<()> {
@@ -1320,7 +1365,9 @@ impl JsonRpcProcess {
             "jsonrpc": "2.0",
             "id": id,
             "result": {
-                "exitCode": status.code()
+                // status.code() is None when the process was terminated by a signal.
+                // Return -1 as a sentinel to avoid null, which JS destructuring cannot handle.
+                "exitCode": status.code().unwrap_or(-1)
             }
         }))
         .await
@@ -1410,7 +1457,11 @@ impl JsonRpcProcess {
             .session_cwd
             .canonicalize()
             .unwrap_or_else(|_| self.session_cwd.clone());
-        let normalized = normalize_path(&candidate);
+        // Prefer canonicalize to resolve symlinks; fall back to manual normalization
+        // when the path doesn't exist yet (e.g. a file about to be written).
+        let normalized = candidate
+            .canonicalize()
+            .unwrap_or_else(|_| normalize_path(&candidate));
         if normalized.starts_with(&root) || normalized == root {
             Ok(normalized)
         } else {
@@ -1420,6 +1471,18 @@ impl JsonRpcProcess {
                 root.display()
             )))
         }
+    }
+
+    async fn write_jsonrpc_error(&mut self, id: i64, code: i64, message: &str) -> AdapterResult<()> {
+        self.write_message(json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": {
+                "code": code,
+                "message": message
+            }
+        }))
+        .await
     }
 }
 

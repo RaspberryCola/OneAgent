@@ -9,11 +9,11 @@ use crate::{
     domain::{AgentDisplaySource, AgentLaunchMode, AgentProfile, JsonMap},
 };
 
-pub const CLAUDE_CODE_ACP_PACKAGE: &str = "@zed-industries/claude-code-acp";
-pub const CLAUDE_CODE_ACP_VERSION: &str = "0.16.2";
+pub const CLAUDE_CODE_ACP_PACKAGE: &str = "@agentclientprotocol/claude-agent-acp";
+pub const CLAUDE_CODE_ACP_VERSION: &str = "0.26.0";
 pub const CLAUDE_CODE_PRESET_ID: &str = "preset-claude-code-acp";
 pub const CLAUDE_CODE_PRESET_NAME: &str = "Claude Code";
-pub const CLAUDE_CODE_DISPLAY_COMMAND: &str = "claude-code-acp";
+pub const CLAUDE_CODE_DISPLAY_COMMAND: &str = "claude-agent-acp";
 
 #[derive(Debug, Clone)]
 pub struct ResolvedLaunch {
@@ -163,11 +163,11 @@ fn resolve_bundled_adapter_runtime() -> LaunchResolutionResult<(PathBuf, PathBuf
     }
     let adapter_root = bundled_adapter_root();
     let package_dir = adapter_root
-        .join("claude-code-acp")
+        .join("claude-agent-acp")
         .join(CLAUDE_CODE_ACP_VERSION)
         .join("node_modules")
-        .join("@zed-industries")
-        .join("claude-code-acp");
+        .join("@agentclientprotocol")
+        .join("claude-agent-acp");
     if !package_dir.exists() {
         return Err(LaunchResolutionError::AdapterNotFound(format!(
             "Bundled Claude adapter directory does not exist: {}",
