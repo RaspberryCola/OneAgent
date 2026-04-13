@@ -179,6 +179,12 @@ function startConversationSync(
   get: () => AppState,
 ) {
   const syncToken = ++activeTurnSyncToken;
+  // Grace period: the first few polls may hit the backend before the spawned
+  // turn task has transitioned the state to Running.  To avoid stopping the
+  // sync loop prematurely we allow up to GRACE_POLLS polls that return a
+  // non-active state before we actually give up.
+  const GRACE_POLLS = 4;
+  let idleSeen = 0;
   void (async () => {
     for (let attempt = 0; attempt < 1200; attempt += 1) {
       if (syncToken !== activeTurnSyncToken) return;
@@ -203,10 +209,18 @@ function startConversationSync(
         }));
 
         if (!isConversationActive(state)) {
-          if (syncToken === activeTurnSyncToken) {
-            activeTurnSyncToken += 1;
+          idleSeen += 1;
+          // During the grace period keep polling so a slow backend spawn
+          // doesn't cause us to miss the entire turn.
+          if (idleSeen > GRACE_POLLS) {
+            if (syncToken === activeTurnSyncToken) {
+              activeTurnSyncToken += 1;
+            }
+            return;
           }
-          return;
+        } else {
+          // Reset grace counter once we confirm the turn is active.
+          idleSeen = 0;
         }
       } catch (error) {
         console.error('Failed to sync active conversation', conversationId, error);
@@ -730,6 +744,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     try {
+      // Optimistically mark the turn as running so the UI never flashes
+      // "Connected" before the backend has transitioned its runtime state.
+      if (conversationId) {
+        set((s) => ({
+          activeConversationState:
+            s.activeConversationId === conversationId && s.activeConversationState
+              ? {
+                  ...s.activeConversationState,
+                  runtime: {
+                    ...s.activeConversationState.runtime,
+                    turn_phase: 'running',
+                    last_transition_at: new Date().toISOString(),
+                  },
+                }
+              : s.activeConversationState,
+        }));
+      }
+
       const updatedTimeline = await API.sendUserMessage({
         conversation_id: conversationId,
         text,

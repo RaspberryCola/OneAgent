@@ -494,7 +494,9 @@ impl Runtime {
         let is_hot = self.is_session_in_memory(conversation_id);
         self.update_runtime_state(conversation_id, |runtime| {
             runtime.last_error = None;
-            runtime.turn_phase = TurnPhase::Idle;
+            // Set Running *before* spawning the turn task so the frontend's
+            // first poll already sees an active turn state instead of Idle.
+            runtime.turn_phase = TurnPhase::Running;
             if is_hot {
                 runtime.connection_phase = ConnectionPhase::Ready;
                 runtime.session_phase = SessionPhase::Hot;
@@ -568,6 +570,19 @@ impl Runtime {
         text: String,
         attachments: Vec<AttachmentInput>,
     ) -> RuntimeResult<()> {
+        // Emit Recovering while attempting to restore the session so the
+        // frontend can display the recovery phase before Running.
+        let was_cold = !self.is_session_in_memory(&conversation_id);
+        if was_cold {
+            self.update_runtime_state(&conversation_id, |runtime| {
+                runtime.connection_phase = ConnectionPhase::Disconnected;
+                runtime.session_phase = SessionPhase::Loading;
+                runtime.turn_phase = TurnPhase::Running;
+                runtime.last_error = None;
+            })?;
+            self.emit_conversation_state(&conversation_id)?;
+        }
+
         let session = self
             .ensure_live_session(&conversation_id, &profile, &binding)
             .await?;
@@ -613,13 +628,14 @@ impl Runtime {
             }
         }
 
+        let is_hot_now = keep_hot_session || self.is_session_in_memory(&conversation_id);
         self.update_runtime_state(&conversation_id, |runtime| {
-            runtime.connection_phase = if keep_hot_session || self.is_session_in_memory(&conversation_id) {
+            runtime.connection_phase = if is_hot_now {
                 ConnectionPhase::Ready
             } else {
                 ConnectionPhase::Disconnected
             };
-            runtime.session_phase = if keep_hot_session || self.is_session_in_memory(&conversation_id) {
+            runtime.session_phase = if is_hot_now {
                 SessionPhase::Hot
             } else {
                 SessionPhase::Cold
@@ -660,39 +676,83 @@ impl Runtime {
         match self.session_runtime(conversation_id, binding.clone())? {
             ManagedSession::Acp(session) => Ok(ManagedSession::Acp(session)),
             ManagedSession::Passive(handle) => {
-                if profile.kind == AgentKind::Acp && handle.load_supported {
-                    self.record_lifecycle_event(
-                        conversation_id,
-                        "ConversationRecoveryStarted",
-                        json!({ "remote_session_id": handle.remote_session_id }),
-                    )?;
-                    let workspace_id = self.db.get_conversation(conversation_id)?.workspace_id;
-                    let workspace = self.db.get_workspace(&workspace_id)?;
-                    let mcp_servers = self.mcp_registry.list_for_workspace(&workspace.id)?;
-                    let (session, replay_events) = AcpLiveSession::start_loaded(
-                        profile,
-                        &handle.remote_session_id,
-                        &handle.cwd,
-                        &mcp_servers,
-                    )
-                    .await?;
-                    self.consume_replay_events_for_recovery(conversation_id, replay_events)?;
-                    let managed = ManagedSession::Acp(session.clone());
-                    self.sessions
-                        .lock()
-                        .insert(conversation_id.to_string(), managed.clone());
-                    self.record_lifecycle_event(
-                        conversation_id,
-                        "ConversationRecoveryCompleted",
-                        json!({ "remote_session_id": handle.remote_session_id }),
-                    )?;
-                    Ok(managed)
-                } else {
-                    Ok(ManagedSession::Passive(handle))
+                if profile.kind != AgentKind::Acp {
+                    return Ok(ManagedSession::Passive(handle));
                 }
+
+                // For ACP profiles we MUST establish a live session so that
+                // streaming works.  Try loading first; fall back to a fresh
+                // session if the agent does not support session/load.
+                self.record_lifecycle_event(
+                    conversation_id,
+                    "ConversationRecoveryStarted",
+                    json!({ "remote_session_id": handle.remote_session_id }),
+                )?;
+                let workspace_id = self.db.get_conversation(conversation_id)?.workspace_id;
+                let workspace = self.db.get_workspace(&workspace_id)?;
+                let mcp_servers = self.mcp_registry.list_for_workspace(&workspace.id)?;
+
+                // Always attempt start_loaded first to preserve conversation
+                // history.  If the agent rejects session/load, fall back to
+                // start_new below.
+                match AcpLiveSession::start_loaded(
+                    profile,
+                    &handle.remote_session_id,
+                    &handle.cwd,
+                    &mcp_servers,
+                )
+                .await
+                {
+                    Ok((session, replay_events)) => {
+                        self.consume_replay_events_for_recovery(
+                            conversation_id,
+                            replay_events,
+                        )?;
+                        let managed = ManagedSession::Acp(session.clone());
+                        self.sessions
+                            .lock()
+                            .insert(conversation_id.to_string(), managed.clone());
+                        self.record_lifecycle_event(
+                            conversation_id,
+                            "ConversationRecoveryCompleted",
+                            json!({ "remote_session_id": handle.remote_session_id }),
+                        )?;
+                        return Ok(managed);
+                    }
+                    Err(load_err) => {
+                        eprintln!(
+                            "[runtime] start_loaded failed for {}, falling back to start_new: {load_err}",
+                            conversation_id,
+                        );
+                    }
+                }
+
+                // 2) Fallback: start a fresh live session.  The agent loses
+                //    in-process history but we gain streaming + Connected.
+                let session =
+                    AcpLiveSession::start_new(profile, &handle.cwd, &mcp_servers).await?;
+                // Update binding so the new session id is persisted for future
+                // operations (cancel, set_config, etc.).
+                let mut updated_binding = binding.clone();
+                updated_binding.remote_session_id =
+                    session.handle.remote_session_id.clone();
+                updated_binding.load_supported = session.handle.load_supported;
+                updated_binding.last_synced_at = Utc::now();
+                let _ = self.db.upsert_binding(&updated_binding);
+                let managed = ManagedSession::Acp(session.clone());
+                self.sessions
+                    .lock()
+                    .insert(conversation_id.to_string(), managed.clone());
+                self.record_lifecycle_event(
+                    conversation_id,
+                    "ConversationRecoveryFallbackNewSession",
+                    json!({ "new_session_id": session.handle.remote_session_id }),
+                )?;
+                Ok(managed)
             }
         }
     }
+
 
     fn consume_replay_events_for_recovery(
         &self,

@@ -545,12 +545,11 @@ impl AcpLiveSession {
                 .cloned()
                 .unwrap_or_else(|| json!({})),
         );
-        if !capabilities.load {
-            process.close().await?;
-            return Err(AdapterError::Protocol(
-                "agent does not support session/load".to_string(),
-            ));
-        }
+        // Note: we do NOT gate on capabilities.load here.  Some agents
+        // successfully handle session/load without advertising it in their
+        // capabilities.  If the agent truly does not support it, the
+        // session/load JSON-RPC call below will return an error which we
+        // propagate to the caller.
         let request_id = process.next_id();
         process
             .write_message(json!({
@@ -1896,19 +1895,32 @@ fn parse_prompt_capabilities(result: &Value) -> AgentPromptCapabilities {
 }
 
 fn parse_session_capabilities(result: &Value) -> AgentSessionCapabilities {
-    let session_capabilities = result
+    let agent_caps = result
         .get("agentCapabilities")
-        .and_then(|value| value.get("sessionCapabilities"))
         .cloned()
         .unwrap_or_else(|| json!({}));
+    let session_capabilities = agent_caps
+        .get("sessionCapabilities")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+
+    // Check load support from multiple locations:
+    // 1. agentCapabilities.sessionCapabilities.load (bool or object like {})
+    // 2. agentCapabilities.loadSession (used by claude-agent-acp bridge)
+    let load_from_session_caps = session_capabilities
+        .get("load")
+        .map(|v| v.as_bool().unwrap_or_else(|| v.is_object()))
+        .unwrap_or(false);
+    let load_from_top_level = agent_caps
+        .get("loadSession")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
     AgentSessionCapabilities {
-        load: session_capabilities
-            .get("load")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
+        load: load_from_session_caps || load_from_top_level,
         list: session_capabilities
             .get("list")
-            .and_then(Value::as_bool)
+            .map(|v| v.as_bool().unwrap_or_else(|| v.is_object()))
             .unwrap_or(false),
     }
 }

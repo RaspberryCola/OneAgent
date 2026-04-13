@@ -112,7 +112,7 @@ export function WorkspaceDropdown({
         onClick={() => !disabled && setIsOpen(!isOpen)}
         onKeyDown={handleKeyDown}
         disabled={disabled}
-        className={`text-[40px] leading-none font-display font-medium text-center tracking-tight inline-flex items-center gap-0 ${
+        className={`text-[40px] leading-none font-display font-medium text-center tracking-tight inline-flex items-center gap-0 focus:outline-none ${
           disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"
         }`}
         aria-haspopup="listbox"
