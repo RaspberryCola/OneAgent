@@ -155,7 +155,7 @@ impl Runtime {
         self.db
             .update_agent_capabilities(profile_id, &capabilities)?;
         self.emit(
-            "agent.profile_probed",
+            "agent:profile_probed",
             &json!({ "profile_id": profile_id, "capabilities": capabilities }),
         );
         Ok(capabilities)
@@ -530,7 +530,7 @@ impl Runtime {
             serde_json::to_value(&user_message).unwrap_or_else(|_| json!({})),
         )?;
         self.emit(
-            "conversation.message_appended",
+            "conversation:message_appended",
             &json!({ "conversation_id": conversation_id, "message": user_message }),
         );
         self.emit_conversation_state(conversation_id)?;
@@ -676,7 +676,7 @@ impl Runtime {
                 summary.as_deref(),
             )?;
             self.emit(
-                "task_run.state_changed",
+                "task_run:state_changed",
                 &json!({ "conversation_id": task_run.conversation_id, "task_run": self.db.get_task_run(&task_run.conversation_id)? }),
             );
         }
@@ -872,7 +872,7 @@ impl Runtime {
         };
         self.db.upsert_message(&message)?;
         self.emit(
-            "conversation.message_appended",
+            "conversation:message_appended",
             &json!({ "conversation_id": conversation_id, "message": message }),
         );
         self.emit_conversation_state(conversation_id)?;
@@ -921,7 +921,7 @@ impl Runtime {
                 Some("cancelled"),
             )?;
             self.emit(
-                "task_run.state_changed",
+                "task_run:state_changed",
                 &json!({ "conversation_id": conversation_id, "task_run": self.db.get_task_run(conversation_id)? }),
             );
         }
@@ -942,7 +942,7 @@ impl Runtime {
         })?;
         self.record_lifecycle_event(conversation_id, "TurnCancelled", json!({}))?;
         self.emit(
-            "conversation.turn_finished",
+            "conversation:turn_finished",
             &json!({ "conversation_id": conversation_id, "turn_id": serde_json::Value::Null, "status": "cancelled" }),
         );
         self.emit_conversation_state(conversation_id)?;
@@ -997,7 +997,7 @@ impl Runtime {
             .retain(|key, _| !key.starts_with(&prefix));
         self.db.delete_conversation(conversation_id)?;
         self.emit(
-            "conversation.deleted",
+            "conversation:deleted",
             &json!({ "conversation_id": conversation_id }),
         );
         Ok(())
@@ -1066,7 +1066,7 @@ impl Runtime {
         self.update_snapshot_config_options(&input.conversation_id, config_options.clone())?;
         self.update_snapshot_models(&input.conversation_id, models.clone())?;
         self.emit(
-            "conversation.config_updated",
+            "conversation:config_updated",
             &json!({
                 "conversation_id": input.conversation_id,
                 "config_options": config_options,
@@ -1098,7 +1098,7 @@ impl Runtime {
         )?;
         self.update_snapshot_modes(&input.conversation_id, modes.clone())?;
         self.emit(
-            "conversation.config_updated",
+            "conversation:config_updated",
             &json!({
                 "conversation_id": input.conversation_id,
                 "modes": modes
@@ -1146,7 +1146,7 @@ impl Runtime {
         self.db
             .update_pending_permission_status(&pending.id, PendingPermissionStatus::Resolved)?;
         self.emit(
-            "conversation.permission_resolved",
+            "conversation:permission_resolved",
             &json!({ "conversation_id": conversation_id, "decision": record }),
         );
         Ok(record)
@@ -1309,7 +1309,7 @@ impl Runtime {
         };
         self.db.upsert_message(&message)?;
         self.emit(
-            "conversation.message_updated",
+            "conversation:message_updated",
             &json!({ "conversation_id": conversation_id, "message": message }),
         );
         Ok(())
@@ -1333,7 +1333,7 @@ impl Runtime {
                 };
                 self.db.upsert_message(&message)?;
                 self.emit(
-                    "conversation.message_updated",
+                    "conversation:message_updated",
                     &json!({ "conversation_id": conversation_id, "message": message }),
                 );
             }
@@ -1368,7 +1368,7 @@ impl Runtime {
                     json!({ "status": status }),
                 )?;
                 self.emit(
-                    "conversation.state_changed",
+                    "conversation:state_changed",
                     &json!({ "conversation_id": conversation_id, "state": self.conversation_state(conversation_id)? }),
                 );
             }
@@ -1421,9 +1421,9 @@ impl Runtime {
                 self.db.upsert_message(&message)?;
                 self.emit(
                     if is_new_stream {
-                        "conversation.message_appended"
+                        "conversation:message_appended"
                     } else {
-                        "conversation.message_updated"
+                        "conversation:message_updated"
                     },
                     &json!({ "conversation_id": conversation_id, "message": message }),
                 );
@@ -1477,9 +1477,9 @@ impl Runtime {
                     serde_json::to_value(&message).unwrap_or_else(|_| json!({})),
                 )?;
                 let event_name = if is_new_stream {
-                    "conversation.message_appended"
+                    "conversation:message_appended"
                 } else {
-                    "conversation.message_updated"
+                    "conversation:message_updated"
                 };
                 self.emit(
                     event_name,
@@ -1522,9 +1522,9 @@ impl Runtime {
                 )?;
                 self.emit(
                     if active.is_some() {
-                        "conversation.message_updated"
+                        "conversation:message_updated"
                     } else {
-                        "conversation.message_appended"
+                        "conversation:message_appended"
                     },
                     &json!({ "conversation_id": conversation_id, "message": message }),
                 );
@@ -1547,7 +1547,7 @@ impl Runtime {
                     serde_json::to_value(&message).unwrap_or_else(|_| json!({})),
                 )?;
                 self.emit(
-                    "conversation.message_appended",
+                    "conversation:message_appended",
                     &json!({ "conversation_id": conversation_id, "message": message }),
                 );
             }
@@ -1606,7 +1606,7 @@ impl Runtime {
                     };
                     self.db.upsert_message(&diff_message)?;
                     self.emit(
-                        "conversation.message_appended",
+                        "conversation:message_appended",
                         &json!({ "conversation_id": conversation_id, "message": diff_message }),
                     );
                 }
@@ -1616,7 +1616,7 @@ impl Runtime {
                     serde_json::to_value(&call).unwrap_or_else(|_| json!({})),
                 )?;
                 self.emit(
-                    "conversation.tool_call_changed",
+                    "conversation:tool_call_changed",
                     &json!({ "conversation_id": conversation_id, "tool_call": call }),
                 );
             }
@@ -1642,7 +1642,7 @@ impl Runtime {
                             .await?;
                     }
                     self.emit(
-                        "conversation.permission_resolved",
+                        "conversation:permission_resolved",
                         &json!({ "conversation_id": conversation_id, "decision": decision }),
                     );
                 } else {
@@ -1672,7 +1672,7 @@ impl Runtime {
                         }),
                     )?;
                     self.emit(
-                        "conversation.permission_requested",
+                        "conversation:permission_requested",
                         &json!({
                             "conversation_id": conversation_id,
                             "request": {
@@ -1775,11 +1775,11 @@ impl Runtime {
                     };
                     self.db.upsert_message(&message)?;
                     self.emit(
-                        "conversation.message_appended",
+                        "conversation:message_appended",
                         &json!({ "conversation_id": conversation_id, "message": message }),
                     );
                     self.emit(
-                        "conversation.terminal_output",
+                        "conversation:terminal_output",
                         &json!({
                             "conversation_id": conversation_id,
                             "terminal_id": record.terminal_id,
@@ -1791,7 +1791,7 @@ impl Runtime {
                     );
                 } else {
                     self.emit(
-                        "conversation.terminal_output",
+                        "conversation:terminal_output",
                         &json!({
                             "conversation_id": conversation_id,
                             "terminal_id": record.terminal_id,
@@ -1828,12 +1828,12 @@ impl Runtime {
                     self.db
                         .update_task_run(conversation_id, TaskRunStatus::Failed, None)?;
                     self.emit(
-                        "task_run.state_changed",
+                        "task_run:state_changed",
                         &json!({ "conversation_id": conversation_id, "task_run": self.db.get_task_run(conversation_id)? }),
                     );
                 }
                 self.emit(
-                    "conversation.message_appended",
+                    "conversation:message_appended",
                     &json!({ "conversation_id": conversation_id, "message": message }),
                 );
             }
@@ -1849,14 +1849,14 @@ impl Runtime {
                     json!({ "turn_id": turn_id }),
                 )?;
                 self.emit(
-                    "conversation.turn_finished",
+                    "conversation:turn_finished",
                     &json!({ "conversation_id": conversation_id, "turn_id": turn_id, "status": "completed" }),
                 );
             }
             RuntimeStreamEvent::ConfigOptionsUpdated { config_options } => {
                 self.update_snapshot_config_options(conversation_id, config_options.clone())?;
                 self.emit(
-                    "conversation.config_updated",
+                    "conversation:config_updated",
                     &json!({ "conversation_id": conversation_id, "config_options": config_options }),
                 );
             }
@@ -1924,7 +1924,7 @@ impl Runtime {
     fn emit_conversation_state(&self, conversation_id: &str) -> RuntimeResult<()> {
         let state = self.conversation_state(conversation_id)?;
         self.emit(
-            "conversation.state_changed",
+            "conversation:state_changed",
             &json!({ "conversation_id": conversation_id, "state": state }),
         );
         Ok(())
@@ -1932,7 +1932,7 @@ impl Runtime {
 
     fn emit_task_run_state(&self, conversation_id: &str) -> RuntimeResult<()> {
         self.emit(
-            "task_run.state_changed",
+            "task_run:state_changed",
             &json!({ "conversation_id": conversation_id, "task_run": self.db.get_task_run(conversation_id)? }),
         );
         Ok(())

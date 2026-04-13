@@ -30,6 +30,7 @@ import {
   X,
 } from "lucide-react";
 import { Streamdown } from "streamdown";
+import { code } from "@streamdown/code";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAppStore } from "./lib/store";
 import * as API from "./lib/backend/commands";
@@ -82,21 +83,11 @@ const MODE_SELECTION_CACHE_KEY = "oneagent.mode-selection-cache.v1";
 
 const markdownComponents = {
   p: ({ children }: any) => <p className="mb-1 last:mb-0">{children}</p>,
-  pre: ({ children }: any) => (
-    <pre className="w-full bg-snow border border-light-gray rounded-container p-3 overflow-x-auto mt-2 mb-3 min-w-0 font-mono text-small text-pure-black break-words">
+  inlineCode: ({ children }: any) => (
+    <code className="bg-snow border border-light-gray px-1.5 py-0.5 rounded-md font-mono text-[0.9em] text-pure-black">
       {children}
-    </pre>
+    </code>
   ),
-  code: ({ children, className, inline }: any) => {
-    if (inline || !className) {
-      return (
-        <code className="bg-snow border border-light-gray px-1.5 py-0.5 rounded-md font-mono text-[0.9em] text-pure-black">
-          {children}
-        </code>
-      );
-    }
-    return <code className="font-mono text-pure-black">{children}</code>;
-  },
   ul: ({ children }: any) => <ul className="list-disc pl-5 mb-2 space-y-0.5">{children}</ul>,
   ol: ({ children }: any) => <ol className="list-decimal pl-5 mb-2 space-y-0.5">{children}</ol>,
   li: ({ children }: any) => <li className="text-[14px] leading-relaxed">{children}</li>,
@@ -107,6 +98,22 @@ const markdownComponents = {
     <a href={href} className="underline underline-offset-2 hover:text-stone transition-colors">
       {children}
     </a>
+  ),
+  table: ({ children }: any) => (
+    <div className="w-full overflow-x-auto my-2">
+      <table className="w-full border-collapse min-w-0">{children}</table>
+    </div>
+  ),
+  thead: ({ children }: any) => <thead className="bg-snow">{children}</thead>,
+  tbody: ({ children }: any) => <tbody>{children}</tbody>,
+  tr: ({ children }: any) => <tr className="border-b border-light-gray last:border-b-0">{children}</tr>,
+  th: ({ children }: any) => (
+    <th className="px-3 py-2 text-left text-[13px] font-medium text-near-black border-b border-light-gray">
+      {children}
+    </th>
+  ),
+  td: ({ children }: any) => (
+    <td className="px-3 py-2 text-[13px] text-pure-black">{children}</td>
   ),
 };
 
@@ -2229,7 +2236,13 @@ function Message({
               ))}
             </div>
           ) : (
-            <Streamdown components={markdownComponents}>{displayContent || ""}</Streamdown>
+            <Streamdown
+              components={markdownComponents}
+              plugins={{ code }}
+              lineNumbers={false}
+            >
+              {displayContent || ""}
+            </Streamdown>
           )}
           {attachments.length > 0 && (
             <div className={`mt-3 space-y-2 ${!isUser ? "" : ""}`}>

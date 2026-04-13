@@ -9,6 +9,19 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  /* Streamdown/shadcn CSS custom properties - grayscale theme */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --radius: 0.75rem;
 }
 
 body {
@@ -92,4 +105,19 @@ h1, h2, h3, h4, h5, h6 {
 .scrollbar-thin::-webkit-scrollbar-corner {
   background-color: #fafafa !important;
   border: none !important;
+}
+
+/* Streamdown code block styles - ensure proper formatting */
+pre {
+  white-space: pre;
+}
+
+pre code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* Each line from Shiki is a span, needs to be block-level */
+pre code > span {
+  display: block;
+  min-height: 1em;
 }

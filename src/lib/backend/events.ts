@@ -29,49 +29,49 @@ export type ConversationConfigUpdatedPayload = {
 };
 
 export function onAgentProfileProbed(handler: (payload: AgentProfileProbedPayload) => void): Promise<UnlistenFn> {
-  return listen<AgentProfileProbedPayload>('agent.profile_probed', (event) => handler(event.payload));
+  return listen<AgentProfileProbedPayload>('agent:profile_probed', (event) => handler(event.payload));
 }
 
 export function onConversationConfigUpdated(handler: (payload: ConversationConfigUpdatedPayload) => void): Promise<UnlistenFn> {
-  return listen<ConversationConfigUpdatedPayload>('conversation.config_updated', (event) => handler(event.payload));
+  return listen<ConversationConfigUpdatedPayload>('conversation:config_updated', (event) => handler(event.payload));
 }
 
 export function onConversationStateChanged(handler: (payload: ConversationStateChangedPayload) => void): Promise<UnlistenFn> {
-  return listen<ConversationStateChangedPayload>('conversation.state_changed', (event) => handler(event.payload));
+  return listen<ConversationStateChangedPayload>('conversation:state_changed', (event) => handler(event.payload));
 }
 
 export function onConversationMessageAppended(handler: (payload: ConversationMessageAppendedPayload) => void): Promise<UnlistenFn> {
-  return listen<ConversationMessageAppendedPayload>('conversation.message_appended', (event) => handler(event.payload));
+  return listen<ConversationMessageAppendedPayload>('conversation:message_appended', (event) => handler(event.payload));
 }
 
 export function onConversationMessageUpdated(handler: (payload: ConversationMessageUpdatedPayload) => void): Promise<UnlistenFn> {
-  return listen<ConversationMessageUpdatedPayload>('conversation.message_updated', (event) => handler(event.payload));
+  return listen<ConversationMessageUpdatedPayload>('conversation:message_updated', (event) => handler(event.payload));
 }
 
 export function onConversationTurnFinished(handler: (payload: ConversationTurnFinishedPayload) => void): Promise<UnlistenFn> {
-  return listen<ConversationTurnFinishedPayload>('conversation.turn_finished', (event) => handler(event.payload));
+  return listen<ConversationTurnFinishedPayload>('conversation:turn_finished', (event) => handler(event.payload));
 }
 
 export function onConversationPermissionRequested(handler: (payload: ConversationPermissionRequestedPayload) => void): Promise<UnlistenFn> {
-  return listen<ConversationPermissionRequestedPayload>('conversation.permission_requested', (event) => handler(event.payload));
+  return listen<ConversationPermissionRequestedPayload>('conversation:permission_requested', (event) => handler(event.payload));
 }
 
 export function onConversationPermissionResolved(handler: (payload: ConversationPermissionResolvedPayload) => void): Promise<UnlistenFn> {
-  return listen<ConversationPermissionResolvedPayload>('conversation.permission_resolved', (event) => handler(event.payload));
+  return listen<ConversationPermissionResolvedPayload>('conversation:permission_resolved', (event) => handler(event.payload));
 }
 
 export function onConversationToolCallChanged(handler: (payload: ConversationToolCallChangedPayload) => void): Promise<UnlistenFn> {
-  return listen<ConversationToolCallChangedPayload>('conversation.tool_call_changed', (event) => handler(event.payload));
+  return listen<ConversationToolCallChangedPayload>('conversation:tool_call_changed', (event) => handler(event.payload));
 }
 
 export function onConversationTerminalOutput(handler: (payload: ConversationTerminalOutputPayload) => void): Promise<UnlistenFn> {
-  return listen<ConversationTerminalOutputPayload>('conversation.terminal_output', (event) => handler(event.payload));
+  return listen<ConversationTerminalOutputPayload>('conversation:terminal_output', (event) => handler(event.payload));
 }
 
 export function onTaskRunStateChanged(handler: (payload: TaskRunStateChangedPayload) => void): Promise<UnlistenFn> {
-  return listen<TaskRunStateChangedPayload>('task_run.state_changed', (event) => handler(event.payload));
+  return listen<TaskRunStateChangedPayload>('task_run:state_changed', (event) => handler(event.payload));
 }
 
 export function onConversationDeleted(handler: (payload: ConversationDeletedPayload) => void): Promise<UnlistenFn> {
-  return listen<ConversationDeletedPayload>('conversation.deleted', (event) => handler(event.payload));
+  return listen<ConversationDeletedPayload>('conversation:deleted', (event) => handler(event.payload));
 }
