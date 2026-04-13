@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
+  ArrowDown,
   ArrowUp,
   Bot,
   Check,
@@ -8,6 +9,7 @@ import {
 
   ChevronRight,
   Code,
+  Copy,
   Cpu,
   Folder,
   FolderOpen,
@@ -520,6 +522,12 @@ export default function App() {
   const [isSending, setIsSending] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
+  const scrollContentRef = useRef<HTMLDivElement | null>(null);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+  const userHasScrolledUpRef = useRef(false);
+  const isProgrammaticScrollingRef = useRef(false);
+  const scrollResetTimeoutRef = useRef<number | null>(null);
+  const scrollRafRef = useRef<number | null>(null);
 
   const {
     isInitializing,
@@ -562,21 +570,113 @@ export default function App() {
     }
   }, [activeWorkspace?.id]);
 
-  // Auto-scroll to bottom on message updates
-  useEffect(() => {
+  // Check if scroll is near bottom (within threshold)
+  const checkIsAtBottom = () => {
     if (scrollAreaRef.current) {
       const scrollContainer = scrollAreaRef.current;
-      const isAtBottom =
-        scrollContainer.scrollHeight - scrollContainer.scrollTop <= scrollContainer.clientHeight + 100;
-
-      if (isAtBottom) {
-        scrollContainer.scrollTo({
-          top: scrollContainer.scrollHeight,
-          behavior: "smooth",
-        });
-      }
+      const maxScrollTop = scrollContainer.scrollHeight - scrollContainer.clientHeight;
+      // Consider at bottom if within 50px of the maximum scroll position
+      return maxScrollTop - scrollContainer.scrollTop <= 50;
     }
-  }, [activeTimeline?.messages]);
+    return true;
+  };
+
+  // Handle scroll events to detect user manual scrolling
+  const handleScrollEvent = () => {
+    // Ignore scroll events triggered by programmatic scrolling
+    if (isProgrammaticScrollingRef.current) {
+      return;
+    }
+
+    const isAtBottom = checkIsAtBottom();
+    setShowScrollButton(!isAtBottom);
+
+    if (isAtBottom) {
+      userHasScrolledUpRef.current = false;
+    } else {
+      // User has scrolled up away from bottom
+      userHasScrolledUpRef.current = true;
+    }
+  };
+
+  const clearProgrammaticScrollReset = () => {
+    if (scrollResetTimeoutRef.current !== null) {
+      window.clearTimeout(scrollResetTimeoutRef.current);
+      scrollResetTimeoutRef.current = null;
+    }
+  };
+
+  const scheduleProgrammaticScrollReset = (delayMs: number) => {
+    clearProgrammaticScrollReset();
+    scrollResetTimeoutRef.current = window.setTimeout(() => {
+      isProgrammaticScrollingRef.current = false;
+      scrollResetTimeoutRef.current = null;
+      handleScrollEvent();
+    }, delayMs);
+  };
+
+  const performScrollToBottom = (behavior: ScrollBehavior = "auto") => {
+    const scrollContainer = scrollAreaRef.current;
+    if (!scrollContainer) return;
+
+    if (scrollRafRef.current !== null) {
+      window.cancelAnimationFrame(scrollRafRef.current);
+      scrollRafRef.current = null;
+    }
+
+    isProgrammaticScrollingRef.current = true;
+    scrollContainer.scrollTo({
+      top: scrollContainer.scrollHeight,
+      behavior,
+    });
+    userHasScrolledUpRef.current = false;
+    setShowScrollButton(false);
+
+    const finalize = () => {
+      scrollContainer.scrollTop = scrollContainer.scrollHeight;
+      scheduleProgrammaticScrollReset(behavior === "smooth" ? 300 : 80);
+    };
+
+    if (typeof window !== "undefined" && "requestAnimationFrame" in window) {
+      scrollRafRef.current = window.requestAnimationFrame(() => {
+        scrollRafRef.current = window.requestAnimationFrame(() => {
+          scrollRafRef.current = null;
+          finalize();
+        });
+      });
+    } else {
+      finalize();
+    }
+  };
+
+  // Scroll to bottom function
+  const scrollToBottom = () => {
+    performScrollToBottom("smooth");
+  };
+
+  // Set up scroll listener when ref is available
+  const setScrollAreaRef = (element: HTMLDivElement | null) => {
+    if (scrollAreaRef.current) {
+      scrollAreaRef.current.removeEventListener('scroll', handleScrollEvent);
+    }
+    scrollAreaRef.current = element;
+    if (element) {
+      element.addEventListener('scroll', handleScrollEvent);
+    }
+  };
+
+  // Cleanup scroll listener on unmount
+  useEffect(() => {
+    return () => {
+      clearProgrammaticScrollReset();
+      if (scrollRafRef.current !== null) {
+        window.cancelAnimationFrame(scrollRafRef.current);
+      }
+      if (scrollAreaRef.current) {
+        scrollAreaRef.current.removeEventListener('scroll', handleScrollEvent);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -651,6 +751,68 @@ export default function App() {
     null;
   const conversationStatus = statusMeta(currentConversation?.status);
   const isBusy = isSending || (conversationStatus?.pulse ?? false);
+
+  // Calculate the last agent text message ID for each turn (for copy functionality)
+  const lastAgentMessageIdsPerTurn = useMemo(() => {
+    const turnLastAgentMessages = new Map<string, string>();
+    
+    // Group messages by turn_id and find the last agent text message in each turn
+    activeTimelineItems
+      .filter((item) => item.type === 'message')
+      .forEach((item) => {
+        const msg = item.data as Types.MessageProjection;
+        if (msg.role === 'agent' && msg.kind === 'text' && msg.turn_id) {
+          // Update the last agent message for this turn (will be the last one after iteration)
+          turnLastAgentMessages.set(msg.turn_id, msg.id);
+        }
+      });
+    
+    return turnLastAgentMessages;
+  }, [activeTimelineItems]);
+
+  // Auto-scroll to bottom on message updates
+  useEffect(() => {
+    if (!scrollAreaRef.current) return;
+
+    // When agent is busy (streaming), always scroll to bottom instantly
+    if (isBusy) {
+      performScrollToBottom("auto");
+      return;
+    }
+
+    // When not busy, scroll to bottom only if user hasn't manually scrolled up
+    if (!userHasScrolledUpRef.current) {
+      performScrollToBottom("smooth");
+    }
+  }, [activeTimeline?.messages, isBusy]);
+
+  useEffect(() => {
+    const content = scrollContentRef.current;
+    if (!content) return;
+
+    const shouldStickToBottom = () => isBusy || !userHasScrolledUpRef.current;
+    const syncToBottom = () => {
+      if (!shouldStickToBottom()) return;
+      performScrollToBottom(isBusy ? "auto" : "smooth");
+    };
+
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(() => {
+        syncToBottom();
+      });
+      observer.observe(content);
+      return () => observer.disconnect();
+    }
+
+    const timer = window.setTimeout(syncToBottom, 100);
+    return () => window.clearTimeout(timer);
+  }, [isBusy, activeConversationId]);
+
+  useEffect(() => {
+    userHasScrolledUpRef.current = false;
+    setShowScrollButton(false);
+    performScrollToBottom("auto");
+  }, [activeConversationId]);
 
   useEffect(() => {
     if (activeConversationId || !activeAgentProfileId) return;
@@ -1280,10 +1442,10 @@ export default function App() {
           </div>
         ) : (
           <div 
-            ref={scrollAreaRef}
-            className="flex-1 overflow-y-auto min-w-0 w-full flex flex-col scroll-smooth [scrollbar-gutter:stable]"
+            ref={setScrollAreaRef}
+            className="relative flex-1 overflow-y-auto min-w-0 w-full flex flex-col scroll-smooth [scrollbar-gutter:stable]"
           >
-            <div className="max-w-[768px] mx-auto w-full flex-1 flex flex-col min-h-full">
+            <div ref={scrollContentRef} className="max-w-[768px] mx-auto w-full flex-1 flex flex-col min-h-full">
               <div className="flex-1 space-y-4 px-4 md:px-6 pt-4 pb-4">
                 {activeTimelineItems.map((item) => {
                   if (item.type === 'message') {
@@ -1303,6 +1465,7 @@ export default function App() {
                         key={message.id}
                         message={message}
                         terminals={activeTimeline?.terminals ?? []}
+                        lastAgentMessageIdsPerTurn={lastAgentMessageIdsPerTurn}
                       />
                     );
                   } else if (item.type === 'tool_call') {
@@ -1374,33 +1537,48 @@ export default function App() {
                     </div>
                     );
                   })}
-                <Composer
-                  input={input}
-                  setInput={setInput}
-                  attachments={attachmentStates}
-                  composerNotice={composerNotice}
-                  activeAgent={activeAgent}
-                  modelSelector={modelSelector}
-                  selectedModelValue={selectedModelValue}
-                  selectedModelLabel={selectedModelLabel}
-                  onModelChange={(value) => void handleModelChange(String(value))}
-                  isSettingModel={isSettingModel}
-                  activeModeState={activeModeState}
-                  selectedModeValue={selectedModeValue}
-                  selectedModeLabel={selectedModeLabel}
-                  onModeChange={(value) => void handleModeChange(String(value))}
-                  isSettingMode={isSettingMode}
-                  onAttachClick={() => fileInputRef.current?.click()}
-                  onDrop={handleDrop}
-                  onPaste={handlePaste}
-                  onRemoveAttachment={removeAttachment}
-                  onSend={() => void handleSend()}
-                  onKeyDown={handleKeyDown}
-                  canSend={canSend}
-                  isCompact
-                  isBusy={isBusy}
-                  onStop={() => void handleStop()}
-                />
+                <div className="relative">
+                  {showScrollButton && (
+                    <div className="pointer-events-none absolute left-1/2 bottom-full z-20 mb-3 -translate-x-1/2">
+                      <button
+                        type="button"
+                        onClick={scrollToBottom}
+                        className="pointer-events-auto p-2 rounded-full bg-pure-white border border-light-gray text-stone hover:text-pure-black hover:bg-light-gray shadow-sm transition-colors cursor-pointer"
+                        title="Scroll to bottom"
+                        aria-label="Scroll to bottom"
+                      >
+                        <ArrowDown className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                  <Composer
+                    input={input}
+                    setInput={setInput}
+                    attachments={attachmentStates}
+                    composerNotice={composerNotice}
+                    activeAgent={activeAgent}
+                    modelSelector={modelSelector}
+                    selectedModelValue={selectedModelValue}
+                    selectedModelLabel={selectedModelLabel}
+                    onModelChange={(value) => void handleModelChange(String(value))}
+                    isSettingModel={isSettingModel}
+                    activeModeState={activeModeState}
+                    selectedModeValue={selectedModeValue}
+                    selectedModeLabel={selectedModeLabel}
+                    onModeChange={(value) => void handleModeChange(String(value))}
+                    isSettingMode={isSettingMode}
+                    onAttachClick={() => fileInputRef.current?.click()}
+                    onDrop={handleDrop}
+                    onPaste={handlePaste}
+                    onRemoveAttachment={removeAttachment}
+                    onSend={() => void handleSend()}
+                    onKeyDown={handleKeyDown}
+                    canSend={canSend}
+                    isCompact
+                    isBusy={isBusy}
+                    onStop={() => void handleStop()}
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -1514,10 +1692,23 @@ export default function App() {
                           </p>
                         </div>
                       </section>
-                    )}
-                  </div>
-                </div>
+                )}
               </div>
+            </div>
+            {showScrollButton && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-6 z-20 flex justify-center px-4 md:px-6">
+                <button
+                  type="button"
+                  onClick={scrollToBottom}
+                  className="pointer-events-auto p-2 rounded-full bg-pure-white border border-light-gray text-stone hover:text-pure-black hover:bg-light-gray shadow-sm transition-colors cursor-pointer"
+                  title="Scroll to bottom"
+                  aria-label="Scroll to bottom"
+                >
+                  <ArrowDown className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
             </div>
           </div>
         </div>
@@ -1912,9 +2103,11 @@ function SidebarItem({
 function TimelineMessage({
   message,
   terminals,
+  lastAgentMessageIdsPerTurn,
 }: {
   message: Types.MessageProjection;
   terminals: Types.TerminalRecord[];
+  lastAgentMessageIdsPerTurn: Map<string, string>;
 }) {
   if (message.kind === "plan") {
     return <PlanMessage entries={Array.isArray(message.content_json?.entries) ? message.content_json.entries : []} />;
@@ -1935,6 +2128,11 @@ function TimelineMessage({
   if (message.kind === "error") {
     return <ErrorMessage content={message.content_json?.message || message.content_json?.text || ""} />;
   }
+  // Check if this is the last agent message in its turn
+  const isLastAgentInTurn = message.role === 'agent' && 
+    message.kind === 'text' && 
+    !!message.turn_id && 
+    lastAgentMessageIdsPerTurn.get(message.turn_id) === message.id;
   return (
     <Message
       role={message.role as "user" | "agent" | "assistant" | "tool" | "system"}
@@ -1942,6 +2140,8 @@ function TimelineMessage({
       attachments={Array.isArray(message.content_json?.attachments) ? message.content_json.attachments : []}
       kind={message.kind}
       contentJson={message.content_json}
+      messageId={message.id}
+      isLastAgentMessage={isLastAgentInTurn}
     />
   );
 }
@@ -1952,16 +2152,21 @@ function Message({
   attachments,
   kind,
   contentJson,
+  messageId,
+  isLastAgentMessage,
 }: {
   role: "user" | "agent" | "assistant" | "tool" | "system";
   content: string;
   attachments: Types.AttachmentInput[];
   kind?: string;
   contentJson?: any;
+  messageId?: string;
+  isLastAgentMessage?: boolean;
 }) {
   const isUser = role === "user";
   const isDiff = kind === "diff";
-  
+  const [copied, setCopied] = useState(false);
+
   // Efficiently strip tags without unnecessary state if possible
   const displayContent = useMemo(() => {
     if (isUser || isDiff || !content) return content;
@@ -1972,10 +2177,23 @@ function Message({
       .trim();
   }, [content, isUser, isDiff]);
 
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(displayContent);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      console.error("Failed to copy:", err);
+    }
+  };
+
+  // Determine if copy button should be shown
+  const showCopyButton = isUser || isLastAgentMessage;
+
   if (!displayContent && !isUser && !isDiff && attachments.length === 0) return null;
 
   return (
-    <div className={`flex w-full ${isUser ? "justify-end" : "justify-start"}`}>
+    <div className={`group flex w-full ${isUser ? "justify-end" : "justify-start"}`}>
       <div className={`flex flex-col gap-1 min-w-0 w-full ${isUser ? "max-w-[95%] md:max-w-[85%] items-end" : "items-start"} mt-0.5`}>
         <div className={`text-chat leading-relaxed break-words min-w-0 w-fit max-w-full ${isUser ? "bg-light-gray px-4 py-2 rounded-container" : "text-pure-black py-2 pl-0 pr-4"}`}>
           {isUser ? (
@@ -2020,6 +2238,21 @@ function Message({
             </div>
           )}
         </div>
+        {showCopyButton && (
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="opacity-0 group-hover:opacity-100 p-1 rounded-full text-stone hover:text-pure-black hover:bg-light-gray transition-all cursor-pointer"
+            title="Copy message"
+            aria-label={`Copy message ${messageId || ''}`}
+          >
+            {copied ? (
+              <Check className="w-3.5 h-3.5" />
+            ) : (
+              <Copy className="w-3.5 h-3.5" />
+            )}
+          </button>
+        )}
       </div>
     </div>
   );

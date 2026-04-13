@@ -1631,7 +1631,7 @@ where
     };
     let mut reader = reader.lock().await;
     let mut buf = [0_u8; 4096];
-    let read = match timeout(Duration::from_millis(20), reader.read(&mut buf)).await {
+    let read = match timeout(Duration::from_millis(5), reader.read(&mut buf)).await {
         Ok(Ok(size)) => size,
         Ok(Err(err)) => return Err(AdapterError::Io(err)),
         Err(_) => 0,
