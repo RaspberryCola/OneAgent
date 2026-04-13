@@ -596,6 +596,23 @@ impl Runtime {
         self.emit_conversation_state(&conversation_id)?;
 
         match session {
+            ManagedSession::Acp(ref session) if was_cold => {
+                // For freshly-recovered sessions, the agent's internal model
+                // resets to its default.  Re-apply the stored model selection
+                // so the turn actually runs on the user's chosen model.
+                let stored_model = self
+                    .conversation_config_options(&conversation_id)
+                    .into_iter()
+                    .find(|o| o.category.as_deref() == Some("model"))
+                    .and_then(|o| o.current_value.as_str().map(ToOwned::to_owned));
+                if let Some(model_id) = stored_model {
+                    let _ = session.set_model(&model_id).await;
+                }
+            }
+            _ => {}
+        }
+
+        match session {
             ManagedSession::Acp(session) => {
                 let (mut event_rx, mut completion_rx) =
                     session.run_turn(&text, &attachments).await?;
@@ -769,7 +786,50 @@ impl Runtime {
             }
         }
 
-        if let Some(config_options) = latest_config_options {
+        if let Some(mut config_options) = latest_config_options {
+            // The agent sends its OWN default model/mode as the currentValue in
+            // the config_option_update during session/load replay.  We must NOT
+            // let this overwrite the model/mode the user had previously chosen.
+            // Restore the user's selections from the stored snapshot.
+            let stored_opts = self.conversation_config_options(conversation_id);
+            let stored_model = stored_opts
+                .iter()
+                .find(|o| o.category.as_deref() == Some("model"))
+                .and_then(|o| o.current_value.as_str().map(ToOwned::to_owned));
+            let stored_mode = stored_opts
+                .iter()
+                .find(|o| o.category.as_deref() == Some("mode"))
+                .and_then(|o| o.current_value.as_str().map(ToOwned::to_owned));
+
+            for option in &mut config_options {
+                if option.category.as_deref() == Some("model") {
+                    if let Some(ref model) = stored_model {
+                        // Only restore if the stored model is still in the
+                        // agent's available list (avoid ghost values).
+                        let is_available = option
+                            .options
+                            .as_array()
+                            .map(|arr| arr.iter().any(|o| o.get("value").and_then(Value::as_str) == Some(model.as_str())))
+                            .unwrap_or(false);
+                        if is_available {
+                            option.current_value = Value::String(model.clone());
+                        }
+                    }
+                }
+                if option.category.as_deref() == Some("mode") {
+                    if let Some(ref mode) = stored_mode {
+                        let is_available = option
+                            .options
+                            .as_array()
+                            .map(|arr| arr.iter().any(|o| o.get("value").and_then(Value::as_str) == Some(mode.as_str())))
+                            .unwrap_or(false);
+                        if is_available {
+                            option.current_value = Value::String(mode.clone());
+                        }
+                    }
+                }
+            }
+
             self.update_snapshot_config_options(conversation_id, config_options)?;
         }
 
