@@ -103,6 +103,17 @@ export interface AcpSessionModels {
   available_models?: AcpAvailableModel[];
 }
 
+export interface AcpSessionMode {
+  id: string;
+  name: string;
+  description?: string | null;
+}
+
+export interface AcpSessionModeState {
+  current_mode_id: string;
+  available_modes: AcpSessionMode[];
+}
+
 export interface AgentCapabilities {
   protocol_version: string;
   agent_info: any;
@@ -152,6 +163,7 @@ export interface ConversationState {
   task_run?: TaskRun | null;
   config_options: SessionConfigOption[];
   models?: AcpSessionModels | null;
+  modes?: AcpSessionModeState | null;
   pending_permissions: PendingPermissionRequest[];
 }
 
@@ -328,6 +340,7 @@ export interface PreviewSessionConfigInput {
 export interface PreviewSessionConfigResult {
   config_options: SessionConfigOption[];
   models?: AcpSessionModels | null;
+  modes?: AcpSessionModeState | null;
 }
 
 export interface ImportConversationInput {
@@ -374,6 +387,11 @@ export interface SessionConfigInput {
 export interface SetModelInput {
   conversation_id: string;
   model_id: string;
+}
+
+export interface SetModeInput {
+  conversation_id: string;
+  mode_id: string;
 }
 
 export interface PersistAttachmentBlobInput {

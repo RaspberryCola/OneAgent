@@ -166,6 +166,7 @@ impl Runtime {
             task_run: None,
             config_options: handle.config_options.clone(),
             models: handle.models.clone(),
+            modes: handle.modes.clone(),
             pending_permissions: Vec::new(),
         };
         self.db.replace_snapshot(
@@ -192,6 +193,7 @@ impl Runtime {
                 let result = PreviewSessionConfigResult {
                     config_options: session.handle.config_options.clone(),
                     models: session.handle.models.clone(),
+                    modes: session.handle.modes.clone(),
                 };
                 session.close();
                 Ok(result)
@@ -204,6 +206,7 @@ impl Runtime {
                 let result = PreviewSessionConfigResult {
                     config_options: handle.config_options.clone(),
                     models: handle.models.clone(),
+            modes: handle.modes.clone(),
                 };
                 self.adapter_for(&profile).close(&profile, &handle).await?;
                 Ok(result)
@@ -281,6 +284,7 @@ impl Runtime {
             task_run: None,
             config_options: loaded.handle.config_options.clone(),
             models: loaded.handle.models.clone(),
+            modes: loaded.handle.modes.clone(),
             pending_permissions: self.db.list_pending_permissions(&conversation.id)?,
         };
         self.db.replace_snapshot(
@@ -354,6 +358,7 @@ impl Runtime {
             task_run: Some(task),
             config_options: handle.config_options.clone(),
             models: handle.models.clone(),
+            modes: handle.modes.clone(),
             pending_permissions: Vec::new(),
         };
         self.db.replace_snapshot(
@@ -611,6 +616,7 @@ impl Runtime {
                             .map(|state| state.config_options)
                             .unwrap_or_default(),
                         models: self.conversation_models(conversation_id),
+                        modes: self.conversation_modes(conversation_id),
                     };
                     self.adapter_for(&profile)
                         .close(&profile, &fallback_handle)
@@ -701,6 +707,38 @@ impl Runtime {
             }),
         );
         Ok(models)
+    }
+
+    pub async fn set_mode(&self, input: SetModeInput) -> RuntimeResult<AcpSessionModeState> {
+        let binding = self
+            .db
+            .get_binding(&input.conversation_id)?
+            .ok_or_else(|| RuntimeError::InvalidState("missing binding".to_string()))?;
+        let modes = match self.session_runtime(&input.conversation_id, binding.clone())? {
+            ManagedSession::Acp(session) => session.set_mode(&input.mode_id).await?,
+            ManagedSession::Passive(_) => {
+                return Err(RuntimeError::InvalidState(
+                    "passive session does not support mode switching".to_string(),
+                ));
+            }
+        };
+        self.record_lifecycle_event(
+            &input.conversation_id,
+            "SessionModeChanged",
+            json!({
+                "mode_id": input.mode_id
+            }),
+        )?;
+        self.update_snapshot_modes(&input.conversation_id, modes.clone())?;
+        self.emit(
+            "conversation.config_updated",
+            &json!({
+                "conversation_id": input.conversation_id,
+                "modes": modes
+            }),
+        );
+        self.emit_conversation_state(&input.conversation_id)?;
+        Ok(modes)
     }
 
     pub async fn resolve_permission_request(
@@ -796,6 +834,7 @@ impl Runtime {
                     .map(|state| state.config_options)
                     .unwrap_or_default(),
                 models: self.conversation_models(conversation_id),
+                modes: self.conversation_modes(conversation_id),
             })))
     }
 
@@ -861,6 +900,17 @@ impl Runtime {
                 serde_json::from_value::<ConversationState>(snapshot.state_json).ok()
             })
             .and_then(|state| state.models)
+    }
+
+    fn conversation_modes(&self, conversation_id: &str) -> Option<AcpSessionModeState> {
+        self.db
+            .get_snapshot(conversation_id)
+            .ok()
+            .flatten()
+            .and_then(|snapshot| {
+                serde_json::from_value::<ConversationState>(snapshot.state_json).ok()
+            })
+            .and_then(|state| state.modes)
     }
 
     fn finalize_thinking_stream(&self, conversation_id: &str, turn_id: &str) -> RuntimeResult<()> {
@@ -1476,6 +1526,7 @@ impl Runtime {
             task_run: self.db.get_task_run(conversation_id)?,
             config_options: self.conversation_config_options(conversation_id),
             models: self.conversation_models(conversation_id),
+            modes: self.conversation_modes(conversation_id),
             pending_permissions: self.db.list_pending_permissions(conversation_id)?,
         })
     }
@@ -1544,6 +1595,22 @@ impl Runtime {
     ) -> RuntimeResult<()> {
         let mut state = self.conversation_state(conversation_id)?;
         state.models = Some(models);
+        self.db.replace_snapshot(
+            conversation_id,
+            1,
+            &serde_json::to_value(&state).unwrap_or_else(|_| Value::Null),
+            state.conversation.last_event_seq,
+        )?;
+        Ok(())
+    }
+
+    fn update_snapshot_modes(
+        &self,
+        conversation_id: &str,
+        modes: AcpSessionModeState,
+    ) -> RuntimeResult<()> {
+        let mut state = self.conversation_state(conversation_id)?;
+        state.modes = Some(modes);
         self.db.replace_snapshot(
             conversation_id,
             1,

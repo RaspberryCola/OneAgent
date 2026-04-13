@@ -428,6 +428,21 @@ pub struct AcpSessionModels {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AcpSessionMode {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AcpSessionModeState {
+    #[serde(alias = "currentModeId")]
+    pub current_mode_id: String,
+    #[serde(alias = "availableModes")]
+    pub available_modes: Vec<AcpSessionMode>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentCapabilities {
     pub protocol_version: String,
     pub agent_info: serde_json::Value,
@@ -445,6 +460,8 @@ pub struct ConversationState {
     pub config_options: Vec<SessionConfigOption>,
     #[serde(default)]
     pub models: Option<AcpSessionModels>,
+    #[serde(default)]
+    pub modes: Option<AcpSessionModeState>,
     #[serde(default)]
     pub pending_permissions: Vec<PendingPermissionRequest>,
 }
@@ -513,6 +530,7 @@ pub struct PreviewSessionConfigInput {
 pub struct PreviewSessionConfigResult {
     pub config_options: Vec<SessionConfigOption>,
     pub models: Option<AcpSessionModels>,
+    pub modes: Option<AcpSessionModeState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -534,6 +552,12 @@ pub struct SessionConfigInput {
 pub struct SetModelInput {
     pub conversation_id: String,
     pub model_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetModeInput {
+    pub conversation_id: String,
+    pub mode_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

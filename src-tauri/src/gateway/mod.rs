@@ -227,6 +227,10 @@ impl Gateway {
         Ok(self.runtime.set_model(input).await?)
     }
 
+    pub async fn set_mode(&self, input: SetModeInput) -> GatewayResult<AcpSessionModeState> {
+        Ok(self.runtime.set_mode(input).await?)
+    }
+
     pub fn persist_attachment_blob(
         &self,
         input: PersistAttachmentBlobInput,

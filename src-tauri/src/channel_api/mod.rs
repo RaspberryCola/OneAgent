@@ -325,6 +325,18 @@ pub async fn set_model(
 }
 
 #[tauri::command]
+pub async fn set_mode(
+    state: State<'_, AppState>,
+    input: crate::domain::SetModeInput,
+) -> Result<crate::domain::AcpSessionModeState, BackendError> {
+    state
+        .gateway
+        .set_mode(input)
+        .await
+        .map_err(BackendError::from)
+}
+
+#[tauri::command]
 pub async fn persist_attachment_blob(
     state: State<'_, AppState>,
     input: PersistAttachmentBlobInput,

@@ -24,7 +24,7 @@ use crate::{
     },
     capability_services::agent_launch::{resolve_launch, LaunchResolutionError},
     domain::{
-        AcpAvailableModel, AcpSessionModels, AgentCapabilities, AgentProfile,
+        AcpAvailableModel, AcpSessionMode, AcpSessionModeState, AcpSessionModels, AgentCapabilities, AgentProfile,
         AgentPromptCapabilities, AgentSessionCapabilities, AttachmentDeliveryPreference,
         AttachmentInput, AttachmentKind, ExternalSession, McpServerConfig, PermissionDecisionKind,
         SessionConfigOption,
@@ -68,6 +68,10 @@ enum LiveSessionCommand {
     SetModel {
         model_id: String,
         resp: oneshot::Sender<AdapterResult<AcpSessionModels>>,
+    },
+    SetMode {
+        mode_id: String,
+        resp: oneshot::Sender<AdapterResult<AcpSessionModeState>>,
     },
     Close,
 }
@@ -211,6 +215,7 @@ impl AgentAdapter for AcpAdapter {
             ),
             config_options: parse_config_options(response.get("result")),
             models: parse_models(response.get("result")),
+            modes: parse_modes(response.get("result")),
         })
     }
 
@@ -277,6 +282,7 @@ impl AgentAdapter for AcpAdapter {
                 ),
                 config_options: parse_config_options(response_result.as_ref()),
                 models: parse_models(response_result.as_ref()),
+                modes: parse_modes(response_result.as_ref()),
             },
             replay_events,
         })
@@ -479,6 +485,7 @@ impl AcpLiveSession {
             ),
             config_options: parse_config_options(response.get("result")),
             models: parse_models(response.get("result")),
+            modes: parse_modes(response.get("result")),
         };
         Ok(spawn_live_actor(process, handle))
     }
@@ -545,6 +552,7 @@ impl AcpLiveSession {
             ),
             config_options: parse_config_options(response_result.as_ref()),
             models: parse_models(response_result.as_ref()),
+            modes: parse_modes(response_result.as_ref()),
         };
         Ok((spawn_live_actor(process, handle), replay_events))
     }
@@ -633,6 +641,19 @@ impl AcpLiveSession {
             .map_err(|_| AdapterError::Protocol("set model response dropped".to_string()))?
     }
 
+    pub async fn set_mode(&self, mode_id: &str) -> AdapterResult<AcpSessionModeState> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.command_tx
+            .send(LiveSessionCommand::SetMode {
+                mode_id: mode_id.to_string(),
+                resp: resp_tx,
+            })
+            .map_err(|_| AdapterError::Protocol("live ACP session stopped".to_string()))?;
+        resp_rx
+            .await
+            .map_err(|_| AdapterError::Protocol("set mode response dropped".to_string()))?
+    }
+
     pub fn close(&self) {
         let _ = self.command_tx.send(LiveSessionCommand::Close);
     }
@@ -714,6 +735,28 @@ fn spawn_live_actor(process: JsonRpcProcess, handle: AgentSessionHandle) -> AcpL
                                     .models
                                     .clone()
                                     .and_then(|m| m.available_models),
+                            })
+                        });
+                    let _ = resp.send(result);
+                }
+                LiveSessionCommand::SetMode { mode_id, resp } => {
+                    let result = process
+                        .request(
+                            "session/set_mode",
+                            json!({
+                                "sessionId": live_handle.remote_session_id,
+                                "modeId": mode_id
+                            }),
+                        )
+                        .await
+                        .map(|response| {
+                            let modes_from_response = parse_modes(response.get("result"));
+                            modes_from_response.unwrap_or_else(|| AcpSessionModeState {
+                                current_mode_id: mode_id.clone(),
+                                available_modes: live_handle
+                                    .modes
+                                    .clone()
+                                    .map(|m| m.available_modes).unwrap_or_default(),
                             })
                         });
                     let _ = resp.send(result);
@@ -808,6 +851,25 @@ async fn run_turn_loop(
                                 models_from_response.unwrap_or_else(|| AcpSessionModels {
                                     current_model_id: Some(model_id.clone()),
                                     available_models: handle.models.clone().and_then(|m| m.available_models),
+                                })
+                            });
+                        let _ = resp.send(result);
+                    }
+                    Some(LiveSessionCommand::SetMode { mode_id, resp }) => {
+                        let result = process
+                            .request(
+                                "session/set_mode",
+                                json!({
+                                    "sessionId": handle.remote_session_id,
+                                    "modeId": mode_id
+                                }),
+                            )
+                            .await
+                            .map(|response| {
+                                let modes_from_response = parse_modes(response.get("result"));
+                                modes_from_response.unwrap_or_else(|| AcpSessionModeState {
+                                    current_mode_id: mode_id.clone(),
+                                    available_modes: handle.modes.clone().map(|m| m.available_modes).unwrap_or_default(),
                                 })
                             });
                         let _ = resp.send(result);
@@ -1848,6 +1910,29 @@ fn parse_config_options_from_array(items: &[Value]) -> Vec<SessionConfigOption> 
 }
 
 /// Parse models from session/new or session/load response (unstable API)
+fn parse_modes(result: Option<&Value>) -> Option<AcpSessionModeState> {
+    let result = result?;
+    let current_mode_id = result.get("modes").and_then(|m| m.get("currentModeId")).and_then(Value::as_str)?;
+    let available_modes_val = result.get("modes").and_then(|m| m.get("availableModes")).and_then(Value::as_array)?;
+    let mut available_modes = Vec::new();
+    for m in available_modes_val {
+        if let (Some(id), Some(name)) = (
+            m.get("id").and_then(Value::as_str),
+            m.get("name").and_then(Value::as_str),
+        ) {
+            available_modes.push(AcpSessionMode {
+                id: id.to_string(),
+                name: name.to_string(),
+                description: m.get("description").and_then(Value::as_str).map(ToOwned::to_owned),
+            });
+        }
+    }
+    Some(AcpSessionModeState {
+        current_mode_id: current_mode_id.to_string(),
+        available_modes,
+    })
+}
+
 fn parse_models(result: Option<&Value>) -> Option<AcpSessionModels> {
     result.and_then(|value| {
         // Check top-level models first

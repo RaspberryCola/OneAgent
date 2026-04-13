@@ -295,6 +295,7 @@ interface AppState {
   deleteConversation: (conversationId: string) => Promise<void>;
   setSessionConfig: (configId: string, value: any) => Promise<void>;
   setModel: (modelId: string) => Promise<void>;
+  setMode: (modeId: string) => Promise<void>;
   cancelTurn: () => Promise<void>;
 
   // Workspace Actions
@@ -518,11 +519,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     // Separate model overrides from other config overrides
+    const modeOverrides = sessionConfigOverrides.filter(
+      (override) => override.config_id === '__mode_override__'
+    );
     const modelOverrides = sessionConfigOverrides.filter(
-      (override) => override.config_id.toLowerCase().includes('model')
+      (override) => override.config_id.toLowerCase().includes('model') && override.config_id !== '__mode_override__'
     );
     const otherConfigOverrides = sessionConfigOverrides.filter(
-      (override) => !override.config_id.toLowerCase().includes('model')
+      (override) => !override.config_id.toLowerCase().includes('model') && override.config_id !== '__mode_override__'
     );
 
     let conversationId = state.activeConversationId;
@@ -575,6 +579,19 @@ export const useAppStore = create<AppState>((set, get) => ({
           title: pendingConversation.title,
         });
         conversationId = newConvState.conversation.id;
+
+        // Apply mode overrides using setMode API
+        for (const modeOverride of modeOverrides) {
+          try {
+            const modes = await API.setMode({
+              conversation_id: conversationId,
+              mode_id: String(modeOverride.value),
+            });
+            newConvState = { ...newConvState, modes };
+          } catch (error) {
+            console.error('Failed to set mode for new conversation', error);
+          }
+        }
 
         // Apply model overrides first using setModel API
         for (const modelOverride of modelOverrides) {
@@ -892,6 +909,31 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  setMode: async (modeId: string) => {
+    const state = get();
+    if (!state.activeConversationId) return;
+    try {
+      const modes = await API.setMode({
+        conversation_id: state.activeConversationId,
+        mode_id: modeId,
+      });
+      set((s) => {
+        if (s.activeConversationState?.conversation.id === state.activeConversationId) {
+          return {
+            activeConversationState: {
+              ...s.activeConversationState,
+              modes: modes,
+            },
+          };
+        }
+        return {};
+      });
+    } catch (error) {
+      console.error('Failed to set mode', error);
+      throw error;
+    }
+  },
+
   cancelTurn: async () => {
     const state = get();
     const conversationId = state.activeConversationId;
@@ -1033,18 +1075,27 @@ export const useAppStore = create<AppState>((set, get) => ({
           c.id === payload.conversation_id ? { ...c, status: payload.state.conversation.status } : c
         );
 
-        // For activeConversationState, preserve models if payload doesn't have them or they're empty
+        // Preserve model/mode metadata if a state refresh omits unstable ACP fields.
         let newState = payload.state;
         const currentModels = state.activeConversationState?.models;
         const currentAvailableModels = currentModels?.available_models;
+        const currentModes = state.activeConversationState?.modes;
+        const currentAvailableModes = currentModes?.available_modes;
         if (state.activeConversationId === payload.conversation_id) {
           const payloadAvailableModels = payload.state.models?.available_models;
+          const payloadAvailableModes = payload.state.modes?.available_modes;
           if (currentAvailableModels && currentAvailableModels.length > 0 &&
               (!payloadAvailableModels || payloadAvailableModels.length === 0)) {
-            // Keep current models if payload has empty models but we have valid ones
             newState = {
-              ...payload.state,
+              ...newState,
               models: currentModels,
+            };
+          }
+          if (currentAvailableModes && currentAvailableModes.length > 0 &&
+              (!payloadAvailableModes || payloadAvailableModes.length === 0)) {
+            newState = {
+              ...newState,
+              modes: currentModes,
             };
           }
         }
@@ -1084,6 +1135,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           }
           if (payload.models) {
             updates.models = payload.models;
+          }
+          if (payload.modes) {
+            updates.modes = payload.modes;
           }
           if (Object.keys(updates).length > 0) {
             return {

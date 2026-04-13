@@ -21,6 +21,7 @@ import {
   Search,
   Settings,
   Terminal,
+  ToggleLeft,
   Trash2,
   X,
 } from "lucide-react";
@@ -71,6 +72,8 @@ type ModelSelectorState = {
 const MODEL_CONFIG_CACHE_KEY = "oneagent.model-config-cache.v1";
 const MODEL_MODELS_CACHE_KEY = "oneagent.model-metadata-cache.v1";
 const MODEL_SELECTION_CACHE_KEY = "oneagent.model-selection-cache.v1";
+const MODE_CACHE_KEY = "oneagent.mode-metadata-cache.v1";
+const MODE_SELECTION_CACHE_KEY = "oneagent.mode-selection-cache.v1";
 
 const markdownComponents = {
   p: ({ children }: any) => <p className="mb-1 last:mb-0">{children}</p>,
@@ -301,6 +304,10 @@ function modelChoiceId(model: Types.AcpAvailableModel): string {
   return model.id ?? model.model_id ?? "";
 }
 
+function modeDisplayLabel(mode: Pick<Types.AcpSessionMode, "id" | "name">): string {
+  return mode.name?.trim() || mode.id?.trim() || "Mode";
+}
+
 function buildModelSelectorState(
   configOptions: Types.SessionConfigOption[],
   models?: Types.AcpSessionModels | null
@@ -498,6 +505,9 @@ export default function App() {
   const [isSettingModel, setIsSettingModel] = useState(false);
   const [draftConfigOptions, setDraftConfigOptions] = useState<Types.SessionConfigOption[]>([]);
   const [draftModels, setDraftModels] = useState<Types.AcpSessionModels | null>(null);
+  const [draftModes, setDraftModes] = useState<Types.AcpSessionModeState | null>(null);
+  const [pendingModeValue, setPendingModeValue] = useState<string | null>(null);
+  const [isSettingMode, setIsSettingMode] = useState(false);
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(new Set());
   const [permissionDecisions, setPermissionDecisions] = useState<Types.PermissionDecision[]>([]);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -528,6 +538,7 @@ export default function App() {
     sendMessage,
     deleteConversation,
     setSessionConfig,
+    setMode,
     cancelTurn,
     switchWorkspace,
     pickWorkspace,
@@ -650,8 +661,11 @@ export default function App() {
       readJsonStorage<Record<string, Types.SessionConfigOption[]>>(MODEL_CONFIG_CACHE_KEY)?.[activeAgentProfileId] ?? [];
     const cachedModels =
       readJsonStorage<Record<string, Types.AcpSessionModels | null>>(MODEL_MODELS_CACHE_KEY)?.[activeAgentProfileId] ?? null;
+    const cachedModes =
+      readJsonStorage<Record<string, Types.AcpSessionModeState | null>>(MODE_CACHE_KEY)?.[activeAgentProfileId] ?? null;
     setDraftConfigOptions(cachedConfig);
     setDraftModels(cachedModels);
+    setDraftModes(cachedModes);
 
     let cancelled = false;
     void API.previewSessionConfig({
@@ -661,9 +675,10 @@ export default function App() {
       .then((result) => {
         if (cancelled) return;
         // Only update if we got actual data, otherwise keep cached values
-        if (result.config_options.length > 0 || result.models?.available_models?.length) {
+        if (result.config_options.length > 0 || result.models?.available_models?.length || result.modes?.available_modes?.length) {
           setDraftConfigOptions(result.config_options);
           setDraftModels(result.models ?? null);
+          setDraftModes(result.modes ?? null);
           const nextConfigCache = {
             ...(readJsonStorage<Record<string, Types.SessionConfigOption[]>>(MODEL_CONFIG_CACHE_KEY) ?? {}),
             [activeAgentProfileId]: result.config_options,
@@ -672,8 +687,13 @@ export default function App() {
             ...(readJsonStorage<Record<string, Types.AcpSessionModels | null>>(MODEL_MODELS_CACHE_KEY) ?? {}),
             [activeAgentProfileId]: result.models ?? null,
           };
+          const nextModesCache = {
+            ...(readJsonStorage<Record<string, Types.AcpSessionModeState | null>>(MODE_CACHE_KEY) ?? {}),
+            [activeAgentProfileId]: result.modes ?? null,
+          };
           writeJsonStorage(MODEL_CONFIG_CACHE_KEY, nextConfigCache);
           writeJsonStorage(MODEL_MODELS_CACHE_KEY, nextModelsCache);
+          writeJsonStorage(MODE_CACHE_KEY, nextModesCache);
         }
       })
       .catch((error) => {
@@ -740,10 +760,15 @@ export default function App() {
       delivery_preference: resolution.deliveryPreference,
     }));
     const text = input.trim();
-    const sessionConfigOverrides =
-      !activeConversationId && modelSelector && selectedModelValue && selectedModelValue !== modelSelector.selectedValue
-        ? [{ config_id: modelSelector.option.id, value: selectedModelValue }]
-        : [];
+    const sessionConfigOverrides: Array<{ config_id: string; value: any }> = [];
+    if (!activeConversationId) {
+      if (modelSelector && selectedModelValue && selectedModelValue !== modelSelector.selectedValue) {
+        sessionConfigOverrides.push({ config_id: modelSelector.option.id, value: selectedModelValue });
+      }
+      if (activeModeState && selectedModeValue && selectedModeValue !== activeModeState.current_mode_id) {
+        sessionConfigOverrides.push({ config_id: "__mode_override__", value: selectedModeValue });
+      }
+    }
     setAttachments([]);
     setInput("");
     setComposerNotice(null);
@@ -875,6 +900,45 @@ export default function App() {
     } finally {
       setIsSettingModel(false);
       setPendingModelValue(null);
+    }
+  };
+
+  const activeModeState = activeConversationId ? activeConversationState?.modes : draftModes;
+  const draftModeSelections =
+    readJsonStorage<Record<string, { value: string }>>(MODE_SELECTION_CACHE_KEY) ?? {};
+  const draftModeSelectedValue =
+    !activeConversationId && activeAgentProfileId ? draftModeSelections[activeAgentProfileId]?.value ?? null : null;
+  const selectedModeValue = pendingModeValue ?? (activeConversationId ? activeModeState?.current_mode_id : draftModeSelectedValue) ?? activeModeState?.current_mode_id ?? null;
+  const selectedMode =
+    activeModeState?.available_modes?.find((mode) => mode.id === selectedModeValue) ?? null;
+  const selectedModeLabel = selectedMode ? modeDisplayLabel(selectedMode) : selectedModeValue ?? null;
+
+  const handleModeChange = async (value: string) => {
+    if (isSettingMode || value === selectedModeValue || !activeModeState) return;
+    if (!activeConversationId) {
+      if (!activeAgentProfileId) return;
+      const nextSelections = {
+        ...(readJsonStorage<Record<string, { value: string }>>(MODE_SELECTION_CACHE_KEY) ?? {}),
+        [activeAgentProfileId]: { value },
+      };
+      writeJsonStorage(MODE_SELECTION_CACHE_KEY, nextSelections);
+      setPendingModeValue(value);
+      window.setTimeout(() => setPendingModeValue(null), 0);
+      return;
+    }
+    const previousValue = selectedModeValue ? String(selectedModeValue) : null;
+    setPendingModeValue(value);
+    setIsSettingMode(true);
+    setComposerNotice(null);
+    try {
+      await setMode(value);
+    } catch (error) {
+      console.error("Failed to set mode", error);
+      setPendingModeValue(previousValue);
+      setComposerNotice("Failed to switch mode.");
+    } finally {
+      setIsSettingMode(false);
+      setPendingModeValue(null);
     }
   };
 
@@ -1186,6 +1250,11 @@ export default function App() {
                     selectedModelLabel={selectedModelLabel}
                     onModelChange={(value) => void handleModelChange(String(value))}
                     isSettingModel={isSettingModel}
+                    activeModeState={activeModeState}
+                    selectedModeValue={selectedModeValue}
+                    selectedModeLabel={selectedModeLabel}
+                    onModeChange={(value) => void handleModeChange(String(value))}
+                    isSettingMode={isSettingMode}
                     onAttachClick={() => fileInputRef.current?.click()}
                     onWorkspaceClick={isWorkspaceLocked ? undefined : () => void pickWorkspace()}
                     workspaceLocked={isWorkspaceLocked}
@@ -1313,6 +1382,11 @@ export default function App() {
                   selectedModelLabel={selectedModelLabel}
                   onModelChange={(value) => void handleModelChange(String(value))}
                   isSettingModel={isSettingModel}
+                  activeModeState={activeModeState}
+                  selectedModeValue={selectedModeValue}
+                  selectedModeLabel={selectedModeLabel}
+                  onModeChange={(value) => void handleModeChange(String(value))}
+                  isSettingMode={isSettingMode}
                   onAttachClick={() => fileInputRef.current?.click()}
                   onWorkspaceClick={isWorkspaceLocked ? undefined : () => void pickWorkspace()}
                   workspaceLocked={isWorkspaceLocked}
@@ -1488,6 +1562,11 @@ function Composer({
   selectedModelLabel,
   onModelChange,
   isSettingModel,
+  activeModeState,
+  selectedModeValue,
+  selectedModeLabel,
+  onModeChange,
+  isSettingMode,
   onAttachClick,
   onWorkspaceClick,
   workspaceLocked,
@@ -1512,6 +1591,11 @@ function Composer({
   selectedModelLabel: string | null;
   onModelChange: (value: any) => void;
   isSettingModel: boolean;
+  activeModeState?: Types.AcpSessionModeState | null;
+  selectedModeValue?: any;
+  selectedModeLabel?: string | null;
+  onModeChange?: (value: any) => void;
+  isSettingMode?: boolean;
   onAttachClick: () => void;
   onWorkspaceClick?: () => void;
   workspaceLocked?: boolean;
@@ -1526,8 +1610,10 @@ function Composer({
   onStop: () => void;
 }) {
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
+  const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
   const choices = modelSelector?.choices ?? [];
   const selectedChoice = choices.find(c => String(c.value) === String(selectedModelValue));
+  const modeChoices = activeModeState?.available_modes ?? [];
 
   return (
     <div
@@ -1663,6 +1749,59 @@ function Composer({
               </div>
             )}
           </div>
+
+          {activeModeState && activeModeState.available_modes?.length > 0 && onModeChange && (
+            <div className="relative">
+              <button
+                onClick={() => !isSettingMode && setIsModeMenuOpen(!isModeMenuOpen)}
+                disabled={isSettingMode}
+                className={`flex items-center gap-1.5 ${isCompact ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-small"} text-stone bg-pure-white border border-light-gray rounded-pill transition-colors select-none ${
+                  !isSettingMode ? "hover:text-pure-black hover:bg-snow" : "opacity-60 cursor-not-allowed"
+                }`}
+              >
+                {isSettingMode ? <Loader2 className={isCompact ? "w-3 h-3 animate-spin" : "w-3.5 h-3.5 animate-spin"} /> : <ToggleLeft className={isCompact ? "w-3 h-3" : "w-3.5 h-3.5"} />}
+                <span className="truncate max-w-[150px] font-medium">
+                  {selectedModeLabel ?? selectedModeValue ?? "Select Mode"}
+                </span>
+                <ChevronDown className={`${isCompact ? "w-2.5 h-2.5" : "w-3 h-3"} transition-transform ${isModeMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              <AnimatePresence>
+                {isModeMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-[60]" onClick={() => setIsModeMenuOpen(false)} />
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95, y: 5 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95, y: 5 }}
+                      className="absolute bottom-full left-0 mb-2 w-max min-w-[220px] max-w-[320px] max-h-[300px] overflow-y-auto bg-pure-white border border-light-gray rounded-container z-[70] p-1.5 scrollbar-thin"
+                    >
+                      {modeChoices.map((choice) => (
+                        <button
+                          key={choice.id}
+                          onClick={() => {
+                            onModeChange(choice.id);
+                            setIsModeMenuOpen(false);
+                          }}
+                          title={choice.description ?? choice.name}
+                          className={`w-full text-left px-3 py-2 text-[13px] transition-colors flex items-center justify-between gap-4 ${
+                            String(choice.id) === String(selectedModeValue)
+                              ? 'bg-light-gray text-pure-black font-medium'
+                              : 'text-near-black hover:bg-snow'
+                          }`}
+                        >
+                          <span className="truncate">{modeDisplayLabel(choice)}</span>
+                          {String(choice.id) === String(selectedModeValue) && (
+                            <div className="w-1.5 h-1.5 rounded-full bg-pure-black shrink-0" />
+                          )}
+                        </button>
+                      ))}
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
 
           <button
             onClick={onWorkspaceClick}

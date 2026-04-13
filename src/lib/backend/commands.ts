@@ -108,6 +108,10 @@ export async function setModel(input: Types.SetModelInput): Promise<Types.AcpSes
   return invoke('set_model', { input });
 }
 
+export async function setMode(input: Types.SetModeInput): Promise<Types.AcpSessionModeState> {
+  return invoke('set_mode', { input });
+}
+
 export async function persistAttachmentBlob(input: Types.PersistAttachmentBlobInput): Promise<Types.PersistAttachmentBlobOutput> {
   return invoke('persist_attachment_blob', { input });
 }
