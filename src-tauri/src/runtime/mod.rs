@@ -37,6 +37,7 @@ pub struct Runtime {
     policy_engine: PolicyEngine,
     emitter: Arc<Mutex<Option<EventEmitter>>>,
     sessions: Arc<Mutex<HashMap<String, ManagedSession>>>,
+    runtime_states: Arc<Mutex<HashMap<String, ConversationRuntimeState>>>,
     streaming_messages: Arc<Mutex<HashMap<String, ActiveStreamMessage>>>,
 }
 
@@ -66,6 +67,7 @@ impl Runtime {
             db,
             emitter: Arc::new(Mutex::new(None)),
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            runtime_states: Arc::new(Mutex::new(HashMap::new())),
             streaming_messages: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -76,6 +78,75 @@ impl Runtime {
 
     pub fn is_session_in_memory(&self, conversation_id: &str) -> bool {
         self.sessions.lock().contains_key(conversation_id)
+    }
+
+    fn default_runtime_state(&self, conversation_id: &str) -> ConversationRuntimeState {
+        let session_phase = if self.is_session_in_memory(conversation_id) {
+            SessionPhase::Hot
+        } else {
+            SessionPhase::Cold
+        };
+        let connection_phase = if session_phase == SessionPhase::Hot {
+            ConnectionPhase::Ready
+        } else {
+            ConnectionPhase::Disconnected
+        };
+        ConversationRuntimeState {
+            connection_phase,
+            session_phase,
+            turn_phase: TurnPhase::Idle,
+            last_error: None,
+            last_transition_at: Utc::now(),
+        }
+    }
+
+    fn runtime_state(&self, conversation_id: &str) -> ConversationRuntimeState {
+        self.runtime_states
+            .lock()
+            .get(conversation_id)
+            .cloned()
+            .unwrap_or_else(|| self.default_runtime_state(conversation_id))
+    }
+
+    fn derive_display_status(runtime: &ConversationRuntimeState) -> ConversationStatus {
+        match runtime.turn_phase {
+            TurnPhase::Cancelling => ConversationStatus::Cancelling,
+            TurnPhase::Failed => ConversationStatus::Failed,
+            TurnPhase::Running => ConversationStatus::Running,
+            TurnPhase::Idle => match runtime.session_phase {
+                SessionPhase::Loading => ConversationStatus::Recovering,
+                SessionPhase::Hot => ConversationStatus::Connected,
+                SessionPhase::Cold => match runtime.connection_phase {
+                    ConnectionPhase::Initializing => ConversationStatus::Initializing,
+                    ConnectionPhase::Disconnected | ConnectionPhase::Ready => ConversationStatus::Sleep,
+                },
+            },
+        }
+    }
+
+    fn set_runtime_state(
+        &self,
+        conversation_id: &str,
+        mut runtime: ConversationRuntimeState,
+    ) -> RuntimeResult<()> {
+        runtime.last_transition_at = Utc::now();
+        self.runtime_states
+            .lock()
+            .insert(conversation_id.to_string(), runtime.clone());
+        self.db.update_conversation_status(
+            conversation_id,
+            Self::derive_display_status(&runtime),
+        )?;
+        Ok(())
+    }
+
+    fn update_runtime_state<F>(&self, conversation_id: &str, update: F) -> RuntimeResult<()>
+    where
+        F: FnOnce(&mut ConversationRuntimeState),
+    {
+        let mut runtime = self.runtime_state(conversation_id);
+        update(&mut runtime);
+        self.set_runtime_state(conversation_id, runtime)
     }
 
     pub async fn probe_agent_profile(&self, profile_id: &str) -> RuntimeResult<AgentCapabilities> {
@@ -162,10 +233,19 @@ impl Runtime {
             "ConversationCreated",
             json!({ "origin": "oneagent_managed" }),
         )?;
-        self.db
-            .update_conversation_status(&conversation.id, ConversationStatus::Connected)?;
+        self.set_runtime_state(
+            &conversation.id,
+            ConversationRuntimeState {
+                connection_phase: ConnectionPhase::Ready,
+                session_phase: SessionPhase::Hot,
+                turn_phase: TurnPhase::Idle,
+                last_error: None,
+                last_transition_at: Utc::now(),
+            },
+        )?;
         let state = ConversationState {
             conversation: self.db.get_conversation(&conversation.id)?,
+            runtime: self.runtime_state(&conversation.id),
             binding: Some(binding),
             task_run: None,
             config_options: handle.config_options.clone(),
@@ -280,10 +360,19 @@ impl Runtime {
             json!({ "remote_session_id": remote_session_id }),
         )?;
         self.apply_replay_events(&conversation.id, &loaded).await?;
-        self.db
-            .update_conversation_status(&conversation.id, ConversationStatus::Connected)?;
+        self.set_runtime_state(
+            &conversation.id,
+            ConversationRuntimeState {
+                connection_phase: ConnectionPhase::Ready,
+                session_phase: SessionPhase::Hot,
+                turn_phase: TurnPhase::Idle,
+                last_error: None,
+                last_transition_at: Utc::now(),
+            },
+        )?;
         let state = ConversationState {
             conversation: self.db.get_conversation(&conversation.id)?,
+            runtime: self.runtime_state(&conversation.id),
             binding: Some(binding),
             task_run: None,
             config_options: loaded.handle.config_options.clone(),
@@ -352,12 +441,21 @@ impl Runtime {
             "TaskRunCreated",
             json!({ "goal": input.goal }),
         )?;
-        self.db
-            .update_conversation_status(&conversation.id, ConversationStatus::Connected)?;
+        self.set_runtime_state(
+            &conversation.id,
+            ConversationRuntimeState {
+                connection_phase: ConnectionPhase::Ready,
+                session_phase: SessionPhase::Hot,
+                turn_phase: TurnPhase::Idle,
+                last_error: None,
+                last_transition_at: Utc::now(),
+            },
+        )?;
         self.db
             .update_task_run(&conversation.id, TaskRunStatus::Running, None)?;
         let state = ConversationState {
             conversation: self.db.get_conversation(&conversation.id)?,
+            runtime: self.runtime_state(&conversation.id),
             binding: Some(binding),
             task_run: Some(task),
             config_options: handle.config_options.clone(),
@@ -382,10 +480,8 @@ impl Runtime {
         attachments: Vec<AttachmentInput>,
     ) -> RuntimeResult<TimelineResponse> {
         let conversation = self.db.get_conversation(conversation_id)?;
-        if matches!(
-            conversation.status,
-            ConversationStatus::Running | ConversationStatus::Cancelling
-        ) {
+        let current_runtime = self.runtime_state(conversation_id);
+        if matches!(current_runtime.turn_phase, TurnPhase::Running | TurnPhase::Cancelling) {
             return Err(RuntimeError::InvalidState(
                 "conversation already has an active turn".to_string(),
             ));
@@ -394,19 +490,19 @@ impl Runtime {
         let binding = self.db.get_binding(conversation_id)?.ok_or_else(|| {
             RuntimeError::InvalidState("conversation is missing agent session binding".to_string())
         })?;
-        
-        // Check if session is in memory (hot) or needs recovery (cold)
-        let is_session_in_memory = self.is_session_in_memory(conversation_id);
-        let initial_status = if is_session_in_memory {
-            ConversationStatus::Connected  // Hot: stay connected, will change to Running in run_turn_task
-        } else if matches!(conversation.status, ConversationStatus::Sleep) {
-            ConversationStatus::Recovering  // Cold: recovering, will change to Running after load
-        } else {
-            ConversationStatus::Initializing
-        };
-        
-        self.db
-            .update_conversation_status(conversation_id, initial_status)?;
+
+        let is_hot = self.is_session_in_memory(conversation_id);
+        self.update_runtime_state(conversation_id, |runtime| {
+            runtime.last_error = None;
+            runtime.turn_phase = TurnPhase::Idle;
+            if is_hot {
+                runtime.connection_phase = ConnectionPhase::Ready;
+                runtime.session_phase = SessionPhase::Hot;
+            } else {
+                runtime.connection_phase = ConnectionPhase::Disconnected;
+                runtime.session_phase = SessionPhase::Loading;
+            }
+        })?;
         let turn_id = Uuid::new_v4().to_string();
         self.record_lifecycle_event(
             conversation_id,
@@ -472,13 +568,20 @@ impl Runtime {
         text: String,
         attachments: Vec<AttachmentInput>,
     ) -> RuntimeResult<()> {
-        match self.session_runtime(&conversation_id, binding.clone())? {
+        let session = self
+            .ensure_live_session(&conversation_id, &profile, &binding)
+            .await?;
+        let keep_hot_session = matches!(session, ManagedSession::Acp(_));
+        self.update_runtime_state(&conversation_id, |runtime| {
+            runtime.connection_phase = ConnectionPhase::Ready;
+            runtime.session_phase = SessionPhase::Hot;
+            runtime.turn_phase = TurnPhase::Running;
+            runtime.last_error = None;
+        })?;
+        self.emit_conversation_state(&conversation_id)?;
+
+        match session {
             ManagedSession::Acp(session) => {
-                // Session already in memory, send running status and start prompt
-                self.apply_stream_event(&conversation_id, &turn_id, RuntimeStreamEvent::StateChanged {
-                    status: "running".to_string(),
-                }).await?;
-                
                 let (mut event_rx, mut completion_rx) =
                     session.run_turn(&text, &attachments).await?;
                 loop {
@@ -499,71 +602,30 @@ impl Runtime {
                 }
             }
             ManagedSession::Passive(handle) => {
-                // For ACP agents with load support, recover session to memory for streaming
-                if profile.kind == AgentKind::Acp && handle.load_supported {
-                    let workspace = self.db.get_conversation(&conversation_id)?.workspace_id;
-                    let workspace = self.db.get_workspace(&workspace)?;
-                    let mcp_servers = self.mcp_registry.list_for_workspace(&workspace.id)?;
-                    
-                    // Load session (recovering status already set in prompt method)
-                    let (session, replay_events) = AcpLiveSession::start_loaded(
-                        &profile,
-                        &handle.remote_session_id,
-                        &handle.cwd,
-                        &mcp_servers,
-                    ).await?;
-
-                    // The conversation timeline is already persisted locally for cold-started
-                    // sessions. Replaying session/load history here only delays recovery and can
-                    // collapse prior turns into a synthetic streaming message before the new prompt.
-                    self.record_lifecycle_event(
-                        &conversation_id,
-                        "ConversationReplaySkippedDuringRecovery",
-                        json!({ "replayed_events": replay_events.len() }),
-                    )?;
-
-                    // Store session in memory
-                    self.sessions.lock().insert(conversation_id.clone(), ManagedSession::Acp(session.clone()));
-                    
-                    // Load complete, now send running status before prompt
-                    self.apply_stream_event(&conversation_id, &turn_id, RuntimeStreamEvent::StateChanged {
-                        status: "running".to_string(),
-                    }).await?;
-                    
-                    // Now run the turn with streaming
-                    let (mut event_rx, mut completion_rx) = session.run_turn(&text, &attachments).await?;
-                    loop {
-                        tokio::select! {
-                            maybe_event = event_rx.recv() => {
-                                if let Some(event) = maybe_event {
-                                    self.apply_stream_event(&conversation_id, &turn_id, event).await?;
-                                }
-                            }
-                            result = &mut completion_rx => {
-                                result.map_err(|_| RuntimeError::InvalidState("prompt completion channel dropped".to_string()))??;
-                                while let Ok(event) = event_rx.try_recv() {
-                                    self.apply_stream_event(&conversation_id, &turn_id, event).await?;
-                                }
-                                break;
-                            }
-                        }
-                    }
-                } else {
-                    // Fallback to non-streaming for non-ACP or non-loadable agents
-                    let stream = self
-                        .adapter_for(&profile)
-                        .prompt(&profile, &handle, &text, &attachments)
+                let stream = self
+                    .adapter_for(&profile)
+                    .prompt(&profile, &handle, &text, &attachments)
+                    .await?;
+                for event in stream {
+                    self.apply_stream_event(&conversation_id, &turn_id, event)
                         .await?;
-                    for event in stream {
-                        self.apply_stream_event(&conversation_id, &turn_id, event)
-                            .await?;
-                    }
                 }
             }
         }
 
-        self.db
-            .update_conversation_status(&conversation_id, ConversationStatus::Connected)?;
+        self.update_runtime_state(&conversation_id, |runtime| {
+            runtime.connection_phase = if keep_hot_session || self.is_session_in_memory(&conversation_id) {
+                ConnectionPhase::Ready
+            } else {
+                ConnectionPhase::Disconnected
+            };
+            runtime.session_phase = if keep_hot_session || self.is_session_in_memory(&conversation_id) {
+                SessionPhase::Hot
+            } else {
+                SessionPhase::Cold
+            };
+            runtime.turn_phase = TurnPhase::Idle;
+        })?;
         let timeline = self.timeline(&conversation_id)?;
         let state = self.conversation_state(&conversation_id)?;
         self.db.replace_snapshot(
@@ -589,13 +651,96 @@ impl Runtime {
         Ok(())
     }
 
+    async fn ensure_live_session(
+        &self,
+        conversation_id: &str,
+        profile: &AgentProfile,
+        binding: &AgentSessionBinding,
+    ) -> RuntimeResult<ManagedSession> {
+        match self.session_runtime(conversation_id, binding.clone())? {
+            ManagedSession::Acp(session) => Ok(ManagedSession::Acp(session)),
+            ManagedSession::Passive(handle) => {
+                if profile.kind == AgentKind::Acp && handle.load_supported {
+                    self.record_lifecycle_event(
+                        conversation_id,
+                        "ConversationRecoveryStarted",
+                        json!({ "remote_session_id": handle.remote_session_id }),
+                    )?;
+                    let workspace_id = self.db.get_conversation(conversation_id)?.workspace_id;
+                    let workspace = self.db.get_workspace(&workspace_id)?;
+                    let mcp_servers = self.mcp_registry.list_for_workspace(&workspace.id)?;
+                    let (session, replay_events) = AcpLiveSession::start_loaded(
+                        profile,
+                        &handle.remote_session_id,
+                        &handle.cwd,
+                        &mcp_servers,
+                    )
+                    .await?;
+                    self.consume_replay_events_for_recovery(conversation_id, replay_events)?;
+                    let managed = ManagedSession::Acp(session.clone());
+                    self.sessions
+                        .lock()
+                        .insert(conversation_id.to_string(), managed.clone());
+                    self.record_lifecycle_event(
+                        conversation_id,
+                        "ConversationRecoveryCompleted",
+                        json!({ "remote_session_id": handle.remote_session_id }),
+                    )?;
+                    Ok(managed)
+                } else {
+                    Ok(ManagedSession::Passive(handle))
+                }
+            }
+        }
+    }
+
+    fn consume_replay_events_for_recovery(
+        &self,
+        conversation_id: &str,
+        replay_events: Vec<RuntimeStreamEvent>,
+    ) -> RuntimeResult<()> {
+        let mut replay_count = 0_u64;
+        let mut latest_config_options: Option<Vec<SessionConfigOption>> = None;
+
+        for event in replay_events {
+            replay_count += 1;
+            if let RuntimeStreamEvent::ConfigOptionsUpdated { config_options } = event {
+                latest_config_options = Some(config_options);
+            }
+        }
+
+        if let Some(config_options) = latest_config_options {
+            self.update_snapshot_config_options(conversation_id, config_options)?;
+        }
+
+        self.record_lifecycle_event(
+            conversation_id,
+            "ConversationReplayConsumedDuringRecovery",
+            json!({ "replayed_events": replay_count }),
+        )?;
+        Ok(())
+    }
+
     async fn handle_turn_task_error(
         &self,
         conversation_id: &str,
         error: &RuntimeError,
     ) -> RuntimeResult<()> {
-        self.db
-            .update_conversation_status(conversation_id, ConversationStatus::Failed)?;
+        let is_hot = self.is_session_in_memory(conversation_id);
+        self.update_runtime_state(conversation_id, |runtime| {
+            runtime.connection_phase = if is_hot {
+                ConnectionPhase::Ready
+            } else {
+                ConnectionPhase::Disconnected
+            };
+            runtime.session_phase = if is_hot {
+                SessionPhase::Hot
+            } else {
+                SessionPhase::Cold
+            };
+            runtime.turn_phase = TurnPhase::Failed;
+            runtime.last_error = Some(error.to_string());
+        })?;
         let message = MessageProjection {
             id: Uuid::new_v4().to_string(),
             conversation_id: conversation_id.to_string(),
@@ -621,6 +766,22 @@ impl Runtime {
             .db
             .get_binding(conversation_id)?
             .ok_or_else(|| RuntimeError::InvalidState("missing binding".to_string()))?;
+        let is_hot_before_cancel = self.is_session_in_memory(conversation_id);
+        self.update_runtime_state(conversation_id, |runtime| {
+            runtime.connection_phase = if is_hot_before_cancel {
+                ConnectionPhase::Ready
+            } else {
+                ConnectionPhase::Disconnected
+            };
+            runtime.session_phase = if is_hot_before_cancel {
+                SessionPhase::Hot
+            } else {
+                SessionPhase::Cold
+            };
+            runtime.turn_phase = TurnPhase::Cancelling;
+            runtime.last_error = None;
+        })?;
+        self.emit_conversation_state(conversation_id)?;
         match self.session_runtime(conversation_id, binding.clone())? {
             ManagedSession::Acp(session) => session.cancel().await?,
             ManagedSession::Passive(handle) => {
@@ -644,8 +805,21 @@ impl Runtime {
                 &json!({ "conversation_id": conversation_id, "task_run": self.db.get_task_run(conversation_id)? }),
             );
         }
-        self.db
-            .update_conversation_status(conversation_id, ConversationStatus::Cancelled)?;
+        self.update_runtime_state(conversation_id, |runtime| {
+            let is_hot = self.is_session_in_memory(conversation_id);
+            runtime.connection_phase = if is_hot {
+                ConnectionPhase::Ready
+            } else {
+                ConnectionPhase::Disconnected
+            };
+            runtime.session_phase = if is_hot {
+                SessionPhase::Hot
+            } else {
+                SessionPhase::Cold
+            };
+            runtime.turn_phase = TurnPhase::Idle;
+            runtime.last_error = None;
+        })?;
         self.record_lifecycle_event(conversation_id, "TurnCancelled", json!({}))?;
         self.emit(
             "conversation.turn_finished",
@@ -658,6 +832,7 @@ impl Runtime {
     pub async fn delete_conversation(&self, conversation_id: &str) -> RuntimeResult<()> {
         let conversation = self.db.get_conversation(conversation_id)?;
         let managed_session = self.sessions.lock().remove(conversation_id);
+        self.runtime_states.lock().remove(conversation_id);
         if let Some(binding) = self.db.get_binding(conversation_id)? {
             let profile = self.db.get_agent_profile(&conversation.agent_profile_id)?;
             match managed_session {
@@ -1055,12 +1230,18 @@ impl Runtime {
         match event {
             RuntimeStreamEvent::StateChanged { status } => {
                 self.finalize_thinking_stream(conversation_id, turn_id)?;
-                
-                // Update conversation status based on stream event
                 if status == "running" {
-                    self.db.update_conversation_status(conversation_id, ConversationStatus::Running)?;
+                    self.update_runtime_state(conversation_id, |runtime| {
+                        runtime.connection_phase = ConnectionPhase::Ready;
+                        runtime.session_phase = if self.is_session_in_memory(conversation_id) {
+                            SessionPhase::Hot
+                        } else {
+                            SessionPhase::Cold
+                        };
+                        runtime.turn_phase = TurnPhase::Running;
+                        runtime.last_error = None;
+                    })?;
                 }
-                
                 self.record_lifecycle_event(
                     conversation_id,
                     "ConversationStateChanged",
@@ -1600,6 +1781,7 @@ impl Runtime {
     pub fn conversation_state(&self, conversation_id: &str) -> RuntimeResult<ConversationState> {
         Ok(ConversationState {
             conversation: self.db.get_conversation(conversation_id)?,
+            runtime: self.runtime_state(conversation_id),
             binding: self.db.get_binding(conversation_id)?,
             task_run: self.db.get_task_run(conversation_id)?,
             config_options: self.conversation_config_options(conversation_id),

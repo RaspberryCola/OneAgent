@@ -70,6 +70,41 @@ pub enum ConversationStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+pub enum ConnectionPhase {
+    Disconnected,
+    Initializing,
+    Ready,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionPhase {
+    Cold,
+    Loading,
+    Hot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TurnPhase {
+    Idle,
+    Running,
+    Cancelling,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConversationRuntimeState {
+    pub connection_phase: ConnectionPhase,
+    pub session_phase: SessionPhase,
+    pub turn_phase: TurnPhase,
+    #[serde(default)]
+    pub last_error: Option<String>,
+    pub last_transition_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum AgentSessionSource {
     Discovered,
     New,
@@ -457,6 +492,7 @@ pub struct AgentCapabilities {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationState {
     pub conversation: Conversation,
+    pub runtime: ConversationRuntimeState,
     pub binding: Option<AgentSessionBinding>,
     pub task_run: Option<TaskRun>,
     #[serde(default)]

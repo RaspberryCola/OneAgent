@@ -122,6 +122,14 @@ export interface AgentCapabilities {
   raw: any;
 }
 
+export interface ConversationRuntimeState {
+  connection_phase: 'disconnected' | 'initializing' | 'ready';
+  session_phase: 'cold' | 'loading' | 'hot';
+  turn_phase: 'idle' | 'running' | 'cancelling' | 'failed';
+  last_error?: string | null;
+  last_transition_at: string;
+}
+
 export interface Conversation {
   id: string;
   workspace_id: string;
@@ -145,6 +153,17 @@ export interface AgentSessionBinding {
   last_synced_at: string;
 }
 
+export interface ConversationState {
+  conversation: Conversation;
+  runtime: ConversationRuntimeState;
+  binding?: AgentSessionBinding | null;
+  task_run?: TaskRun | null;
+  config_options: SessionConfigOption[];
+  models?: AcpSessionModels | null;
+  modes?: AcpSessionModeState | null;
+  pending_permissions: PendingPermissionRequest[];
+}
+
 export interface TaskRun {
   id: string;
   conversation_id: string;
@@ -155,16 +174,6 @@ export interface TaskRun {
   result_summary: string | null;
   created_at: string;
   updated_at: string;
-}
-
-export interface ConversationState {
-  conversation: Conversation;
-  binding?: AgentSessionBinding | null;
-  task_run?: TaskRun | null;
-  config_options: SessionConfigOption[];
-  models?: AcpSessionModels | null;
-  modes?: AcpSessionModeState | null;
-  pending_permissions: PendingPermissionRequest[];
 }
 
 export interface MessageProjection {

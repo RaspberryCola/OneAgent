@@ -330,10 +330,19 @@ impl Gateway {
         let agent_profiles = self.db.list_agent_profiles()?;
         let mut conversations = self.db.list_conversations(&input.workspace_id, true)?;
         
-        // Mark conversations not in memory as Sleep
+        // Any persisted ACP runtime state is stale across app restarts; conversations
+        // without a live in-memory session should present as Sleep until reloaded.
         for conversation in &mut conversations {
             if !self.runtime.is_session_in_memory(&conversation.id)
-                && conversation.status == ConversationStatus::Connected {
+                && matches!(
+                    conversation.status,
+                    ConversationStatus::Connected
+                        | ConversationStatus::Running
+                        | ConversationStatus::Recovering
+                        | ConversationStatus::Initializing
+                        | ConversationStatus::Cancelling
+                )
+            {
                 self.db.update_conversation_status(&conversation.id, ConversationStatus::Sleep)?;
                 conversation.status = ConversationStatus::Sleep;
             }

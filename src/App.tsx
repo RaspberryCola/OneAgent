@@ -401,59 +401,53 @@ function writeJsonStorage<T>(key: string, value: T) {
   }
 }
 
-function statusMeta(status?: Types.Conversation["status"]) {
-  switch (status) {
+function statusMeta(
+  runtime?: Types.ConversationRuntimeState | null,
+  fallbackStatus?: Types.Conversation["status"],
+) {
+  if (runtime) {
+    if (runtime.turn_phase === "cancelling") {
+      return { label: "Cancelling", dot: "bg-amber-500", pulse: true };
+    }
+    if (runtime.turn_phase === "failed") {
+      return { label: "Failed", dot: "bg-rose-500", pulse: false };
+    }
+    if (runtime.turn_phase === "running") {
+      return { label: "Running", dot: "bg-blue-500", pulse: true };
+    }
+    // Idle phase — check session/connection state
+    if (runtime.session_phase === "loading") {
+      return { label: "Recovering", dot: "bg-amber-500", pulse: true };
+    }
+    if (runtime.session_phase === "hot") {
+      return { label: "Connected", dot: "bg-emerald-500", pulse: false };
+    }
+    if (runtime.connection_phase === "initializing") {
+      return { label: "Initializing", dot: "bg-amber-500", pulse: true };
+    }
+    return { label: "Sleep", dot: "bg-stone-400", pulse: false };
+  }
+
+  switch (fallbackStatus) {
     case "sleep":
-      return {
-        label: "Sleep",
-        dot: "bg-stone-400",
-        pulse: false,
-      };
+      return { label: "Sleep", dot: "bg-stone-400", pulse: false };
     case "initializing":
     case "starting":
-      return {
-        label: "Initializing",
-        dot: "bg-amber-500",
-        pulse: true,
-      };
+      return { label: "Initializing", dot: "bg-amber-500", pulse: true };
     case "recovering":
-      return {
-        label: "Recovering",
-        dot: "bg-amber-500",
-        pulse: true,
-      };
+      return { label: "Recovering", dot: "bg-amber-500", pulse: true };
     case "running":
-      return {
-        label: "Running",
-        dot: "bg-blue-500",
-        pulse: true,
-      };
+      return { label: "Running", dot: "bg-blue-500", pulse: true };
     case "connected":
     case "ready":
     case "idle":
-      return {
-        label: "Connected",
-        dot: "bg-emerald-500",
-        pulse: false,
-      };
+      return { label: "Connected", dot: "bg-emerald-500", pulse: false };
     case "failed":
-      return {
-        label: "Failed",
-        dot: "bg-rose-500",
-        pulse: false,
-      };
+      return { label: "Failed", dot: "bg-rose-500", pulse: false };
     case "cancelling":
-      return {
-        label: "Cancelling",
-        dot: "bg-amber-500",
-        pulse: true,
-      };
+      return { label: "Cancelling", dot: "bg-amber-500", pulse: true };
     case "cancelled":
-      return {
-        label: "Cancelled",
-        dot: "bg-stone-400",
-        pulse: false,
-      };
+      return { label: "Cancelled", dot: "bg-stone-400", pulse: false };
     default:
       return null;
   }
@@ -763,7 +757,7 @@ export default function App() {
     activeConversationState?.conversation ??  // 优先使用实时轮询的状态
     conversations.find((conversation) => conversation.id === activeConversationId) ??  // 其次使用列表缓存
     null;
-  const conversationStatus = statusMeta(currentConversation?.status);
+  const conversationStatus = statusMeta(activeConversationState?.runtime, currentConversation?.status);
   const isBusy = isSending || (conversationStatus?.pulse ?? false);
 
   // Calculate the last agent text message ID for each turn (for copy functionality)

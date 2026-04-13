@@ -18,10 +18,10 @@ function buildConversationTitle(text: string): string {
 
 function isConversationActive(state: Types.ConversationState | null): boolean {
   if (!state) return false;
-  return state.conversation.status === 'running' 
-    || state.conversation.status === 'initializing'
-    || state.conversation.status === 'recovering'
-    || state.conversation.status === 'starting';  // backward compat
+  return state.runtime.session_phase === 'loading'
+    || state.runtime.turn_phase === 'running'
+    || state.runtime.turn_phase === 'cancelling'
+    || state.runtime.turn_phase === 'failed';
 }
 
 function compareIsoTimestamp(a?: string | null, b?: string | null): number {
@@ -561,6 +561,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         activeConversationId: pendingConversationId,
         activeConversationState: {
           conversation: pendingConversation,
+          runtime: {
+            connection_phase: 'initializing',
+            session_phase: 'cold',
+            turn_phase: 'idle',
+            last_error: null,
+            last_transition_at: new Date().toISOString(),
+          },
           binding: null,
           task_run: null,
           config_options: [],
@@ -639,7 +646,18 @@ export const useAppStore = create<AppState>((set, get) => ({
               s.activeConversationId === pendingConversationId ? newConvState.conversation.id : s.activeConversationId,
             activeConversationState:
               s.activeConversationId === pendingConversationId || s.activeConversationState?.conversation.id === pendingConversationId
-                ? { ...newConvState, config_options: newConvState.config_options ?? [] }
+                ? {
+                    ...newConvState,
+                    config_options: newConvState.config_options ?? [],
+                    // Keep showing Initializing until the turn starts Running
+                    // (the real runtime state from backend is Ready/Hot/Idle = Connected,
+                    //  but we don't want a brief Connected flash before Running)
+                    runtime: {
+                      ...newConvState.runtime,
+                      connection_phase: 'initializing' as const,
+                      session_phase: 'cold' as const,
+                    },
+                  }
                 : s.activeConversationState,
             activeTimeline: s.activeTimeline
               ? {
@@ -678,6 +696,12 @@ export const useAppStore = create<AppState>((set, get) => ({
               s.activeConversationState?.conversation.id === pendingConversationId
                 ? {
                     ...s.activeConversationState,
+                    runtime: {
+                      ...s.activeConversationState.runtime,
+                      turn_phase: 'failed',
+                      last_error: 'Failed to initialize connection.',
+                      last_transition_at: new Date().toISOString(),
+                    },
                     conversation: { ...s.activeConversationState.conversation, status: 'failed' },
                   }
                 : s.activeConversationState,
@@ -931,12 +955,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     const conversationId = state.activeConversationId;
     if (!conversationId) return;
     try {
-      await API.cancelTurn(conversationId);
       set((s) => ({
         activeConversationState: s.activeConversationState
-          ? { ...s.activeConversationState, conversation: { ...s.activeConversationState.conversation, status: 'cancelling' } }
+          ? {
+              ...s.activeConversationState,
+              runtime: {
+                ...s.activeConversationState.runtime,
+                turn_phase: 'cancelling',
+                last_transition_at: new Date().toISOString(),
+              },
+            }
           : null,
       }));
+      await API.cancelTurn(conversationId);
     } catch (error) {
       console.error('Failed to cancel turn', error);
     }
