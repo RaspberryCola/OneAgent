@@ -418,7 +418,7 @@ function statusMeta(status?: Types.Conversation["status"]) {
     case "ready":
     case "idle":
       return {
-        label: "Connected",
+        label: "Ready",
         dot: "bg-emerald-500",
         pulse: false,
       };

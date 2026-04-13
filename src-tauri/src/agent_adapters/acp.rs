@@ -88,6 +88,36 @@ struct PermissionOption {
     kind: String,
 }
 
+fn jsonrpc_error_message(response: &Value) -> Option<String> {
+    let error = response.get("error")?;
+    let code = error.get("code").and_then(Value::as_i64);
+    let message = error
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown JSON-RPC error")
+        .to_string();
+    let data = error.get("data");
+
+    let mut details = String::new();
+    if let Some(code) = code {
+        details.push_str(&format!("code={code}"));
+    }
+    if let Some(data) = data {
+        if !data.is_null() {
+            if !details.is_empty() {
+                details.push_str(", ");
+            }
+            details.push_str(&format!("data={data}"));
+        }
+    }
+
+    Some(if details.is_empty() {
+        message
+    } else {
+        format!("{message} ({details})")
+    })
+}
+
 #[async_trait]
 impl AgentAdapter for AcpAdapter {
     async fn initialize(&self, profile: &AgentProfile) -> AdapterResult<AgentCapabilities> {
@@ -264,6 +294,12 @@ impl AgentAdapter for AcpAdapter {
                 }
             }
             if message.get("id").and_then(Value::as_i64) == Some(request_id) {
+                if let Some(error_message) = jsonrpc_error_message(&message) {
+                    process.close().await?;
+                    return Err(AdapterError::Protocol(format!(
+                        "session/load failed: {error_message}"
+                    )));
+                }
                 break message.get("result").cloned();
             }
         };
@@ -299,18 +335,16 @@ impl AgentAdapter for AcpAdapter {
         process.set_session_cwd(&handle.cwd);
         let initialize_response = process.initialize().await?;
         let capabilities = parse_agent_capabilities(&initialize_response);
-        if handle.load_supported {
-            process
-                .request(
-                    "session/load",
-                    json!({
-                        "sessionId": handle.remote_session_id,
-                        "cwd": handle.cwd,
-                        "mcpServers": []
-                    }),
-                )
-                .await?;
-        }
+        process
+            .request(
+                "session/load",
+                json!({
+                    "sessionId": handle.remote_session_id,
+                    "cwd": handle.cwd,
+                    "mcpServers": []
+                }),
+            )
+            .await?;
         let turn_id = Uuid::new_v4().to_string();
         let request_id = process.next_id();
         let prompt =
@@ -361,12 +395,18 @@ impl AgentAdapter for AcpAdapter {
                                 break;
                             }
                         }
+                }
+                if message.get("id").and_then(Value::as_i64) == Some(request_id) {
+                    if let Some(error_message) = jsonrpc_error_message(&message) {
+                        process.clear_turn();
+                        return Err(AdapterError::Protocol(format!(
+                            "session/prompt failed: {error_message}"
+                        )));
                     }
-                    if message.get("id").and_then(Value::as_i64) == Some(request_id) {
-                        if let Some(stop_reason) = message
-                            .get("result")
-                            .and_then(|r| r.get("stopReason"))
-                            .and_then(Value::as_str)
+                    if let Some(stop_reason) = message
+                        .get("result")
+                        .and_then(|r| r.get("stopReason"))
+                        .and_then(Value::as_str)
                         {
                             events.push(RuntimeStreamEvent::StateChanged {
                                 status: stop_reason.to_string(),
@@ -536,6 +576,12 @@ impl AcpLiveSession {
                 continue;
             }
             if message.get("id").and_then(Value::as_i64) == Some(request_id) {
+                if let Some(error_message) = jsonrpc_error_message(&message) {
+                    process.close().await?;
+                    return Err(AdapterError::Protocol(format!(
+                        "session/load failed: {error_message}"
+                    )));
+                }
                 break message.get("result").cloned();
             }
         };
@@ -914,6 +960,12 @@ async fn run_turn_loop(
                     continue;
                 }
                 if message.get("id").and_then(Value::as_i64) == Some(request_id) {
+                    if let Some(error_message) = jsonrpc_error_message(&message) {
+                        process.clear_turn();
+                        return Err(AdapterError::Protocol(format!(
+                            "session/prompt failed: {error_message}"
+                        )));
+                    }
                     if let Some(stop_reason) = message
                         .get("result")
                         .and_then(|r| r.get("stopReason"))
@@ -1083,6 +1135,11 @@ impl JsonRpcProcess {
                 continue;
             }
             if response.get("id").and_then(Value::as_i64) == Some(id) {
+                if let Some(error_message) = jsonrpc_error_message(&response) {
+                    return Err(AdapterError::Protocol(format!(
+                        "{method} failed: {error_message}"
+                    )));
+                }
                 return Ok(response);
             }
         }
