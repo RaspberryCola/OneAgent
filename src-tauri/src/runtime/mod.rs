@@ -712,7 +712,7 @@ impl Runtime {
                         return Ok(managed);
                     }
                     Err(load_err) => {
-                        eprintln!(
+                        tracing::debug!(
                             "[runtime] start_loaded failed for {}, falling back to start_new: {load_err}",
                             conversation_id,
                         );
@@ -2005,6 +2005,55 @@ fn sync_model_selection_in_config_options(
         .collect()
 }
 
+#[cfg(test)]
+pub fn summarize_task_timeline(
+    timeline: &TimelineResponse,
+    status: &ConversationStatus,
+) -> Option<String> {
+    let final_agent_text = timeline
+        .messages
+        .iter()
+        .rev()
+        .find(|message| message.role == MessageRole::Agent && message.kind == MessageKind::Text)
+        .and_then(|message| {
+            message
+                .content_json
+                .get("text")
+                .and_then(serde_json::Value::as_str)
+        })
+        .map(ToOwned::to_owned);
+    match status {
+        ConversationStatus::Cancelled => Some("cancelled".to_string()),
+        ConversationStatus::Failed => Some("failed".to_string()),
+        _ => {
+            if let Some(text) = final_agent_text {
+                Some(text)
+            } else if let Some(last_diff) = timeline
+                .messages
+                .iter()
+                .rev()
+                .find(|message| message.kind == MessageKind::Diff)
+            {
+                Some(
+                    last_diff
+                        .content_json
+                        .get("diffs")
+                        .map(|diffs| format!("completed with diff output: {}", diffs))
+                        .unwrap_or_else(|| "completed with diff output".to_string()),
+                )
+            } else if !timeline.tool_calls.is_empty() {
+                Some(format!(
+                    "completed with {} tool call(s)",
+                    timeline.tool_calls.len()
+                ))
+            } else {
+                Some("completed".to_string())
+            }
+        }
+    }
+}
+
+#[cfg(not(test))]
 fn summarize_task_timeline(
     timeline: &TimelineResponse,
     status: &ConversationStatus,
@@ -2049,5 +2098,171 @@ fn summarize_task_timeline(
                 Some("completed".to_string())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{
+        ConversationStatus, MessageKind, MessageProjection, MessageRole, TimelineResponse,
+        ToolCallProjection,
+    };
+    use chrono::Utc;
+    use serde_json::json;
+
+    fn create_test_timeline() -> TimelineResponse {
+        TimelineResponse {
+            events: vec![],
+            messages: vec![],
+            tool_calls: vec![],
+            pending_permissions: vec![],
+            terminals: vec![],
+        }
+    }
+
+    fn create_agent_message(text: &str) -> MessageProjection {
+        MessageProjection {
+            id: "msg_1".to_string(),
+            conversation_id: "conv_1".to_string(),
+            turn_id: "turn_1".to_string(),
+            role: MessageRole::Agent,
+            kind: MessageKind::Text,
+            content_json: json!({ "text": text }),
+            created_at: Utc::now(),
+        }
+    }
+
+    fn create_diff_message(diffs: Vec<serde_json::Value>) -> MessageProjection {
+        MessageProjection {
+            id: "msg_1".to_string(),
+            conversation_id: "conv_1".to_string(),
+            turn_id: "turn_1".to_string(),
+            role: MessageRole::Tool,
+            kind: MessageKind::Diff,
+            content_json: json!({ "diffs": diffs }),
+            created_at: Utc::now(),
+        }
+    }
+
+    fn create_tool_call(id: &str) -> ToolCallProjection {
+        ToolCallProjection {
+            id: format!("conv_1:{}", id),
+            conversation_id: "conv_1".to_string(),
+            turn_id: "turn_1".to_string(),
+            tool_call_id: id.to_string(),
+            title: "Test".to_string(),
+            kind: "test".to_string(),
+            status: crate::domain::ToolCallStatus::Completed,
+            raw_input_json: json!({}),
+            raw_output_json: json!({}),
+            content_json: json!([]),
+            diffs_json: json!([]),
+            terminal_ids_json: json!([]),
+            locations_json: json!({}),
+            started_at: Some(Utc::now()),
+            ended_at: Some(Utc::now()),
+        }
+    }
+
+    #[test]
+    fn summarize_task_returns_cancelled_for_cancelled_status() {
+        let timeline = create_test_timeline();
+        assert_eq!(
+            summarize_task_timeline(&timeline, &ConversationStatus::Cancelled),
+            Some("cancelled".to_string())
+        );
+    }
+
+    #[test]
+    fn summarize_task_returns_failed_for_failed_status() {
+        let timeline = create_test_timeline();
+        assert_eq!(
+            summarize_task_timeline(&timeline, &ConversationStatus::Failed),
+            Some("failed".to_string())
+        );
+    }
+
+    #[test]
+    fn summarize_task_returns_final_agent_text() {
+        let timeline = TimelineResponse {
+            events: vec![],
+            messages: vec![
+                create_agent_message("First message"),
+                create_agent_message("Second message"),
+            ],
+            tool_calls: vec![],
+            pending_permissions: vec![],
+            terminals: vec![],
+        };
+        assert_eq!(
+            summarize_task_timeline(&timeline, &ConversationStatus::Connected),
+            Some("Second message".to_string())
+        );
+    }
+
+    #[test]
+    fn summarize_task_falls_back_to_diff_message() {
+        let timeline = TimelineResponse {
+            events: vec![],
+            messages: vec![
+                create_diff_message(vec![json!({"path": "file.rs"})]),
+            ],
+            tool_calls: vec![],
+            pending_permissions: vec![],
+            terminals: vec![],
+        };
+        let result = summarize_task_timeline(&timeline, &ConversationStatus::Connected);
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("diff"));
+    }
+
+    #[test]
+    fn summarize_task_falls_back_to_tool_call_count() {
+        let timeline = TimelineResponse {
+            events: vec![],
+            messages: vec![],
+            tool_calls: vec![create_tool_call("call_1"), create_tool_call("call_2")],
+            pending_permissions: vec![],
+            terminals: vec![],
+        };
+        assert_eq!(
+            summarize_task_timeline(&timeline, &ConversationStatus::Connected),
+            Some("completed with 2 tool call(s)".to_string())
+        );
+    }
+
+    #[test]
+    fn summarize_task_returns_completed_as_final_fallback() {
+        let timeline = create_test_timeline();
+        assert_eq!(
+            summarize_task_timeline(&timeline, &ConversationStatus::Connected),
+            Some("completed".to_string())
+        );
+    }
+
+    #[test]
+    fn summarize_task_ignores_user_messages() {
+        let user_message = MessageProjection {
+            id: "msg_1".to_string(),
+            conversation_id: "conv_1".to_string(),
+            turn_id: "turn_1".to_string(),
+            role: MessageRole::User,
+            kind: MessageKind::Text,
+            content_json: json!({ "text": "user message" }),
+            created_at: Utc::now(),
+        };
+        let agent_message = create_agent_message("agent response");
+        let timeline = TimelineResponse {
+            events: vec![],
+            messages: vec![user_message, agent_message],
+            tool_calls: vec![],
+            pending_permissions: vec![],
+            terminals: vec![],
+        };
+        assert_eq!(
+            summarize_task_timeline(&timeline, &ConversationStatus::Connected),
+            Some("agent response".to_string())
+        );
     }
 }

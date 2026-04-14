@@ -32,6 +32,9 @@ pub fn bootstrap() -> Arc<Gateway> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    tracing_subscriber::fmt()
+        .with_env_filter("oneagent=debug")
+        .init();
     let gateway = bootstrap();
     let managed_gateway = gateway.clone();
     tauri::Builder::default()

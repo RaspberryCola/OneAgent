@@ -117,3 +117,164 @@ impl<'a> PermissionRepository<'a> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{PermissionDecision, PermissionDecisionKind, PendingPermissionRequest, PendingPermissionStatus};
+    use crate::storage::sqlite::connection::Database;
+    use serde_json::json;
+
+    fn create_test_decision() -> PermissionDecision {
+        PermissionDecision {
+            id: "dec_1".to_string(),
+            conversation_id: "conv_1".to_string(),
+            tool_call_id: "call_1".to_string(),
+            scope: "session".to_string(),
+            fingerprint: "fp_123".to_string(),
+            decision: PermissionDecisionKind::AllowAlways,
+            created_at: chrono::Utc::now(),
+        }
+    }
+
+    fn create_test_pending_request() -> PendingPermissionRequest {
+        PendingPermissionRequest {
+            id: "req_1".to_string(),
+            conversation_id: "conv_1".to_string(),
+            turn_id: "turn_1".to_string(),
+            tool_call_id: "call_1".to_string(),
+            fingerprint: "fp_123".to_string(),
+            options_json: json!([{"optionId": "allow", "kind": "allow_once"}]),
+            status: PendingPermissionStatus::Pending,
+            created_at: chrono::Utc::now(),
+            resolved_at: None,
+        }
+    }
+
+    #[test]
+    fn records_and_retrieves_permission_decision() {
+        let db = Database::new_in_memory().unwrap();
+        let repo = PermissionRepository::new(&db.conn);
+        let decision = create_test_decision();
+
+        repo.record_decision(&decision).unwrap();
+
+        let decisions = repo.list_decisions("conv_1").unwrap();
+        assert_eq!(decisions.len(), 1);
+        assert_eq!(decisions[0].tool_call_id, "call_1");
+        assert_eq!(decisions[0].fingerprint, "fp_123");
+        assert_eq!(decisions[0].decision, PermissionDecisionKind::AllowAlways);
+    }
+
+    #[test]
+    fn upserts_and_retrieves_pending_request() {
+        let db = Database::new_in_memory().unwrap();
+        let repo = PermissionRepository::new(&db.conn);
+        let request = create_test_pending_request();
+
+        repo.upsert_pending(&request).unwrap();
+
+        let retrieved = repo.get_pending_by_tool_call("conv_1", "call_1").unwrap();
+        assert!(retrieved.is_some());
+        let retrieved = retrieved.unwrap();
+        assert_eq!(retrieved.tool_call_id, "call_1");
+        assert_eq!(retrieved.status, PendingPermissionStatus::Pending);
+    }
+
+    #[test]
+    fn updates_pending_status() {
+        let db = Database::new_in_memory().unwrap();
+        let repo = PermissionRepository::new(&db.conn);
+        let request = create_test_pending_request();
+
+        repo.upsert_pending(&request).unwrap();
+        repo.update_pending_status(&request.id, PendingPermissionStatus::Resolved).unwrap();
+
+        let retrieved = repo.get_pending_by_tool_call("conv_1", "call_1").unwrap().unwrap();
+        assert_eq!(retrieved.status, PendingPermissionStatus::Resolved);
+        assert!(retrieved.resolved_at.is_some());
+    }
+
+    #[test]
+    fn lists_pending_requests() {
+        let db = Database::new_in_memory().unwrap();
+        let repo = PermissionRepository::new(&db.conn);
+
+        let request1 = create_test_pending_request();
+        let request2 = PendingPermissionRequest {
+            id: "req_2".to_string(),
+            conversation_id: "conv_1".to_string(),
+            turn_id: "turn_1".to_string(),
+            tool_call_id: "call_2".to_string(),
+            fingerprint: "fp_456".to_string(),
+            options_json: json!([{"optionId": "reject", "kind": "reject_once"}]),
+            status: PendingPermissionStatus::Pending,
+            created_at: chrono::Utc::now(),
+            resolved_at: None,
+        };
+
+        repo.upsert_pending(&request1).unwrap();
+        repo.upsert_pending(&request2).unwrap();
+
+        let pending = repo.list_pending("conv_1").unwrap();
+        assert_eq!(pending.len(), 2);
+    }
+
+    #[test]
+    fn cancels_pending_for_turn() {
+        let db = Database::new_in_memory().unwrap();
+        let repo = PermissionRepository::new(&db.conn);
+
+        let request1 = create_test_pending_request();
+        let request2 = PendingPermissionRequest {
+            id: "req_2".to_string(),
+            conversation_id: "conv_1".to_string(),
+            turn_id: "turn_2".to_string(),
+            tool_call_id: "call_2".to_string(),
+            fingerprint: "fp_456".to_string(),
+            options_json: json!([{"optionId": "allow", "kind": "allow_once"}]),
+            status: PendingPermissionStatus::Resolved, // Already resolved
+            created_at: chrono::Utc::now(),
+            resolved_at: Some(chrono::Utc::now()),
+        };
+
+        repo.upsert_pending(&request1).unwrap();
+        repo.upsert_pending(&request2).unwrap();
+
+        repo.cancel_pending_for_turn("conv_1").unwrap();
+
+        let pending = repo.list_pending("conv_1").unwrap();
+        // Should only have the pending one, now cancelled
+        let cancelled: Vec<_> = pending.iter().filter(|p| p.status == PendingPermissionStatus::Cancelled).collect();
+        assert_eq!(cancelled.len(), 1);
+    }
+
+    #[test]
+    fn stores_different_decision_kinds() {
+        let db = Database::new_in_memory().unwrap();
+        let repo = PermissionRepository::new(&db.conn);
+
+        let kinds = vec![
+            PermissionDecisionKind::AllowOnce,
+            PermissionDecisionKind::AllowAlways,
+            PermissionDecisionKind::RejectOnce,
+            PermissionDecisionKind::RejectAlways,
+        ];
+
+        for (i, kind) in kinds.iter().enumerate() {
+            let decision = PermissionDecision {
+                id: format!("dec_{}", i),
+                conversation_id: "conv_1".to_string(),
+                tool_call_id: format!("call_{}", i),
+                scope: "session".to_string(),
+                fingerprint: format!("fp_{}", i),
+                decision: kind.clone(),
+                created_at: chrono::Utc::now(),
+            };
+            repo.record_decision(&decision).unwrap();
+        }
+
+        let decisions = repo.list_decisions("conv_1").unwrap();
+        assert_eq!(decisions.len(), 4);
+    }
+}

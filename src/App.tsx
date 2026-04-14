@@ -1919,24 +1919,22 @@ function Composer({
               </>
             ) : modelSelector ? (
               // State 2: Has model info but no choices (read-only)
-              <div
+              <span
                 title="Model switching not available"
-                className={`flex items-center gap-1.5 ${isCompact ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-small"} text-stone bg-snow border border-light-gray rounded-pill select-none`}
+                className={`flex items-center ${isCompact ? "px-2 py-1 text-[11px]" : "px-2.5 py-1.5 text-small"} text-stone bg-transparent rounded-pill select-none`}
               >
-                <Cpu className={isCompact ? "w-3 h-3" : "w-3.5 h-3.5"} />
                 <span className="truncate max-w-[150px] font-medium">
                   {selectedModelLabel || "Default Model"}
                 </span>
-              </div>
+              </span>
             ) : (
               // State 3: No model info (disabled placeholder)
-              <div
+              <span
                 title="Model info not available"
-                className={`flex items-center gap-1.5 ${isCompact ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-small"} text-silver bg-snow border border-light-gray rounded-pill opacity-50 select-none`}
+                className={`flex items-center ${isCompact ? "px-2 py-1 text-[11px]" : "px-2.5 py-1.5 text-small"} text-stone bg-transparent rounded-pill select-none`}
               >
-                <Cpu className={isCompact ? "w-3 h-3" : "w-3.5 h-3.5"} />
-                <span className="truncate max-w-[120px]">Default Model</span>
-              </div>
+                <span className="truncate max-w-[120px] font-medium">Default Model</span>
+              </span>
             )}
           </div>
 

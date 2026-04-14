@@ -25,4 +25,16 @@ impl Database {
         MigrationManager::new(&db.conn).migrate()?;
         Ok(db)
     }
+
+    /// Create an in-memory database for testing.
+    /// This is only available in test builds.
+    #[cfg(test)]
+    pub fn new_in_memory() -> StorageResult<Self> {
+        let conn = Connection::open_in_memory()?;
+        let db = Self {
+            conn: Arc::new(Mutex::new(conn)),
+        };
+        MigrationManager::new(&db.conn).migrate()?;
+        Ok(db)
+    }
 }

@@ -117,3 +117,160 @@ impl<'a> McpRepository<'a> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::TerminalRecord;
+    use crate::storage::sqlite::connection::Database;
+    use serde_json::json;
+
+    fn create_test_terminal() -> TerminalRecord {
+        TerminalRecord {
+            id: "term_1".to_string(),
+            conversation_id: "conv_1".to_string(),
+            turn_id: "turn_1".to_string(),
+            terminal_id: "remote_term_1".to_string(),
+            cwd: "/tmp".to_string(),
+            command: "echo".to_string(),
+            args_json: json!["hello"],
+            status: crate::domain::TerminalStatus::Running,
+            stdout_buffer: String::new(),
+            stderr_buffer: String::new(),
+            started_at: chrono::Utc::now(),
+            ended_at: None,
+        }
+    }
+
+    #[test]
+    fn upserts_and_retrieves_terminal() {
+        let db = Database::new_in_memory().unwrap();
+        let repo = TerminalRepository::new(&db.conn);
+        let terminal = create_test_terminal();
+
+        repo.upsert(&terminal).unwrap();
+
+        let retrieved = repo
+            .get_by_remote_id("conv_1", "remote_term_1")
+            .unwrap();
+        assert!(retrieved.is_some());
+        let retrieved = retrieved.unwrap();
+        assert_eq!(retrieved.terminal_id, "remote_term_1");
+        assert_eq!(retrieved.command, "echo");
+    }
+
+    #[test]
+    fn updates_terminal_status_and_buffers() {
+        let db = Database::new_in_memory().unwrap();
+        let repo = TerminalRepository::new(&db.conn);
+        let mut terminal = create_test_terminal();
+
+        repo.upsert(&terminal).unwrap();
+
+        // Update status and buffers
+        terminal.status = crate::domain::TerminalStatus::Exited;
+        terminal.stdout_buffer = "output".to_string();
+        terminal.stderr_buffer = "error".to_string();
+        terminal.ended_at = Some(chrono::Utc::now());
+
+        repo.upsert(&terminal).unwrap();
+
+        let retrieved = repo
+            .get_by_remote_id("conv_1", "remote_term_1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(retrieved.status, crate::domain::TerminalStatus::Exited);
+        assert_eq!(retrieved.stdout_buffer, "output");
+        assert_eq!(retrieved.stderr_buffer, "error");
+        assert!(retrieved.ended_at.is_some());
+    }
+
+    #[test]
+    fn lists_terminals_for_conversation() {
+        let db = Database::new_in_memory().unwrap();
+        let repo = TerminalRepository::new(&db.conn);
+
+        let terminal1 = TerminalRecord {
+            id: "term_1".to_string(),
+            conversation_id: "conv_1".to_string(),
+            turn_id: "turn_1".to_string(),
+            terminal_id: "remote_term_1".to_string(),
+            cwd: "/tmp".to_string(),
+            command: "echo".to_string(),
+            args_json: json!["hello"],
+            status: crate::domain::TerminalStatus::Running,
+            stdout_buffer: String::new(),
+            stderr_buffer: String::new(),
+            started_at: chrono::Utc::now(),
+            ended_at: None,
+        };
+
+        let terminal2 = TerminalRecord {
+            id: "term_2".to_string(),
+            conversation_id: "conv_1".to_string(),
+            turn_id: "turn_1".to_string(),
+            terminal_id: "remote_term_2".to_string(),
+            cwd: "/home".to_string(),
+            command: "ls".to_string(),
+            args_json: json!["-la"],
+            status: crate::domain::TerminalStatus::Running,
+            stdout_buffer: String::new(),
+            stderr_buffer: String::new(),
+            started_at: chrono::Utc::now(),
+            ended_at: None,
+        };
+
+        repo.upsert(&terminal1).unwrap();
+        repo.upsert(&terminal2).unwrap();
+
+        let terminals = repo.list("conv_1").unwrap();
+        assert_eq!(terminals.len(), 2);
+    }
+
+    #[test]
+    fn handles_multiple_terminals_per_conversation() {
+        let db = Database::new_in_memory().unwrap();
+        let repo = TerminalRepository::new(&db.conn);
+
+        let terminal1 = TerminalRecord {
+            id: "term_1".to_string(),
+            conversation_id: "conv_1".to_string(),
+            turn_id: "turn_1".to_string(),
+            terminal_id: "remote_term_1".to_string(),
+            cwd: "/tmp".to_string(),
+            command: "echo".to_string(),
+            args_json: json!["hello"],
+            status: crate::domain::TerminalStatus::Running,
+            stdout_buffer: String::new(),
+            stderr_buffer: String::new(),
+            started_at: chrono::Utc::now(),
+            ended_at: None,
+        };
+
+        let terminal2 = TerminalRecord {
+            id: "term_2".to_string(),
+            conversation_id: "conv_1".to_string(),
+            turn_id: "turn_1".to_string(),
+            terminal_id: "remote_term_1".to_string(), // Same terminal_id
+            cwd: "/home".to_string(),
+            command: "ls".to_string(),
+            args_json: json!["-la"],
+            status: crate::domain::TerminalStatus::Exited,
+            stdout_buffer: "files".to_string(),
+            stderr_buffer: String::new(),
+            started_at: chrono::Utc::now() + chrono::Duration::seconds(1),
+            ended_at: Some(chrono::Utc::now()),
+        };
+
+        repo.upsert(&terminal1).unwrap();
+        repo.upsert(&terminal2).unwrap();
+
+        // get_by_remote_id should return the most recent one
+        let retrieved = repo
+            .get_by_remote_id("conv_1", "remote_term_1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(retrieved.status, crate::domain::TerminalStatus::Exited);
+        assert_eq!(retrieved.stdout_buffer, "files");
+    }
+}
