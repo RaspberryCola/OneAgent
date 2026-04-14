@@ -2112,6 +2112,14 @@ fn parse_session_update(message: &Value, turn_id: &str) -> Vec<RuntimeStreamEven
                 .get("text")
                 .cloned()
                 .unwrap_or_else(|| json!({ "text": "" }));
+            
+            // Fix: try multiple field names for input (rawInput for ACP spec, input for legacy)
+            let raw_input = update
+                .get("rawInput")
+                .or_else(|| update.get("input"))
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            
             events.push(RuntimeStreamEvent::ToolCall {
                 turn_id: turn_id.to_string(),
                 tool_call_id: update
@@ -2135,7 +2143,7 @@ fn parse_session_update(message: &Value, turn_id: &str) -> Vec<RuntimeStreamEven
                         .and_then(Value::as_str)
                         .unwrap_or("pending"),
                 ),
-                raw_input: update.get("input").cloned().unwrap_or_else(|| json!({})),
+                raw_input,
                 raw_output,
                 content: content.get("content").cloned().unwrap_or_else(|| json!([])),
                 diffs: content.get("diffs").cloned().unwrap_or_else(|| json!([])),
@@ -2271,22 +2279,31 @@ fn extract_content(content: Option<&Value>) -> Value {
             "text": { "text": "" },
             "content": [],
             "diffs": [],
-            "terminal_ids": []
+            "terminal_ids": [],
+            "output": ""
         });
     };
+    
+    // Extract text from multiple content types:
+    // - type: 'content' with content.text
+    // - type: 'output' with text field
+    // - legacy format with content.text or output field
     let texts: Vec<String> = items
         .iter()
         .filter_map(|item| {
-            item.get("content")
-                .and_then(|c| c.get("text"))
+            item.get("content").and_then(|c| c.get("text"))
+                .or_else(|| item.get("text"))
+                .or_else(|| item.get("output"))
                 .and_then(Value::as_str)
                 .map(ToOwned::to_owned)
         })
         .collect();
+    
     let diffs: Vec<Value> = items
         .iter()
         .filter_map(|item| item.get("diff").cloned())
         .collect();
+    
     let terminal_ids: Vec<String> = items
         .iter()
         .filter_map(|item| {
@@ -2295,11 +2312,13 @@ fn extract_content(content: Option<&Value>) -> Value {
                 .map(ToOwned::to_owned)
         })
         .collect();
+    
     json!({
         "text": { "text": texts.join("\n") },
         "content": items,
         "diffs": diffs,
-        "terminal_ids": terminal_ids
+        "terminal_ids": terminal_ids,
+        "output": texts.join("\n")
     })
 }
 
