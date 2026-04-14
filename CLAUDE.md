@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-OneAgent is a Tauri desktop application that provides a unified interface for managing multiple AI coding agents (Claude Code, OpenCode, Goose, etc.) through the Agent Communication Protocol (ACP). It enables workspace management, conversation history, MCP server integration, and permission handling.
+OneAgent is a Tauri desktop application that provides a unified interface for managing multiple AI coding agents (Claude Code, OpenCode, Goose, etc.) through the Agent Client Protocol (ACP). It enables workspace management, conversation history, MCP server integration, and permission handling.
 
 ## Build Commands
 

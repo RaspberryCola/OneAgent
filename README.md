@@ -20,7 +20,7 @@
 
 ## 简介
 
-OneAgent 是一个基于 Tauri 的桌面应用程序，为多个 AI 编码代理提供统一的管理界面。它实现了 **Agent Communication Protocol (ACP)** 协议，让你可以在一个界面中无缝切换和管理 Claude Code、OpenCode、Goose 等多种 AI 助手。
+OneAgent 是一个基于 Tauri 的桌面应用程序，为多个 AI 编码代理提供统一的管理界面。它实现了 **Agent Client Protocol (ACP)** 协议，让你可以在一个界面中无缝切换和管理 Claude Code、OpenCode、Goose 等多种 AI 助手。
 
 不再需要在多个终端窗口之间切换，OneAgent 为你提供 IDE 般的体验：工作区管理、对话历史、权限控制，一应俱全。
 
@@ -135,7 +135,7 @@ oneagent/
 - **前端**: React 18, TypeScript, Vite, Zustand
 - **后端**: Rust, Tauri
 - **数据库**: SQLite
-- **协议**: ACP (Agent Communication Protocol)
+- **协议**: ACP (Agent Client Protocol)
 
 ### 常用命令
 
