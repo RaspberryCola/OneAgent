@@ -476,6 +476,17 @@ function compareIsoTimestamp(a?: string | null, b?: string | null) {
   return a.localeCompare(b);
 }
 
+// Helper: get latest permission decision for a tool call
+function getLatestPermissionDecision(
+  toolCallId: string,
+  decisions: Types.PermissionDecision[],
+): Types.PermissionDecision | null {
+  return decisions
+    .filter((record) => record.tool_call_id === toolCallId)
+    .sort((a, b) => compareIsoTimestamp(a.created_at, b.created_at))
+    .at(-1) ?? null;
+}
+
 async function readFileAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1485,40 +1496,19 @@ export default function App() {
                     );
                   } else if (item.type === 'tool_call') {
                     return (
-                      <ToolCallDisplay 
+                      <ToolCallDisplay
                         key={item.key}
                         toolCall={item.data}
                         terminals={(activeTimeline?.terminals ?? []).filter((terminal) =>
                           Array.isArray(item.data.terminal_ids_json) && item.data.terminal_ids_json.includes(terminal.terminal_id),
                         )}
+                        permissionDecision={getLatestPermissionDecision(item.data.tool_call_id, permissionDecisions)}
                       />
                     );
                   }
 
-                  if (item.data.status === "pending") return null;
-
-                  return (
-                    <PermissionDisplay
-                      key={item.key}
-                      request={item.data}
-                      toolCall={
-                        (activeTimeline?.tool_calls ?? []).find(
-                          (toolCall) => toolCall.tool_call_id === item.data.tool_call_id,
-                        ) ?? null
-                      }
-                      requestMeta={
-                        permissionRequestMeta.get(item.data.id)
-                        ?? permissionRequestMeta.get(item.data.tool_call_id)
-                        ?? null
-                      }
-                      decision={
-                        permissionDecisions
-                          .filter((record) => record.tool_call_id === item.data.tool_call_id)
-                          .sort((a, b) => compareIsoTimestamp(a.created_at, b.created_at))
-                          .at(-1) ?? null
-                      }
-                    />
-                  );
+                  // Permission items are only shown in the bottom sticky area, not in timeline
+                  return null;
                 })}
               </div>
               <div className="sticky bottom-0 bg-pure-white z-10 pb-4 md:pb-6 px-4 md:px-6">
@@ -1541,12 +1531,7 @@ export default function App() {
                             ?? permissionRequestMeta.get(permReq.tool_call_id)
                             ?? null
                           }
-                          decision={
-                            permissionDecisions
-                              .filter((record) => record.tool_call_id === permReq.tool_call_id)
-                              .sort((a, b) => compareIsoTimestamp(a.created_at, b.created_at))
-                              .at(-1) ?? null
-                          }
+                          decision={getLatestPermissionDecision(permReq.tool_call_id, permissionDecisions)}
                         />
                       </div>
                     </div>

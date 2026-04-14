@@ -1,0 +1,2 @@
+//! Permission resolution use cases.
+

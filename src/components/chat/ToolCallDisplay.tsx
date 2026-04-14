@@ -1,16 +1,31 @@
 import React, { useState } from 'react';
 import { CollapsibleContent } from '../ui/CollapsibleContent';
-import type { ToolCallProjection, TerminalRecord } from '../../lib/backend/types';
+import type { ToolCallProjection, TerminalRecord, PermissionDecision } from '../../lib/backend/types';
 
 interface ToolCallDisplayProps {
   toolCall: ToolCallProjection;
   terminals: TerminalRecord[];
+  permissionDecision?: PermissionDecision | null;
 }
 
 // Constants for truncation limits
 const MAX_CONTENT_PREVIEW = 200;
 const MAX_JSON_PREVIEW = 300;
 const MAX_PARAM_PREVIEW = 100;
+
+// Shared permission decision configuration (single source of truth for labels and icons)
+const PERMISSION_DECISION_CONFIG: Record<string, { label: string; icon: 'check' | 'x' | null }> = {
+  allow_once: { label: 'Allowed once', icon: 'check' },
+  allow_always: { label: 'Always allowed', icon: 'check' },
+  reject_once: { label: 'Rejected once', icon: 'x' },
+  reject_always: { label: 'Always rejected', icon: 'x' },
+  cancelled: { label: 'Cancelled', icon: 'x' },
+};
+
+// Helper: get permission decision config
+function getPermissionDecisionConfig(decision: string) {
+  return PERMISSION_DECISION_CONFIG[decision] || { label: null, icon: null };
+}
 
 // Helper: safely get string value with type check
 function getStringVal(obj: any, key: string): string | undefined {
@@ -102,50 +117,83 @@ function extractOutputSummary(rawOutput: any): string | null {
 }
 
 // Status indicator component (minimal, grayscale)
-function StatusDot({ status }: { status: string }) {
+// Uses shared PERMISSION_DECISION_CONFIG for consistent icon mapping
+function StatusDot({ status, permissionDecision }: { status: string; permissionDecision?: PermissionDecision | null }) {
   const statusLower = status.toLowerCase();
-  
+
+  // If there's a permission decision, use shared config for icon
+  if (permissionDecision) {
+    const config = getPermissionDecisionConfig(permissionDecision.decision);
+    
+    if (config.icon === 'check') {
+      return (
+        <svg className="w-3 h-3 shrink-0 text-stone" viewBox="0 0 12 12" fill="none">
+          <path
+            d="M2.5 6L5 8.5L9.5 3.5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      );
+    }
+    
+    if (config.icon === 'x') {
+      return (
+        <svg className="w-3 h-3 shrink-0 text-near-black" viewBox="0 0 12 12" fill="none">
+          <path
+            d="M3 3L9 9M9 3L3 9"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+        </svg>
+      );
+    }
+  }
+
   // Map status to visual state
   const isRunning = statusLower === 'running' || statusLower === 'declared' || statusLower === 'in_progress';
   const isCompleted = statusLower === 'completed' || statusLower === 'success';
   const isFailed = statusLower === 'failed' || statusLower === 'error';
-  
+
   // Failed: show X icon
   if (isFailed) {
     return (
       <svg className="w-3 h-3 shrink-0 text-near-black" viewBox="0 0 12 12" fill="none">
-        <path 
-          d="M3 3L9 9M9 3L3 9" 
-          stroke="currentColor" 
-          strokeWidth="1.5" 
+        <path
+          d="M3 3L9 9M9 3L3 9"
+          stroke="currentColor"
+          strokeWidth="1.5"
           strokeLinecap="round"
         />
       </svg>
     );
   }
-  
+
   // Running: pulse dot
   if (isRunning) {
     return (
       <span className="inline-block w-1.5 h-1.5 rounded-full shrink-0 bg-silver animate-pulse" />
     );
   }
-  
+
   // Completed: checkmark icon
   if (isCompleted) {
     return (
       <svg className="w-3 h-3 shrink-0 text-stone" viewBox="0 0 12 12" fill="none">
-        <path 
-          d="M2.5 6L5 8.5L9.5 3.5" 
-          stroke="currentColor" 
-          strokeWidth="1.5" 
-          strokeLinecap="round" 
+        <path
+          d="M2.5 6L5 8.5L9.5 3.5"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
           strokeLinejoin="round"
         />
       </svg>
     );
   }
-  
+
   // Default/Pending: light gray dot
   return (
     <span className="inline-block w-1.5 h-1.5 rounded-full shrink-0 bg-light-gray" />
@@ -171,7 +219,7 @@ function ExpandIcon({ expanded }: { expanded: boolean }) {
   );
 }
 
-export function ToolCallDisplay({ toolCall, terminals }: ToolCallDisplayProps) {
+export function ToolCallDisplay({ toolCall, terminals, permissionDecision }: ToolCallDisplayProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const status = toolCall.status.toLowerCase();
@@ -181,15 +229,18 @@ export function ToolCallDisplay({ toolCall, terminals }: ToolCallDisplayProps) {
   const inputSummary = extractInputSummary(toolCall.raw_input_json);
   const paramSummary = buildParamSummary(toolCall.kind, toolCall.raw_input_json);
   const outputSummary = extractOutputSummary(toolCall.raw_output_json);
-  
+
   // Use param summary if available, fallback to input summary
   const displaySummary = paramSummary || inputSummary;
-  
+
   const hasInput = Boolean(toolCall.raw_input_json && Object.keys(toolCall.raw_input_json || {}).length > 0);
   const hasOutput = Boolean(outputSummary || (toolCall.raw_output_json && Object.keys(toolCall.raw_output_json || {}).length > 0));
   const hasDetail = hasInput || hasOutput || terminals.length > 0;
 
   const toolTitle = toolCall.title || toolCall.kind;
+
+  // Permission decision label - uses shared PERMISSION_DECISION_CONFIG
+  const permissionLabel = permissionDecision ? getPermissionDecisionConfig(permissionDecision.decision).label : null;
 
   return (
     <div className="flex w-full justify-start mt-0.5 mb-1">
@@ -199,20 +250,27 @@ export function ToolCallDisplay({ toolCall, terminals }: ToolCallDisplayProps) {
           className={`flex items-center gap-2 group bg-transparent border-none p-0 text-left ${hasDetail ? 'cursor-pointer' : 'cursor-default'}`}
         >
           {/* Status indicator */}
-          <StatusDot status={toolCall.status} />
-          
+          <StatusDot status={toolCall.status} permissionDecision={permissionDecision} />
+
           {/* Tool title */}
           <span className="text-[12px] font-mono text-stone group-hover:text-pure-black transition-colors truncate">
             {toolTitle}
           </span>
-          
-          {/* Parameter summary (lighter, secondary) */}
+
+          {/* Permission decision label (if exists) */}
+          {permissionLabel && (
+            <span className="text-[10px] font-mono text-silver shrink-0">
+              · {permissionLabel}
+            </span>
+          )}
+
+          {/* Parameter summary - show alongside permission label if space allows */}
           {displaySummary && (
             <span className="text-[11px] font-mono text-silver truncate max-w-[40%] md:max-w-[50%]">
               {displaySummary}
             </span>
           )}
-          
+
           {/* Expand arrow (only if has detail) */}
           {hasDetail && (
             <ExpandIcon expanded={isExpanded} />
