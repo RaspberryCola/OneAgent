@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use tokio::time::{timeout, Duration};
@@ -17,17 +17,12 @@ use crate::{
     storage::{Database, StorageResult},
 };
 
-#[derive(thiserror::Error, Debug)]
-pub enum RuntimeError {
-    #[error("storage error: {0}")]
-    Storage(#[from] crate::storage::StorageError),
-    #[error("adapter error: {0}")]
-    Adapter(#[from] crate::agent_adapters::AdapterError),
-    #[error("invalid state: {0}")]
-    InvalidState(String),
-}
+// Re-export types from the types module
+pub mod types;
+pub mod session_manager;
 
-pub type RuntimeResult<T> = Result<T, RuntimeError>;
+pub use types::{EventEmitter, RuntimeError, RuntimeResult, ActiveStreamMessage, ManagedSession};
+use session_manager::{SessionManager, default_prompt_capabilities};
 
 #[derive(Clone)]
 pub struct Runtime {
@@ -36,26 +31,9 @@ pub struct Runtime {
     skill_registry: SkillRegistry,
     policy_engine: PolicyEngine,
     emitter: Arc<Mutex<Option<EventEmitter>>>,
-    sessions: Arc<Mutex<HashMap<String, ManagedSession>>>,
+    session_manager: SessionManager,
     runtime_states: Arc<Mutex<HashMap<String, ConversationRuntimeState>>>,
     streaming_messages: Arc<Mutex<HashMap<String, ActiveStreamMessage>>>,
-}
-
-pub type EventEmitter = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
-
-#[derive(Clone)]
-enum ManagedSession {
-    Acp(AcpLiveSession),
-    Passive(AgentSessionHandle),
-}
-
-#[derive(Clone)]
-struct ActiveStreamMessage {
-    id: String,
-    role: MessageRole,
-    kind: MessageKind,
-    content: String,
-    started_at: DateTime<Utc>,
 }
 
 impl Runtime {
@@ -66,7 +44,7 @@ impl Runtime {
             policy_engine: PolicyEngine::new(db.clone()),
             db,
             emitter: Arc::new(Mutex::new(None)),
-            sessions: Arc::new(Mutex::new(HashMap::new())),
+            session_manager: SessionManager::new(),
             runtime_states: Arc::new(Mutex::new(HashMap::new())),
             streaming_messages: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -77,7 +55,7 @@ impl Runtime {
     }
 
     pub fn is_session_in_memory(&self, conversation_id: &str) -> bool {
-        self.sessions.lock().contains_key(conversation_id)
+        self.session_manager.is_session_in_memory(conversation_id)
     }
 
     fn default_runtime_state(&self, conversation_id: &str) -> ConversationRuntimeState {
@@ -225,8 +203,7 @@ impl Runtime {
             last_synced_at: Utc::now(),
         };
         self.db.upsert_binding(&binding)?;
-        self.sessions
-            .lock()
+        self.session_manager
             .insert(conversation.id.clone(), managed_session);
         self.record_lifecycle_event(
             &conversation.id,
@@ -322,7 +299,7 @@ impl Runtime {
                     &mcp_servers,
                 )
                 .await?;
-                self.sessions.lock().insert(
+                self.session_manager.insert(
                     conversation.id.clone(),
                     ManagedSession::Acp(session.clone()),
                 );
@@ -348,8 +325,8 @@ impl Runtime {
             last_synced_at: Utc::now(),
         };
         self.db.upsert_binding(&binding)?;
-        if !self.sessions.lock().contains_key(&conversation.id) {
-            self.sessions.lock().insert(
+        if !self.session_manager.is_session_in_memory(&conversation.id) {
+            self.session_manager.insert(
                 conversation.id.clone(),
                 ManagedSession::Passive(loaded.handle.clone()),
             );
@@ -433,8 +410,7 @@ impl Runtime {
             last_synced_at: Utc::now(),
         };
         self.db.upsert_binding(&binding)?;
-        self.sessions
-            .lock()
+        self.session_manager
             .insert(conversation.id.clone(), managed_session);
         self.record_lifecycle_event(
             &conversation.id,
@@ -726,8 +702,7 @@ impl Runtime {
                             replay_events,
                         )?;
                         let managed = ManagedSession::Acp(session.clone());
-                        self.sessions
-                            .lock()
+                        self.session_manager
                             .insert(conversation_id.to_string(), managed.clone());
                         self.record_lifecycle_event(
                             conversation_id,
@@ -757,8 +732,7 @@ impl Runtime {
                 updated_binding.last_synced_at = Utc::now();
                 let _ = self.db.upsert_binding(&updated_binding);
                 let managed = ManagedSession::Acp(session.clone());
-                self.sessions
-                    .lock()
+                self.session_manager
                     .insert(conversation_id.to_string(), managed.clone());
                 self.record_lifecycle_event(
                     conversation_id,
@@ -951,7 +925,7 @@ impl Runtime {
 
     pub async fn delete_conversation(&self, conversation_id: &str) -> RuntimeResult<()> {
         let conversation = self.db.get_conversation(conversation_id)?;
-        let managed_session = self.sessions.lock().remove(conversation_id);
+        let managed_session = self.session_manager.remove(conversation_id);
         self.runtime_states.lock().remove(conversation_id);
         if let Some(binding) = self.db.get_binding(conversation_id)? {
             let profile = self.db.get_agent_profile(&conversation.agent_profile_id)?;
@@ -1137,7 +1111,7 @@ impl Runtime {
             fingerprint,
             decision,
         )?;
-        let managed_session = { self.sessions.lock().get(conversation_id).cloned() };
+        let managed_session = self.session_manager.get(conversation_id);
         if let Some(ManagedSession::Acp(session)) = managed_session {
             session
                 .resolve_permission(tool_call_id, record.decision.clone())
@@ -1176,33 +1150,26 @@ impl Runtime {
         conversation_id: &str,
         fallback: AgentSessionBinding,
     ) -> RuntimeResult<ManagedSession> {
-        Ok(self
-            .sessions
-            .lock()
-            .get(conversation_id)
-            .cloned()
-            .unwrap_or(ManagedSession::Passive(AgentSessionHandle {
-                adapter_kind: enum_text(&fallback.adapter_kind),
-                remote_session_id: fallback.remote_session_id,
-                cwd: fallback.cwd,
-                load_supported: fallback.load_supported,
-                prompt_capabilities: self
-                    .conversation_prompt_capabilities(conversation_id)
-                    .unwrap_or(AgentPromptCapabilities {
-                        text: true,
-                        resource_link: true,
-                        embedded_context: false,
-                        image: false,
-                        audio: false,
-                    }),
-                config_options: self
-                    .conversation_state(conversation_id)
+        // Capture by reference — the closure is only called on the cold path
+        let runtime = self;
+        let conv_id = conversation_id.to_string();
+        self.session_manager.session_runtime(
+            conversation_id,
+            fallback,
+            move || {
+                let prompt_capabilities = runtime
+                    .conversation_prompt_capabilities(&conv_id)
+                    .unwrap_or_else(default_prompt_capabilities);
+                let config_options = runtime
+                    .conversation_state(&conv_id)
                     .ok()
                     .map(|state| state.config_options)
-                    .unwrap_or_default(),
-                models: self.conversation_models(conversation_id),
-                modes: self.conversation_modes(conversation_id),
-            })))
+                    .unwrap_or_default();
+                let models = runtime.conversation_models(&conv_id);
+                let modes = runtime.conversation_modes(&conv_id);
+                (prompt_capabilities, config_options, models, modes)
+            },
+        )
     }
 
     fn emit<S: serde::Serialize>(&self, event: &str, payload: &S) {
@@ -1635,7 +1602,7 @@ impl Runtime {
                     .policy_engine
                     .find_session_policy(conversation_id, &fingerprint)?
                 {
-                    let managed_session = { self.sessions.lock().get(conversation_id).cloned() };
+                    let managed_session = self.session_manager.get(conversation_id);
                     if let Some(ManagedSession::Acp(session)) = managed_session {
                         session
                             .resolve_permission(&tool_call_id, decision.decision.clone())
