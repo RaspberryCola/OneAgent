@@ -1,712 +1,623 @@
-# OneAgent V1 Backend Design
+# OneAgent Backend Design
 
-## 1. 目标与范围
+## 1. 文档目的
 
-OneAgent V1 后端的目标是提供一个本地优先、桌面端优先的统一 Agent Runtime 内核，覆盖两类核心场景：
+本文档定义 OneAgent 后端的长期设计规范。
 
-- 作为现有 Agent CLI 的统一可视化后端，负责 Agent 管理、工作区、会话、权限、工具调用和外部会话导入。
-- 作为 OneAgent 自己的桌面 WorkerAgent 后端，在指定目录创建任务运行，并复用同一套对话运行时。
+它不是某个阶段性版本的“实现说明”，而是后端在未来持续演进时都应遵守的架构约束、模块边界和工程原则。
 
-V1 当前不实现前端页面细节，但后端需要把这些部分实现到“前端直接接入即可消费”的程度：
+目标是让后端具备以下特征：
 
-- 领域模型
-- 存储模型
-- 运行时状态机
-- Agent 适配器接口
-- MCP / Skills / 权限策略
-- 桌面端命令接口和事件契约
+- 单进程桌面应用场景下的清晰分层
+- 长期可维护
+- 低耦合、可替换、可测试
+- 允许多个 agent / 多个开发者并行演进
+- 兼容当前产品需求，并为后续协议、能力和运行时扩展留接口
 
-## 2. 总体架构
+相关文档：
 
-后端按职责拆为 6 个子系统：
+- [docs/backend-architecture-adr-a1.md](/Users/smkl/mydevelop/OneAgent/docs/backend-architecture-adr-a1.md)
+- [docs/backend-refactor-collaboration-a1.md](/Users/smkl/mydevelop/OneAgent/docs/backend-refactor-collaboration-a1.md)
+- [docs/backend-architecture-refactor-plan.md](/Users/smkl/mydevelop/OneAgent/docs/backend-architecture-refactor-plan.md)
 
-### 2.1 `channel_api`
+## 2. 设计目标
 
-职责：
+OneAgent 后端是桌面端本地运行的统一 Agent Runtime。它的职责不是做“所有事情”，而是为上层 UI 和下层 agent/protocol 之间提供稳定、可演进的中间层。
 
-- 面向桌面 UI 暴露统一命令接口
-- 提供统一的输入 DTO / 输出 DTO
-- 不持有业务状态
+后端应满足以下目标：
 
-当前实现：
+- 统一管理 workspace、conversation、task run、permission、tool call、terminal 等核心实体
+- 对接不同 agent/protocol，但不把协议细节扩散到全局
+- 对外提供稳定 command 和事件契约
+- 对内保持用例编排、运行时、协议适配、存储四大层次的清晰边界
+- 在失败、恢复、重启、并发和逐步重构场景下保持行为可预测
 
-- 已通过 `#[tauri::command]` 绑定到真实 Tauri 2 commands。
-- 事件通过 `Gateway -> Runtime -> Tauri app handle emit` 统一推送到桌面端。
+## 3. 核心原则
 
-### 2.2 `gateway`
+### 3.1 单向依赖
 
-职责：
-
-- 接收 UI 请求
-- 做路径校验、参数校验、输入规整
-- 将命令路由到 runtime / storage / capability services
-- 不直接管理 Agent 子进程
-
-### 2.3 `runtime`
-
-职责：
-
-- Conversation / TaskRun 生命周期管理
-- session/new、session/load、prompt、cancel、set_config
-- 事件聚合和投影
-- 权限阻塞点协调
-- 快照落盘与状态恢复基础
-
-这是后端主内核。
-
-### 2.4 `agent_adapters`
-
-包含两个方向：
-
-- `AcpAdapter`
-  - 标准 ACP Agent 主链路
-- `CompatAdapter`
-  - 非标准 Agent 的兼容接口预留
-
-V1 只承诺 ACP 主链路可用，Compat 先占位，不做实际兼容实现。
-
-### 2.5 `capability_services`
-
-包含：
-
-- `mcp_registry`
-  - 工作区级 MCP 配置和透传
-- `skill_registry`
-  - 仅做 Skills 发现、索引、展示
-- `policy_engine`
-  - 会话级权限策略
-
-### 2.6 `storage`
-
-职责：
-
-- SQLite 持久化
-- 事件溯源主表
-- 投影视图
-- 快照表
-- 仓储层读写
-
-## 3. 模块目录
-
-当前后端目录结构：
+后端必须遵循单向依赖：
 
 ```text
-src-tauri/
-  src/
-    agent_adapters/
-      acp.rs
-      compat.rs
-      mod.rs
-    capability_services/
-      mcp.rs
-      policy.rs
-      skills.rs
-      mod.rs
-    channel_api/
-      mod.rs
-    domain/
-      mod.rs
-    gateway/
-      mod.rs
-    runtime/
-      mod.rs
-    storage/
-      mod.rs
-    lib.rs
-    main.rs
+channel_api -> gateway -> application -> runtime / capability_services / storage / agent_adapters
+domain 被所有后端模块共享，但不依赖上层
 ```
 
-说明：
+禁止出现：
 
-- 当前已经重新接回真实 Tauri 2 壳层。
-- 项目额外使用 `rust-toolchain.toml` 固定 `stable` 工具链，避免桌面壳层与后端内核分叉。
-- `channel_api` 已形成稳定契约，后续前端接入时不需要重做后端领域层。
+- `channel_api` 直接操作 `storage`
+- `gateway` 直接承载多步业务流程
+- `runtime` 依赖具体 SQL 细节
+- `domain` 依赖 Tauri、SQLite、tokio 子进程等基础设施
 
-## 3.1 当前实现状态
+### 3.2 先定义边界，再追求抽象
 
-截至当前版本，V1 后端已经具备这些能力：
+后端设计不追求“抽象很多层”，而追求：
 
-- 真实 Tauri 2 commands/events 壳层
-- SQLite 事件表、投影视图、快照表
-- ACP `initialize / session/list / session/new / session/load / session/prompt / session/cancel / session/set_config`
-- ACP 长连接 live session actor
-- imported session 历史回放
-- MCP 工作区配置透传
-- Skills 发现、索引、展示
-- 会话级权限策略、待处理权限请求持久化
-- `fs/*` 与 `terminal/*` client capabilities 的最小可用实现
-- WorkerTask 与普通 conversation 共享 runtime
+- 每一层为什么存在是清楚的
+- 每个模块的责任是单一的
+- 依赖方向是稳定的
 
-V1 明确仍然不做：
+如果一个模块同时承载多个抽象层次，即使文件不大，也是不合格设计。
 
-- CompatAdapter 的真实非标准 Agent 兼容实现
-- MCP 代理模式
-- Skills 注入 / 激活
-- 多渠道接入
-- 重启后继续原 ACP pending turn
+### 3.3 Facade 稳定优先
 
-## 4. 领域模型
+重构时优先保持 facade 稳定，再迁移内部实现。
 
-### 4.1 Workspace
+这意味着：
 
-语义：
+- 可以先增加 wrapper / re-export
+- 可以先抽实现，再逐步迁移调用方
+- 不鼓励“一次性把所有调用点全改掉”
 
-- 工作区即绝对目录路径
-- V1 不做命名工作区聚合
+### 3.4 结构改造与行为改造分离
 
-字段：
+后端结构调整应尽量和语义修改分开：
 
-- `id`
-- `cwd`
-- `display_name`
-- `trusted`
-- `created_at`
-- `updated_at`
+1. 先拆文件和边界
+2. 再迁移逻辑
+3. 再修改行为
 
-### 4.2 AgentProfile
+这样才能降低回归风险并提高 review 可读性。
 
-语义：
+### 3.5 对外契约稳定
 
-- 一个可运行的 Agent 配置
-- 绑定一种适配方式和一条命令
+在没有明确协议升级计划前，下列内容默认稳定：
 
-字段：
+- Tauri command 名称
+- command 请求/响应 JSON 结构
+- runtime emit 的事件名称
+- conversation / task / permission 的核心语义
 
-- `id`
-- `kind(acp|compat)`
-- `name`
-- `command`
-- `args`
-- `env`
-- `capabilities_cache`
-- `enabled`
+## 4. 模块分层
 
-### 4.3 Conversation
+### 4.1 `channel_api`
 
-语义：
+职责：
 
-- OneAgent 顶层会话实体
-- UI 和任务都围绕它展开
+- 暴露 `#[tauri::command]`
+- 反序列化输入
+- 调用 `gateway`
+- 把错误转换为对前端稳定的错误结构
 
-字段：
+不负责：
 
-- `id`
-- `workspace_id`
-- `agent_profile_id`
-- `origin(oneagent_managed|agent_discovered|imported|worker_task)`
-- `status(idle|starting|ready|running|cancelling|cancelled|failed|completed|closed)`
-- `title`
-- `created_at`
-- `updated_at`
-- `last_event_seq`
+- 业务编排
+- 路径修正以外的领域校验
+- 运行时状态修复
+- 存储细节
 
-### 4.4 AgentSessionBinding
+### 4.2 `gateway`
 
-语义：
+职责：
 
-- 平台 Conversation 和底层 Agent session 的绑定关系
+- 后端 facade
+- 聚合多个 service 的返回结果
+- 做轻量输入校验与参数整形
 
-字段：
+不负责：
 
-- `id`
-- `conversation_id`
-- `adapter_kind`
-- `remote_session_id`
-- `cwd`
-- `load_supported`
-- `source(discovered|new|imported)`
-- `last_synced_at`
+- 多步业务流程
+- 多次持久化写入的编排
+- 协议/适配器实现细节
 
-### 4.5 TaskRun
+### 4.3 `application`
 
-语义：
+这是后端用例服务层。
 
-- WorkerAgent 任务实体
-- 一个 TaskRun 必须包裹一个 Conversation
+职责：
 
-字段：
+- 承载明确的业务用例
+- 管理事务边界
+- 协调 runtime、repositories、capability services、adapters
 
-- `id`
-- `conversation_id`
-- `workspace_id`
-- `agent_profile_id`
-- `goal`
-- `status(pending|running|completed|failed|cancelled)`
-- `result_summary`
-- `created_at`
-- `updated_at`
+典型用例：
 
-### 4.6 MessageProjection
+- CreateConversation
+- ImportConversation
+- SendUserMessage
+- CancelTurn
+- ResolvePermission
+- BootstrapWorkspace
+- PersistAttachment
 
-语义：
+原则：
 
-- 面向 UI 的消息视图
+- 一个 public 方法应对应一个清晰业务动作
+- 用例层不写原始 SQL
+- 用例层不解析协议报文
 
-字段：
+### 4.4 `runtime`
 
-- `id`
-- `conversation_id`
-- `turn_id`
-- `role(user|agent|system|tool)`
-- `kind(text|status|plan|terminal|error|diff|resource)`
-- `content_json`
-- `created_at`
+这是会话运行时层。
 
-### 4.7 ToolCallProjection
+职责：
 
-语义：
+- 管理 live session 池
+- 管理热/冷会话与恢复
+- 推进运行时状态机
+- 接收 agent stream event
+- 把 stream event 分派给 projector / event bus
 
-- 工具调用视图
+不负责：
 
-字段：
+- 仓储实现
+- command DTO 拼装
+- 长篇协议解析代码
 
-- `id`
-- `conversation_id`
-- `turn_id`
-- `tool_call_id`
-- `title`
-- `kind`
-- `status`
-- `raw_input_json`
-- `raw_output_json`
-- `content_json`
-- `diffs_json`
-- `terminal_ids_json`
-- `locations_json`
-- `started_at`
-- `ended_at`
+### 4.5 `agent_adapters`
 
-### 4.8 PermissionDecision
+职责：
 
-语义：
+- 封装 agent/protocol 差异
+- 向 runtime 提供统一行为接口
 
-- 会话级权限决策记录
+当前设计原则：
 
-字段：
+- 上层只依赖统一 adapter trait
+- 协议细节只停留在 adapter 内部
+- 协议 transport、parser、prompt codec、permission mapping 应进一步分层
 
-- `id`
-- `conversation_id`
-- `tool_call_id`
-- `scope(session)`
-- `fingerprint`
-- `decision(allow_once|allow_always|reject_once|reject_always|cancelled)`
-- `created_at`
+### 4.6 `storage`
 
-### 4.9 PendingPermissionRequest
+职责：
 
-语义：
+- 提供持久化能力
+- 管理 migrations
+- 管理 transaction
+- 提供 repositories
+- 管理 read model / snapshot / event log 的持久化
 
-- 当前待处理或已归档的权限请求
-- 用于 UI 权限弹窗、恢复本地 pending 记录、审计 turn 阻塞点
+不负责：
 
-字段：
+- 业务流程编排
+- 前端 DTO 组装
+- 运行时状态机
 
-- `id`
-- `conversation_id`
-- `turn_id`
-- `tool_call_id`
-- `fingerprint`
-- `options_json`
-- `status(pending|resolved|cancelled|expired)`
-- `created_at`
-- `resolved_at`
+### 4.7 `capability_services`
 
-### 4.10 McpServerConfig
+职责：
 
-语义：
+- 承担横切能力
+- 不承载主业务流程
 
-- 工作区级 MCP server 配置
+典型包括：
 
-字段：
-
-- `id`
-- `workspace_id`
-- `name`
-- `command`
-- `args_json`
-- `env_json`
-- `enabled`
-
-### 4.11 SkillRecord
-
-语义：
-
-- Skills 索引记录
-
-字段：
-
-- `id`
-- `scope(project|user|agent_specific)`
-- `name`
-- `description`
-- `location`
-- `source_dir`
-- `owner(agent_common|opencode|other)`
-- `enabled`
-- `diagnostics_json`
-
-### 4.12 TerminalRecord
-
-语义：
-
-- 本地 terminal 会话记录
-- 用于工具时间线、终端输出面板、release 后历史保留
-
-字段：
-
-- `id`
-- `conversation_id`
-- `turn_id`
-- `terminal_id`
-- `cwd`
-- `command`
-- `args_json`
-- `status(running|exited|killed|released|failed)`
-- `stdout_buffer`
-- `stderr_buffer`
-- `started_at`
-- `ended_at`
-
-### 4.13 RuntimeEvent
-
-语义：
-
-- 事件溯源主表
-
-字段：
-
-- `seq`
-- `conversation_id`
-- `event_type`
-- `payload_json`
-- `created_at`
-
-### 4.14 ConversationSnapshot
-
-语义：
-
-- Conversation 状态快照
-
-字段：
-
-- `conversation_id`
-- `snapshot_version`
-- `state_json`
-- `event_seq`
-- `created_at`
-
-## 5. 存储策略
-
-V1 采用“事件溯源优先 + 投影视图”：
-
-- 所有运行时事实先写入 `runtime_events`
-- `conversations`、`message_projections`、`tool_call_projections`、`permission_decisions` 是投影视图
-- `conversation_snapshots` 用于加速恢复
-- SQLite 是唯一结构化存储
-
-当前 SQLite 表：
-
-- `workspaces`
-- `agent_profiles`
-- `conversations`
-- `agent_session_bindings`
-- `task_runs`
-- `runtime_events`
-- `conversation_snapshots`
-- `message_projections`
-- `tool_call_projections`
-- `permission_decisions`
-- `mcp_server_configs`
-- `skill_records`
-
-## 6. 会话与任务模型
-
-### 6.1 会话来源
-
-Conversation 分为四类：
-
-- `oneagent_managed`
-  - OneAgent 新建并管理
-- `agent_discovered`
-  - 仅代表外部可发现会话，不默认进入本地主列表
-- `imported`
-  - 从 discovered 导入接管
-- `worker_task`
-  - TaskRun 包裹的任务会话
-
-### 6.2 外部会话发现策略
-
-默认策略：
-
-- 只按当前工作区目录调用 `session/list(cwd=workspace.cwd)`
-- discovered sessions 单独分组，不和 managed/imported 混排
-- 用户导入后，升级为 OneAgent 本地索引会话
-
-### 6.3 WorkerTask 设计
-
-TaskRun 不是独立执行内核，而是：
-
-- `TaskRun + Conversation + AgentSessionBinding`
-
-好处：
-
-- 和普通聊天共用同一运行时
-- 可以统一权限流和工具时间线
-- 后续可单独列出任务历史
-
-## 7. Agent 适配器设计
-
-统一接口：
-
-- `initialize(profile)`
-- `list_sessions(profile, cwd?)`
-- `new_session(profile, cwd, mcp_servers)`
-- `load_session(profile, remote_session_id, cwd, mcp_servers)`
-- `prompt(profile, handle, input, attachments)`
-- `cancel(profile, handle)`
-- `set_config_option(profile, handle, config_id, value)`
-- `close(profile, handle)`
-
-### 7.1 ACP Adapter
-
-当前实现特点：
-
-- 使用子进程 + stdio 进行 JSON-RPC 通信
-- 优先按换行分隔 JSON 处理
-- 支持：
-  - `initialize`
-  - `session/list`
-  - `session/new`
-  - `session/load`
-  - `prompt`
-  - `session/cancel`
-  - `session/set_config`
-
-当前流式实现是可工作的主链路骨架：
-
-- 发送 `prompt`
-- 读取 `session/update`
-- 聚合 text delta
-- 结束时生成 message complete / turn finished
-
-V1 尚未完全覆盖所有 ACP 事件分支，后续可继续扩展：
-
-- 更完整的 tool call 事件映射
-- 更完整的 permission request / response 闭环
-- terminal 事件细节
-- slash command 细化
-
-### 7.2 Compat Adapter
-
-当前仅预留接口，返回 `not implemented in v1`。
-
-目的是保证未来支持非标准 Agent 时：
-
-- 不需要推翻现有 runtime
-- 只需要实现新的 adapter
-
-## 8. Runtime 状态机
-
-### 8.1 Conversation 状态
-
-主状态：
-
-- `idle`
-- `starting`
-- `ready`
-- `running`
-- `cancelling`
-- `cancelled`
-- `failed`
-- `completed`
-- `closed`
-
-常见流转：
-
-- 新建：`starting -> ready`
-- 发消息：`ready/idle -> running -> idle`
-- 取消：`running -> cancelled`
-- 异常：`starting/running -> failed`
-
-### 8.2 Prompt Turn 状态
-
-概念状态：
-
-- `accepted`
-- `agent_streaming`
-- `waiting_permission`
-- `tool_running`
-- `completed`
-- `cancelled`
-- `failed`
-
-当前实现已落地：
-
-- `TurnStarted`
-- `UserMessageAccepted`
-- `AgentMessageChunkReceived`
-- `AgentMessageCompleted`
-- `TurnCompleted`
-- `TurnCancelled`
-- `TurnFailed`
-
-### 8.3 Imported Session 状态
-
-设计状态：
-
-- `discovered`
-- `importing`
-- `replaying_history`
-- `ready`
-
-当前实现：
-
-- 已支持 `load_session`
-- 已支持导入后本地建索引并持久跟踪
-- 历史回放当前仍需补充为更完整的事件重建
-
-## 9. MCP / Skills / 权限设计
-
-### 9.1 MCP
-
-V1 边界：
-
-- MCP 由 OneAgent 在工作区层统一配置
-- 在 `new_session/load_session` 时透传给 Agent
-- 不做 OneAgent 自己的 MCP 代理层
-- MCP 改动不自动热更新到已经运行的 session
-
-### 9.2 Skills
-
-V1 边界：
-
-- 只做发现与展示
-- 不做注入和激活
-- 不接管 AgentCLI 自己的 skill runtime
-
-扫描目录：
-
-- `<workspace>/.agents/skills/`
-- `<workspace>/.oneagent/skills/`
-- `<workspace>/.opencode/skills/`
-- `~/.agents/skills/`
-- `~/.oneagent/skills/`
-
-策略：
-
-- project-level / agent-specific skills 会受 `Workspace.trusted` 影响
-- 当前解析只提取 `SKILL.md` 的标题和首段说明
-
-### 9.3 权限策略
-
-V1 使用会话级权限模型：
-
-- 所有权限决策依赖 `conversation_id + fingerprint`
-- 命中 `allow_always / reject_always` 时自动决策
-- 未命中时生成待处理权限请求
-
-`fingerprint` 由这些输入归一化构成：
-
-- tool kind
-- title
-- raw input
-- paths
-
-## 10. 公共接口契约
-
-### 10.1 Commands
-
-已定义统一入口：
-
-- `list_agent_profiles`
-- `upsert_agent_profile`
-- `probe_agent_profile`
-- `list_workspaces`
-- `open_workspace`
-- `list_conversations`
-- `list_discovered_sessions`
-- `create_conversation`
-- `import_conversation`
-- `create_task_run`
-- `send_user_message`
-- `cancel_turn`
-- `set_session_config`
-- `list_permissions`
-- `resolve_permission_request`
-- `list_workspace_mcp`
-- `upsert_workspace_mcp`
-- `list_workspace_skills`
-- `get_conversation_timeline`
-- `get_conversation_state`
-
-### 10.2 Events
-
-当前 runtime 的标准事件目标：
-
-- `conversation.state_changed`
-- `conversation.message_appended`
-- `conversation.message_updated`
-- `conversation.turn_finished`
-- `conversation.permission_requested`
-- `conversation.permission_resolved`
-- `conversation.tool_call_changed`
-- `conversation.terminal_output`
-- `task_run.state_changed`
-- `agent.profile_probed`
-
-目前事件已经通过通用 emitter 接口抽象出来，后续可直接接回 Tauri 的 event 系统。
-
-## 11. 当前实现状态
-
-### 已完成
-
-- `src-tauri` 后端基础骨架
-- 领域模型定义
-- SQLite schema 和基础仓储
-- 事件表 / 快照表 / 投影视图
-- ACP adapter 主链路骨架
-- Compat adapter 接口预留
-- Runtime 主内核
-- Gateway 路由层
-- 统一 channel_api 契约
 - MCP registry
-- Skills 扫描与索引
-- 会话级权限策略基础
-- 单元测试基础
+- skill discovery/index
+- permission policy engine
+- agent discovery / launch helper
 
-### 已验证
+### 4.8 `domain`
 
-已通过：
+职责：
 
-- `cargo check`
-- `cargo test`
+- 承载后端共享领域模型和规则
+- 提供稳定的类型基础
 
-### 尚未完成
+原则：
 
-- 真正接回 Tauri commands/events
-- 更完整的 ACP 流式事件支持
-- imported session 的完整历史回放
-- TaskRun 结果摘要自动生成
-- 更完整的 tool call / terminal / permission 事件映射
-- 更细粒度的异常恢复策略
+- `domain` 必须尽量与具体基础设施解耦
+- 若某个类型只服务于某个 adapter 内部，不应进入 `domain`
+- 若某个类型是对外 API DTO，不应与内部 snapshot model 混为一谈
 
-## 12. 后续建议
+## 5. 推荐目录结构
 
-建议按这个顺序继续推进：
+目标目录结构如下：
 
-1. 完成 ACP event 映射
-2. 完成 imported session replay
-3. 把 `channel_api` 绑定回真正的 Tauri commands/events
-4. 增加 runtime / projector / adapter 的集成测试
-5. 在此基础上再接前端对话区和右侧活动面板
+```text
+src-tauri/src/
+  application/
+  runtime/
+  agent_adapters/
+  storage/
+  capability_services/
+  domain/
+  gateway/
+  channel_api/
+  lib.rs
+  main.rs
+```
 
-## 13. 非目标
+进一步建议：
 
-V1 当前明确不做：
+```text
+runtime/
+  mod.rs
+  session_manager.rs
+  recovery.rs
+  stream_processor.rs
+  projector.rs
+  event_bus.rs
+  types.rs
 
-- OneAgent 主动注入 Skills 到 Agent
-- OneAgent 自己代理 MCP
-- 多渠道接入
-- 多进程 daemon
-- 非标准 Agent 的完整适配
-- 前端页面实现
+agent_adapters/acp/
+  mod.rs
+  adapter.rs
+  live_session.rs
+  actor.rs
+  process.rs
+  parser.rs
+  prompt_codec.rs
+  permission.rs
+  client_fs.rs
+  client_terminal.rs
+  types.rs
+
+storage/
+  mod.rs
+  sqlite/
+    connection.rs
+    migrations.rs
+    tx.rs
+  repositories/
+  mappers/
+```
+
+## 6. 领域建模规范
+
+### 6.1 核心实体
+
+后端至少应围绕以下实体建模：
+
+- Workspace
+- AgentProfile
+- Conversation
+- AgentSessionBinding
+- TaskRun
+- RuntimeEvent
+- ConversationSnapshot
+- MessageProjection
+- ToolCallProjection
+- PendingPermissionRequest
+- PermissionDecision
+- TerminalRecord
+
+### 6.2 实体与投影分离
+
+必须区分：
+
+- 领域实体
+- 事件
+- projection/read model
+- API DTO
+- snapshot model
+
+禁止把它们混为同一个结构只是因为“字段差不多”。
+
+例如：
+
+- `ConversationState` 可以作为对外聚合视图
+- 但不应默认作为 snapshot 内部存储模型
+
+### 6.3 状态建模必须显式
+
+所有长生命周期对象都应显式状态化，例如：
+
+- conversation runtime state
+- task run status
+- tool call status
+- pending permission status
+- terminal status
+
+原则：
+
+- 状态枚举必须比字符串字面量优先
+- 状态转换规则应集中，而不是在多个模块中隐式散落
+
+## 7. 状态与一致性规范
+
+### 7.1 哪些状态是持久化真相，哪些是内存态
+
+必须明确区分：
+
+- 内存实时态
+- 持久化快照态
+- 可回放事件态
+
+推荐规则：
+
+- live session 是否存在：以内存态为准
+- 历史审计与回放：以 event log 为准
+- UI 初始化聚合视图：以 snapshot + projection 为准
+- 跨重启不可直接相信的“实时连接状态”：不得持久化为强真相
+
+### 7.2 多步写入必须有事务边界
+
+任何一个业务用例，只要包含多次相关写入，就必须定义事务边界。
+
+典型包括：
+
+- create conversation
+- import conversation
+- create task run
+- resolve permission
+- cancel turn
+
+原则：
+
+- 事务边界属于 `application` + `storage/tx`
+- 不能依赖“按顺序成功执行通常没问题”
+
+### 7.3 Snapshot 不是 DTO 缓存
+
+Snapshot 的作用应是：
+
+- 加速恢复
+- 降低初始化聚合成本
+- 保存内部稳定状态
+
+不应让 snapshot 成为“把整个前端返回 JSON 原样塞进数据库”。
+
+### 7.4 Event log 不是杂项日志
+
+Event log 必须有清晰用途：
+
+- 历史审计
+- 故障排查
+- replay / recovery 辅助
+
+如果一个事件既不服务恢复，也不服务诊断，也不服务审计，就不应随意追加。
+
+## 8. Adapter 设计规范
+
+### 8.1 上层只依赖统一接口
+
+`runtime` 和 `application` 层只能依赖 adapter trait 暴露出的能力，不应感知协议细节。
+
+### 8.2 协议内部分层
+
+每个复杂协议 adapter 都必须进一步拆分：
+
+- facade
+- live session API
+- actor
+- transport
+- parser
+- codec
+- local capability bridge
+
+禁止把它们堆在一个文件中长期存在。
+
+### 8.3 `Value` 只留在协议边界
+
+`serde_json::Value` 可以用于：
+
+- 原始协议输入输出
+- 短期兼容层
+
+但不应在整个系统中当通用业务模型使用。
+
+原则：
+
+- 越靠近业务层，类型越应明确
+- 越靠近协议边界，越可以保留 `Value`
+
+## 9. 存储设计规范
+
+### 9.1 存储层分工
+
+存储层至少分成四类职责：
+
+- connection
+- migrations
+- repositories
+- row mappers / serialization helpers
+
+### 9.2 Repository 以聚合或读模型边界组织
+
+推荐按以下边界组织：
+
+- conversations
+- task_runs
+- events
+- snapshots
+- messages
+- tool_calls
+- permissions
+- terminals
+- mcp
+- skills
+- agent_profiles
+- workspaces
+
+### 9.3 不把所有查询放进一个 `Database` 巨型对象
+
+`Database` 或 `Storage` facade 可以存在，但只应作为：
+
+- 连接持有者
+- repository 组合入口
+- transaction 入口
+
+不应继续演化成“所有 CRUD 都在里面”。
+
+### 9.4 允许当前继续使用 SQLite，但必须隔离边界
+
+当前是否使用 `rusqlite` 不是最关键问题。
+
+关键是：
+
+- 上层不依赖具体 driver
+- 高频流式路径不要散落大量同步查询
+- 未来如需优化为连接池或 blocking boundary，不能重新推翻全局结构
+
+## 10. Runtime 设计规范
+
+### 10.1 Runtime 的职责边界
+
+`runtime` 只负责运行时协调，不负责一切业务。
+
+必须拆分的内部职责：
+
+- session manager
+- recovery
+- stream processor
+- projector
+- event bus
+
+### 10.2 Stream event 处理必须可拆
+
+任何类似 `apply_stream_event` 的函数，如果同时做以下多件事，就必须继续拆：
+
+- 推状态
+- 写 projection
+- 写 event log
+- 处理 permission
+- 发 UI 事件
+
+推荐模式：
+
+```text
+RuntimeStreamEvent
+  -> stream processor
+  -> projector command(s)
+  -> repositories + event bus
+```
+
+### 10.3 恢复逻辑独立
+
+recovery/replay 逻辑必须独立模块化，不能散落在 create/send/cancel 主流程中。
+
+## 11. Gateway 与 API 设计规范
+
+### 11.1 `gateway` 是 facade，不是业务核心
+
+`gateway` 的职责是“给前端一个稳定入口”，不是承担复杂业务规则。
+
+允许：
+
+- 输入校验
+- 轻量参数整理
+- 聚合多个 service 的结果
+
+不允许：
+
+- 长链路状态修正
+- 多步持久化流程
+- 协议恢复逻辑
+
+### 11.2 `channel_api` 必须尽量薄
+
+`channel_api` 只应成为桌面命令适配层，不应演化成第二个 gateway。
+
+## 12. 错误处理规范
+
+### 12.1 分层错误
+
+错误必须按层次归属：
+
+- adapter error
+- runtime error
+- storage error
+- gateway/application validation error
+- frontend-facing backend error
+
+禁止用一个宽泛错误枚举吞掉所有上下文。
+
+### 12.2 错误信息要可诊断
+
+原则：
+
+- 对开发者：要有足够诊断信息
+- 对前端：要有稳定错误类型/码
+- 对用户：不要暴露无意义底层细节
+
+## 13. 测试规范
+
+### 13.1 测试分层
+
+后端至少应有以下测试层次：
+
+- parser/unit tests
+- repository tests
+- runtime use-case tests
+- recovery tests
+- projector tests
+- integration tests for critical flows
+
+### 13.2 优先保护高风险路径
+
+优先覆盖：
+
+- create/import/send/cancel
+- replay/recovery
+- permission auto/manual resolution
+- terminal output accumulation
+- tool call / diff / message chunk projection
+
+### 13.3 结构重构前先补测试
+
+对于高风险大模块，必须先有回归护栏，再做深拆。
+
+## 14. 并行开发规范
+
+### 14.1 按写入域拆任务
+
+推荐任务边界：
+
+- `storage/**`
+- `runtime/**`
+- `agent_adapters/acp/**`
+- `application/**`
+- `docs/**`
+
+不要让多个 agent 同时深改同一个巨型文件。
+
+### 14.2 每个任务一个主题
+
+一个分支只做一件事，例如：
+
+- storage split
+- runtime session manager extraction
+- acp modularization
+
+不要把“结构拆分 + 语义改动 + cleanup”混在一起。
+
+### 14.3 保持 facade 兼容
+
+在大重构过程中，旧入口可以临时保留，只要它不继续承载核心实现。
+
+## 15. 非目标
+
+本文档不要求当前后端：
+
+- 立刻改成微服务
+- 立刻更换数据库
+- 立刻完全 event-sourcing 化
+- 立刻把所有协议 JSON 强类型化
+- 引入重量级 DI 容器
+
+这些都可以作为未来优化议题，但不属于当前的基础架构规范。
+
+## 16. 当前结论
+
+OneAgent 后端未来的正确方向不是继续在 `runtime/mod.rs`、`storage/mod.rs`、`agent_adapters/acp.rs` 上累加功能，而是遵守本文档的边界持续拆分：
+
+- 用 `application` 承载业务用例
+- 用 `runtime` 承载会话与状态协调
+- 用 `agent_adapters` 承载协议差异
+- 用 `storage` 承载持久化与事务
+- 用稳定 facade 保护上层 API
+
+后续所有后端升级都应以这份文档为基线；如果要偏离，必须先更新 ADR，而不是在实现里悄悄偏离。
+
