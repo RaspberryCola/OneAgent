@@ -1,180 +1,186 @@
 # OneAgent
 
-<p align="center">
-  <img src="public/tauri.svg" alt="OneAgent" width="120" />
+<p align="right">
+  <strong>English</strong> | <a href="./README.zh-CN.md">中文</a>
 </p>
 
 <p align="center">
-  <strong>AI 编码代理的统一管理界面</strong>
+  <img src="public/oneagent_horizontal.svg" alt="OneAgent" width="420" />
 </p>
 
 <p align="center">
-  <a href="#功能特性">功能特性</a> •
-  <a href="#安装">安装</a> •
-  <a href="#使用方法">使用方法</a> •
-  <a href="#支持的代理">支持的代理</a> •
-  <a href="#开发">开发</a>
+  <strong>A unified desktop workspace for multiple AI coding agents</strong>
 </p>
+
+<p align="center">
+  Built with Tauri + ACP to manage Claude Code, OpenCode, Qwen Code, Gemini CLI, Kiro, OpenClaw, and more in one place with workspace isolation, conversation history, MCP integration, and permission controls.
+</p>
+
+<p align="center">
+  <a href="#why-oneagent">Why OneAgent</a> •
+  <a href="#highlights">Highlights</a> •
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#supported-agents">Supported Agents</a> •
+  <a href="#development">Development</a>
+</p>
+
+## Screenshots
+
+### Main Workspace
+
+![OneAgent main workspace](docs/assets/main-home.png)
+
+### Chat Session
+
+![OneAgent chat session](docs/assets/main-chat.png)
 
 ---
 
-## 简介
+## Why OneAgent
 
-OneAgent 是一个基于 Tauri 的桌面应用程序，为多个 AI 编码代理提供统一的管理界面。它实现了 **Agent Client Protocol (ACP)** 协议，让你可以在一个界面中无缝切换和管理 Claude Code、OpenCode、Goose 等多种 AI 助手。
+When working with multiple AI coding agents, common pain points include fragmented terminals, split context, and unclear permission boundaries.  
+OneAgent brings everything into a single desktop workspace:
 
-不再需要在多个终端窗口之间切换，OneAgent 为你提供 IDE 般的体验：工作区管理、对话历史、权限控制，一应俱全。
+- One UI to manage multiple agents
+- Workspace-level isolation for conversations and settings
+- Explicit permission decisions for high-risk actions
+- MCP-based extensibility for custom tools and integrations
 
-## 功能特性
+## Inspiration
 
-### 🎯 多代理管理
-- 支持 Claude Code、OpenCode、Goose 等主流 AI 编码代理
-- 通过 ACP 协议实现标准化通信
-- 自动发现已安装的代理
+This project is inspired by [AionUi](https://github.com/iOfficeAI/AionUi). At the current stage, OneAgent is still primarily a faithful recreation of that interaction model.
 
-### 💼 工作区管理
-- 类似 IDE 的项目工作区
-- 每个工作区独立的配置和对话历史
-- 快速切换不同项目
+Our main implementation difference is the architecture choice: OneAgent is built as a desktop app with **Tauri + Rust** for the backend runtime, while keeping a modern frontend workflow.
 
-### 💬 对话历史
-- 完整的对话记录保存
-- 随时回顾之前的对话
-- 跨会话的连续性
+## Highlights
 
-### 🔌 MCP 服务器集成
-- 支持 Model Context Protocol (MCP) 服务器
-- 扩展 AI 代理的功能
-- 自定义工具和集成
+### Unified Multi-Agent Access
+- Standardized communication through **Agent Client Protocol (ACP)**
+- Automatic discovery of locally installed agents
+- Switch between agent profiles in the same UX
 
-### 🔒 权限管理
-- 细粒度的权限控制
-- 对文件操作、命令执行等敏感操作进行审批
-- 支持允许一次、总是允许、拒绝一次、总是拒绝等多种策略
+### Workspace and Session Management
+- Multi-workspace isolation for chats, bindings, and config
+- Persistent conversation history for replay and continuation
+- IDE-like workflow with less context switching
 
-## 安装
+### MCP Extensibility
+- Connect Model Context Protocol (MCP) servers
+- Configure tools and capability extensions per workspace
 
-### 系统要求
+### Granular Permission Controls
+- Review sensitive operations such as file writes and command execution
+- Supports `allow_once` / `allow_always` / `reject_once` / `reject_always`
+
+## Quick Start
+
+### Requirements
 
 - macOS 12+ / Windows 10+ / Linux
 - Node.js 18+
 - Rust 1.70+
 
-### 从源码构建
+### Run from Source
 
 ```bash
-# 克隆仓库
-git clone https://github.com/yourusername/oneagent.git
-cd oneagent
+git clone https://github.com/RaspberryCola/OneAgent.git
+cd OneAgent
 
-# 安装依赖
 npm install
 
-# 下载 bundled Bun 运行时和 Claude 适配器
+# Download bundled Bun and Claude ACP adapter (recommended once)
 npm run prepare:claude-runtime
 
-# 开发模式
+# Start full Tauri development mode
 npm run tauri dev
-
-# 构建生产版本
-npm run tauri build
 ```
 
-## 使用方法
-
-### 首次启动
-
-1. 启动 OneAgent 后，默认会在 `~/.oneagent` 创建工作区
-2. 应用会自动探测已安装的 AI 代理
-
-### 创建会话
-
-1. 选择左侧的代理配置文件
-2. 点击"新建会话"选择工作区
-3. 开始与 AI 代理对话
-
-### 管理权限
-
-当代理请求执行敏感操作（如文件写入、命令执行）时：
-- 在弹出的权限对话框中选择你的决策
-- 可以选择"允许一次"、"总是允许"、"拒绝一次"或"总是拒绝"
-
-## 支持的代理
-
-| 代理 | 状态 | 说明 |
-|------|------|------|
-| Claude Code | ✅ 已支持 | 通过 ACP 协议 |
-| OpenCode | ✅ 已支持 | 通过 ACP 协议 |
-| Goose | ✅ 已支持 | 通过 ACP 协议 |
-| 其他 ACP 兼容代理 | 🚧 开发中 | 理论支持 |
-
-## 开发
-
-### 项目结构
-
-```
-oneagent/
-├── src/                    # 前端代码 (React + TypeScript)
-│   ├── App.tsx            # 主应用组件
-│   ├── lib/               # 工具库
-│   │   ├── store.ts       # Zustand 状态管理
-│   │   └── backend/       # 后端通信
-│   └── components/        # UI 组件
-├── src-tauri/             # 后端代码 (Rust)
-│   ├── src/
-│   │   ├── domain/        # 领域模型
-│   │   ├── gateway/       # API 层
-│   │   ├── runtime/       # 运行时管理
-│   │   ├── agent_adapters/# 代理适配器
-│   │   └── storage/       # 数据存储
-│   └── Cargo.toml
-└── scripts/               # 构建脚本
-```
-
-### 技术栈
-
-- **前端**: React 18, TypeScript, Vite, Zustand
-- **后端**: Rust, Tauri
-- **数据库**: SQLite
-- **协议**: ACP (Agent Client Protocol)
-
-### 常用命令
+### Build
 
 ```bash
-# 前端开发服务器
+npm run build
+npm run tauri build
+```
+
+## Usage
+
+### First Launch
+1. On startup, OneAgent creates a default workspace at `~/.oneagent`
+2. The app automatically discovers available agent profiles
+
+### Create a Session
+1. Select an agent profile
+2. Create a new session and choose a target workspace
+3. Enter your prompt and start the conversation
+
+### Handle Permission Requests
+When an agent asks for high-risk capabilities (such as file writes or command execution):
+- Approve or reject in the permission dialog
+- Choose one-time or persistent rules based on context
+
+## Supported Agents
+
+| Agent | Status | Integration |
+|------|------|------|
+| Claude Code | ✅ | ACP Bridge |
+| OpenCode | ✅ | ACP |
+| Qwen Code | ✅ | ACP |
+| Gemini CLI | ✅ | ACP |
+| Kiro | ✅ | ACP |
+| OpenClaw | ✅ | ACP |
+| Other ACP-compatible agents | 🚧 | Validation in progress |
+
+## Development
+
+### Common Commands
+
+```bash
+# Frontend dev server (Vite)
 npm run dev
 
-# Tauri 开发模式（前端 + 后端）
+# Tauri dev mode (frontend + backend)
 npm run tauri dev
 
-# 类型检查
+# Build (includes TypeScript checks)
 npm run build
 
-# 生产构建
+# Build desktop app
 npm run tauri build
 
-# 仅构建 Rust 后端
+# Build Rust backend only
 cd src-tauri && cargo build
 
-# 运行 Rust 测试
+# Run Rust tests
 cd src-tauri && cargo test
 ```
 
-## 贡献
+### Project Structure (Simplified)
 
-欢迎提交 Issue 和 Pull Request！
+```text
+.
+├── src/                    # React + TypeScript frontend
+├── src-tauri/              # Rust + Tauri backend
+├── scripts/                # Tooling scripts (including runtime prep)
+├── public/                 # Static assets (logos, etc.)
+└── docs/                   # Design and architecture docs
+```
 
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
-3. 提交更改 (`git commit -m 'Add some amazing feature'`)
-4. 推送到分支 (`git push origin feature/amazing-feature`)
-5. 打开 Pull Request
+## Roadmap
 
-## 许可证
+- [ ] Validate and support more ACP-compatible agents
+- [ ] Improve cross-platform packaging and install docs
+- [ ] Add polished UI screenshots and demo GIFs
+
+## Contributing
+
+Issues and pull requests are welcome.  
+Before submitting, please run:
+
+```bash
+npm run build
+cd src-tauri && cargo test
+```
+
+## License
 
 [MIT](LICENSE) © OneAgent Contributors
-
----
-
-<p align="center">
-  使用 ❤️ 和 Rust + React 构建
-</p>
