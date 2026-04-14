@@ -51,6 +51,14 @@ export interface Workspace {
   updated_at: string;
 }
 
+export interface WorkspaceFileEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  size_bytes?: number | null;
+  modified_at?: string | null;
+}
+
 export interface AgentProfile {
   id: string;
   kind: 'acp' | 'compat';

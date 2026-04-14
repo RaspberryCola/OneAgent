@@ -210,6 +210,15 @@ pub struct Workspace {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceFileEntry {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub size_bytes: Option<u64>,
+    pub modified_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentProfile {
     pub id: String,
     pub kind: AgentKind,

@@ -1,4 +1,6 @@
-use std::sync::Arc;
+use std::{fs, sync::Arc};
+
+use chrono::{DateTime, Utc};
 
 use serde::Deserialize;
 use tauri::State;
@@ -169,6 +171,100 @@ pub async fn pick_workspace_directory(
         }
         None => Ok(None), // User cancelled the dialog
     }
+}
+
+#[tauri::command]
+pub async fn list_workspace_files(
+    cwd: String,
+    directory_path: Option<String>,
+) -> Result<Vec<WorkspaceFileEntry>, BackendError> {
+    let workspace_path = std::path::PathBuf::from(&cwd);
+    if !workspace_path.exists() {
+        return Err(BackendError::new(
+            ErrorCode::InvalidWorkspacePath,
+            format!("Workspace path does not exist: {cwd}"),
+        ));
+    }
+    if !workspace_path.is_dir() {
+        return Err(BackendError::new(
+            ErrorCode::InvalidWorkspacePath,
+            format!("Workspace path is not a directory: {cwd}"),
+        ));
+    }
+
+    let workspace_root = workspace_path.canonicalize().map_err(|error| {
+        BackendError::new(
+            ErrorCode::InvalidWorkspacePath,
+            format!("Failed to resolve workspace root: {error}"),
+        )
+    })?;
+
+    let target_path = match directory_path {
+        Some(path) => std::path::PathBuf::from(path),
+        None => workspace_root.clone(),
+    };
+
+    let target_path = target_path.canonicalize().map_err(|error| {
+        BackendError::new(
+            ErrorCode::InvalidInput,
+            format!("Failed to resolve target directory: {error}"),
+        )
+    })?;
+
+    if !target_path.starts_with(&workspace_root) {
+        return Err(BackendError::new(
+            ErrorCode::InvalidInput,
+            "Directory is outside workspace root",
+        ));
+    }
+
+    if !target_path.is_dir() {
+        return Err(BackendError::new(
+            ErrorCode::InvalidInput,
+            "Target path is not a directory",
+        ));
+    }
+
+    let mut entries = Vec::new();
+    let read_dir = fs::read_dir(&target_path).map_err(|error| {
+        BackendError::new(
+            ErrorCode::InvalidInput,
+            format!("Failed to read workspace files: {error}"),
+        )
+    })?;
+
+    for dir_entry in read_dir {
+        let dir_entry = match dir_entry {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
+        let path = dir_entry.path();
+        let metadata = match dir_entry.metadata() {
+            Ok(metadata) => metadata,
+            Err(_) => continue,
+        };
+        let modified_at = metadata
+            .modified()
+            .ok()
+            .map(DateTime::<Utc>::from);
+
+        entries.push(WorkspaceFileEntry {
+            name: dir_entry.file_name().to_string_lossy().to_string(),
+            path: path.to_string_lossy().to_string(),
+            is_dir: metadata.is_dir(),
+            size_bytes: metadata.is_file().then_some(metadata.len()),
+            modified_at,
+        });
+    }
+
+    entries.sort_by(|left, right| {
+        right
+            .is_dir
+            .cmp(&left.is_dir)
+            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+    });
+
+    Ok(entries)
 }
 
 #[tauri::command]

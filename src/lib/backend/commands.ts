@@ -42,6 +42,10 @@ export async function pickWorkspaceDirectory(): Promise<Types.Workspace | null> 
   return invoke('pick_workspace_directory');
 }
 
+export async function listWorkspaceFiles(cwd: string, directoryPath?: string): Promise<Types.WorkspaceFileEntry[]> {
+  return invoke('list_workspace_files', { cwd, directoryPath });
+}
+
 // Conversation / Task
 export async function listConversations(workspaceId: string, filter?: Types.ConversationFilter): Promise<Types.Conversation[]> {
   return invoke('list_conversations', { workspaceId, filter });

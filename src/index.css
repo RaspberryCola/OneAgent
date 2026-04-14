@@ -107,6 +107,42 @@ h1, h2, h3, h4, h5, h6 {
   border: none !important;
 }
 
+/* Chat area scrollbar: thumb only, no visible track */
+.scrollbar-chat {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.24) transparent;
+}
+
+.scrollbar-chat::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+  background: transparent !important;
+  border: none !important;
+}
+
+.scrollbar-chat::-webkit-scrollbar-track,
+.scrollbar-chat::-webkit-scrollbar-track-piece,
+.scrollbar-chat::-webkit-scrollbar-corner {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  -webkit-box-shadow: none !important;
+  border: none !important;
+  outline: none !important;
+}
+
+.scrollbar-chat::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.22);
+  border-radius: 9999px;
+  border: none !important;
+  box-shadow: none !important;
+  -webkit-box-shadow: none !important;
+}
+
+.scrollbar-chat::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.30);
+}
+
 /* Streamdown code block styles - ensure proper formatting */
 pre {
   white-space: pre;

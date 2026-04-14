@@ -476,6 +476,18 @@ function compareIsoTimestamp(a?: string | null, b?: string | null) {
   return a.localeCompare(b);
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unitIndex = -1;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
 // Helper: get latest permission decision for a tool call
 function getLatestPermissionDecision(
   toolCallId: string,
@@ -545,6 +557,14 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Types.Conversation[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [isWorkspacePanelOpen, setIsWorkspacePanelOpen] = useState(false);
+  const [workspaceRootFiles, setWorkspaceRootFiles] = useState<Types.WorkspaceFileEntry[]>([]);
+  const [isWorkspaceRootLoading, setIsWorkspaceRootLoading] = useState(false);
+  const [workspaceRootError, setWorkspaceRootError] = useState<string | null>(null);
+  const [expandedWorkspaceDirs, setExpandedWorkspaceDirs] = useState<Set<string>>(new Set());
+  const [workspaceDirChildren, setWorkspaceDirChildren] = useState<Record<string, Types.WorkspaceFileEntry[]>>({});
+  const [workspaceLoadingDirs, setWorkspaceLoadingDirs] = useState<Set<string>>(new Set());
+  const [workspaceDirErrors, setWorkspaceDirErrors] = useState<Record<string, string>>({});
   const [isSending, setIsSending] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
@@ -595,6 +615,103 @@ export default function App() {
       });
     }
   }, [activeWorkspace?.id]);
+
+  useEffect(() => {
+    if (!isWorkspacePanelOpen || !activeWorkspace) {
+      setWorkspaceRootFiles([]);
+      setWorkspaceRootError(null);
+      setIsWorkspaceRootLoading(false);
+      setExpandedWorkspaceDirs(new Set());
+      setWorkspaceDirChildren({});
+      setWorkspaceLoadingDirs(new Set());
+      setWorkspaceDirErrors({});
+      return;
+    }
+
+    let cancelled = false;
+    setIsWorkspaceRootLoading(true);
+    setWorkspaceRootError(null);
+    setExpandedWorkspaceDirs(new Set());
+    setWorkspaceDirChildren({});
+    setWorkspaceLoadingDirs(new Set());
+    setWorkspaceDirErrors({});
+
+    void API.listWorkspaceFiles(activeWorkspace.cwd)
+      .then((entries) => {
+        if (cancelled) return;
+        setWorkspaceRootFiles(entries);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        const message = error instanceof Error ? error.message : "Failed to load workspace files";
+        setWorkspaceRootFiles([]);
+        setWorkspaceRootError(message);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsWorkspaceRootLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspace, isWorkspacePanelOpen]);
+
+  useEffect(() => {
+    if (activeConversationId === null && isWorkspacePanelOpen) {
+      setIsWorkspacePanelOpen(false);
+    }
+  }, [activeConversationId, isWorkspacePanelOpen]);
+
+  const toggleWorkspaceDirectory = (directoryPath: string) => {
+    const alreadyExpanded = expandedWorkspaceDirs.has(directoryPath);
+    if (alreadyExpanded) {
+      setExpandedWorkspaceDirs((prev) => {
+        const next = new Set(prev);
+        next.delete(directoryPath);
+        return next;
+      });
+      return;
+    }
+
+    setExpandedWorkspaceDirs((prev) => {
+      const next = new Set(prev);
+      next.add(directoryPath);
+      return next;
+    });
+
+    if (!activeWorkspace || workspaceDirChildren[directoryPath] || workspaceLoadingDirs.has(directoryPath)) {
+      return;
+    }
+
+    setWorkspaceLoadingDirs((prev) => {
+      const next = new Set(prev);
+      next.add(directoryPath);
+      return next;
+    });
+    setWorkspaceDirErrors((prev) => {
+      const next = { ...prev };
+      delete next[directoryPath];
+      return next;
+    });
+
+    void API.listWorkspaceFiles(activeWorkspace.cwd, directoryPath)
+      .then((entries) => {
+        setWorkspaceDirChildren((prev) => ({ ...prev, [directoryPath]: entries }));
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : "Failed to load directory";
+        setWorkspaceDirErrors((prev) => ({ ...prev, [directoryPath]: message }));
+      })
+      .finally(() => {
+        setWorkspaceLoadingDirs((prev) => {
+          const next = new Set(prev);
+          next.delete(directoryPath);
+          return next;
+        });
+      });
+  };
 
   // Check if scroll is near bottom (within threshold)
   const checkIsAtBottom = () => {
@@ -1133,6 +1250,71 @@ export default function App() {
     }
   };
 
+  const renderWorkspaceEntries = (entries: Types.WorkspaceFileEntry[], depth = 0) =>
+    entries.map((entry) => {
+      const isExpanded = expandedWorkspaceDirs.has(entry.path);
+      const isLoadingChildren = workspaceLoadingDirs.has(entry.path);
+      const children = workspaceDirChildren[entry.path] ?? [];
+      const childError = workspaceDirErrors[entry.path];
+
+      return (
+        <div key={entry.path}>
+          <button
+            type="button"
+            onClick={() => {
+              if (entry.is_dir) {
+                toggleWorkspaceDirectory(entry.path);
+              }
+            }}
+            className="w-full text-left px-2 py-1.5 rounded-md hover:bg-snow/90 transition-colors"
+            title={entry.path}
+          >
+            <div className="flex items-center gap-2 min-w-0" style={{ paddingLeft: `${depth * 14}px` }}>
+              {entry.is_dir ? (
+                isExpanded ? (
+                  <ChevronDown className="w-3.5 h-3.5 text-stone shrink-0" />
+                ) : (
+                  <ChevronRight className="w-3.5 h-3.5 text-stone shrink-0" />
+                )
+              ) : (
+                <span className="w-3.5 h-3.5 shrink-0" />
+              )}
+              {entry.is_dir ? (
+                <Folder className="w-3.5 h-3.5 text-stone shrink-0" />
+              ) : (
+                <Code className="w-3.5 h-3.5 text-stone shrink-0" />
+              )}
+              <span className="text-[12px] text-pure-black truncate flex-1 min-w-0">{entry.name}</span>
+              {!entry.is_dir && (
+                <span className="text-[10px] text-silver shrink-0">{formatBytes(entry.size_bytes ?? 0)}</span>
+              )}
+            </div>
+          </button>
+
+          {entry.is_dir && isExpanded && (
+            <div>
+              {isLoadingChildren ? (
+                <div className="ml-2 py-1.5 text-[11px] text-stone flex items-center gap-1.5" style={{ paddingLeft: `${(depth + 1) * 14}px` }}>
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <span>Loading...</span>
+                </div>
+              ) : childError ? (
+                <div className="ml-2 py-1.5 text-[11px] text-stone truncate" style={{ paddingLeft: `${(depth + 1) * 14}px` }}>
+                  {childError}
+                </div>
+              ) : children.length === 0 ? (
+                <div className="ml-2 py-1.5 text-[11px] text-silver" style={{ paddingLeft: `${(depth + 1) * 14}px` }}>
+                  Empty
+                </div>
+              ) : (
+                renderWorkspaceEntries(children, depth + 1)
+              )}
+            </div>
+          )}
+        </div>
+      );
+    });
+
   if (isInitializing) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-pure-white text-pure-black">
@@ -1363,12 +1545,40 @@ export default function App() {
           </div>
 
           {activeConversationId && (
-            <button className="p-2 shrink-0 text-stone hover:text-pure-black rounded-md hover:bg-snow transition-colors">
-              <MoreHorizontal className="w-5 h-5" />
+            <button
+              type="button"
+              onClick={() => setIsWorkspacePanelOpen((open) => !open)}
+              className={`p-1 shrink-0 rounded-md transition-colors hover:bg-light-gray/50 ${
+                isWorkspacePanelOpen ? "text-pure-black" : "text-stone hover:text-pure-black"
+              }`}
+              title="Toggle workspace panel"
+              aria-label="Toggle workspace panel"
+            >
+              {isWorkspacePanelOpen ? (
+                <PanelLeftClose className="w-[18px] h-[18px] -scale-x-100" />
+              ) : (
+                <PanelLeftOpen className="w-[18px] h-[18px] -scale-x-100" />
+              )}
             </button>
           )}
         </header>
 
+        {/* Floating Notice Toast - 悬浮在右侧内容区顶部居中 */}
+        {composerNotice && (
+          <div className="absolute top-4 left-0 right-0 z-50 flex justify-center pointer-events-none">
+            <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-light-gray bg-pure-white shadow-lg px-4 py-3 text-[13px] text-near-black max-w-[768px] mx-4">
+              <AlertCircle className="w-4 h-4 shrink-0 text-stone" />
+              <span className="truncate">{composerNotice}</span>
+              <button
+                onClick={() => setComposerNotice(null)}
+                className="ml-1 p-1 text-stone hover:text-pure-black rounded-md hover:bg-light-gray/50 transition-colors shrink-0"
+                title="Dismiss"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
         {activeConversationId === null ? (
           <div className="flex-1 flex flex-col items-center justify-center p-4 pb-32 w-full max-w-3xl mx-auto overflow-y-auto overflow-x-hidden">
             <div className="flex flex-col items-center mb-10 gap-8 w-full">
@@ -1437,7 +1647,6 @@ export default function App() {
                     input={input}
                     setInput={setInput}
                     attachments={attachmentStates}
-                    composerNotice={composerNotice}
                     activeAgent={activeAgent}
                     modelSelector={modelSelector}
                     selectedModelValue={selectedModelValue}
@@ -1462,14 +1671,12 @@ export default function App() {
                   />
                 </div>
               </div>
-              {/* Spacer to match scrollbar width for perfect centering */}
-              <div className="w-0 overflow-y-hidden [scrollbar-gutter:stable] pointer-events-none" aria-hidden="true" />
             </div>
           </div>
         ) : (
           <div 
             ref={setScrollAreaRef}
-            className="relative flex-1 overflow-y-auto min-w-0 w-full flex flex-col scroll-smooth [scrollbar-gutter:stable]"
+            className="relative flex-1 overflow-y-auto min-w-0 w-full flex flex-col scroll-smooth scrollbar-chat"
           >
             <div ref={scrollContentRef} className="max-w-[768px] mx-auto w-full flex-1 flex flex-col min-h-full">
               <div className="flex-1 space-y-4 px-4 md:px-6 pt-4 pb-4">
@@ -1555,7 +1762,6 @@ export default function App() {
                     input={input}
                     setInput={setInput}
                     attachments={attachmentStates}
-                    composerNotice={composerNotice}
                     activeAgent={activeAgent}
                     modelSelector={modelSelector}
                     selectedModelValue={selectedModelValue}
@@ -1584,6 +1790,43 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {activeConversationId !== null && (
+        <aside
+          className={`bg-pure-white transition-all duration-200 ${
+            isWorkspacePanelOpen ? "w-[320px]" : "w-0 overflow-hidden"
+          }`}
+        >
+          <div className="w-[320px] h-full flex flex-col">
+            <div className="px-4 py-3 border-b border-light-gray/40">
+              <div className="text-[11px] text-stone truncate" title={activeWorkspace?.cwd ?? ""}>
+                {activeWorkspace?.cwd ?? "No active workspace"}
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3">
+              {isWorkspaceRootLoading ? (
+                <div className="h-full flex items-center justify-center gap-2 text-[12px] text-stone">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Loading files...</span>
+                </div>
+              ) : workspaceRootError ? (
+                <div className="p-3 rounded-container border border-light-gray/60 bg-snow text-[12px] text-stone">
+                  {workspaceRootError}
+                </div>
+              ) : workspaceRootFiles.length === 0 ? (
+                <div className="p-3 rounded-container border border-light-gray/60 bg-snow text-[12px] text-stone">
+                  No files found in this workspace root.
+                </div>
+              ) : (
+                <div className="space-y-0.5">
+                  {renderWorkspaceEntries(workspaceRootFiles)}
+                </div>
+              )}
+            </div>
+          </div>
+        </aside>
+      )}
 
       {isSettingsOpen && (
         <div className="fixed inset-0 bg-pure-black/10 z-[100] flex items-center justify-center p-4">
@@ -1746,7 +1989,6 @@ function Composer({
   input,
   setInput,
   attachments,
-  composerNotice,
   activeAgent,
   modelSelector,
   selectedModelValue,
@@ -1772,7 +2014,6 @@ function Composer({
   input: string;
   setInput: (value: string) => void;
   attachments: Array<{ attachment: LocalAttachment; resolution: AttachmentResolution }>;
-  composerNotice: string | null;
   activeAgent: Types.AgentProfile | null;
   modelSelector: ModelSelectorState | null;
   selectedModelValue: any;
@@ -1831,13 +2072,6 @@ function Composer({
               </button>
             </div>
           ))}
-        </div>
-      )}
-
-      {composerNotice && (
-        <div className="mx-3 mt-3 flex items-center gap-2 rounded-xl border border-light-gray bg-snow px-3 py-2 text-[12px] text-stone">
-          <AlertCircle className="w-4 h-4 shrink-0" />
-          <span>{composerNotice}</span>
         </div>
       )}
 
