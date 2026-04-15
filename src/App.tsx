@@ -589,6 +589,7 @@ export default function App() {
     activeConversationState,
     activeTimeline,
     activeTimelineItems,
+    unreadCompletedConversations,
     selectConversation,
     setActiveAgentProfile,
     ensureAgentCapabilities,
@@ -1464,6 +1465,8 @@ export default function App() {
                                 key={conversation.id}
                                 title={conversation.title || "Untitled Chat"}
                                 agentCommand={agent?.command ?? conversation.agent_profile_id}
+                                status={conversation.status}
+                                unread={unreadCompletedConversations.has(conversation.id)}
                                 active={activeConversationId === conversation.id}
                                 onClick={() => {
                                   void selectConversation(conversation.id);
@@ -2251,23 +2254,30 @@ function Composer({
   );
 }
 
-function SidebarItem({ 
-  title, 
+function SidebarItem({
+  title,
   agentCommand,
-  active = false, 
+  status,
+  unread = false,
+  active = false,
   onClick,
   deletePending = false,
   onDelete,
   onCancelDelete,
-}: { 
-  title: string; 
+}: {
+  title: string;
   agentCommand?: string;
-  active?: boolean; 
+  status?: Types.Conversation["status"];
+  unread?: boolean;
+  active?: boolean;
   onClick?: () => void;
   deletePending?: boolean;
   onDelete?: () => void;
   onCancelDelete?: () => void;
 }) {
+  const isRunning = status === "running";
+  const isCancelling = status === "cancelling";
+  const showCompletedDot = unread && !active && !isRunning && !isCancelling;
   return (
     <div
       className={`group w-full rounded-container flex items-center gap-1 min-w-0 border border-transparent transition-colors ${active ? "bg-light-gray" : "hover:bg-light-gray/50"}`}
@@ -2277,8 +2287,14 @@ function SidebarItem({
         onClick={onClick}
         className="flex-1 text-left px-3 py-1 flex items-center gap-2.5 min-w-0 rounded-container"
       >
-        <div className={`w-4 h-4 flex items-center justify-center shrink-0 ${active ? 'opacity-100' : 'opacity-40'}`}>
+        <div className={`relative w-4 h-4 flex items-center justify-center shrink-0 ${active ? 'opacity-100' : 'opacity-40'}`}>
           {agentCommand ? <AgentLogo agent={agentCommand} className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
+          {(isRunning || isCancelling) && (
+            <div className={`absolute left-0 top-1/2 -translate-y-1/2 -translate-x-[calc(100%+3px)] w-1.5 h-1.5 rounded-full ${isRunning ? "bg-blue-500" : "bg-amber-500"} animate-pulse`} />
+          )}
+          {showCompletedDot && (
+            <div className={`absolute left-0 top-1/2 -translate-y-1/2 -translate-x-[calc(100%+3px)] w-1.5 h-1.5 rounded-full bg-emerald-500`} />
+          )}
         </div>
         <span className={`text-small truncate flex-1 ${active ? "text-pure-black font-medium" : "text-near-black"}`}>{title}</span>
       </button>

@@ -299,6 +299,12 @@ interface AppState {
   activeTimeline: Types.TimelineResponse | null;
   activeTimelineItems: TimelineItem[];
 
+  // Unread completed conversations (for notification dot in sidebar)
+  unreadCompletedConversations: Set<string>;
+
+  // Running conversations (to detect completion transition)
+  runningConversations: Set<string>;
+
   // Actions
   init: () => Promise<void>;
   selectConversation: (id: string | null) => Promise<void>;
@@ -345,6 +351,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   activeTimeline: null,
   activeTimelineItems: [],
+  unreadCompletedConversations: new Set(),
+  runningConversations: new Set(),
 
   init: async () => {
     try {
@@ -436,12 +444,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       ? findConversationAcrossWorkspaces(get().workspaceConversations, id)
       : null;
     const selectedConversation = selectedEntry?.conversation ?? null;
+
+    // Mark conversation as read when user selects it
+    const nextUnread = new Set(get().unreadCompletedConversations);
+    if (id && nextUnread.has(id)) {
+      nextUnread.delete(id);
+    }
+
     set({
       activeConversationId: id,
       activeAgentProfileId: selectedConversation?.agent_profile_id ?? get().activeAgentProfileId,
       activeConversationState: null,
       activeTimeline: null,
       activeTimelineItems: [],
+      unreadCompletedConversations: nextUnread,
     });
 
     if (id) {
@@ -1121,6 +1137,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     Events.onConversationStateChanged((payload) => {
       const activeWsId = get().activeWorkspace?.id;
+      const isActiveConv = get().activeConversationId === payload.conversation_id;
+      const currentRunning = get().runningConversations;
+      const wasRunning = currentRunning.has(payload.conversation_id);
+      const isNowIdle = payload.state.runtime.turn_phase === 'idle';
+      const isNowRunning = payload.state.runtime.turn_phase === 'running';
+
       set((state) => {
         const newWorkspaceConversations = new Map(state.workspaceConversations);
         // Update in the specific workspace's conversation list
@@ -1136,6 +1158,20 @@ export const useAppStore = create<AppState>((set, get) => ({
         const updatedConversations = state.conversations.map(c =>
           c.id === payload.conversation_id ? { ...c, status: payload.state.conversation.status } : c
         );
+
+        // Track running conversations and detect completion
+        const nextRunning = new Set(state.runningConversations);
+        const nextUnread = new Set(state.unreadCompletedConversations);
+
+        if (isNowRunning) {
+          nextRunning.add(payload.conversation_id);
+        } else if (isNowIdle && wasRunning) {
+          // Conversation just completed - mark as unread if user not viewing
+          nextRunning.delete(payload.conversation_id);
+          if (!isActiveConv) {
+            nextUnread.add(payload.conversation_id);
+          }
+        }
 
         // Preserve model/mode metadata if a state refresh omits unstable ACP fields.
         let newState = payload.state;
@@ -1165,6 +1201,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         return {
           workspaceConversations: newWorkspaceConversations,
           conversations: updatedConversations,
+          runningConversations: nextRunning,
+          unreadCompletedConversations: nextUnread,
           activeConversationState: state.activeConversationId === payload.conversation_id
             ? newState
             : state.activeConversationState,
@@ -1224,9 +1262,15 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
         const nextConversations = state.conversations.filter((c) => c.id !== payload.conversation_id);
         const isActive = state.activeConversationId === payload.conversation_id;
+        const nextUnread = new Set(state.unreadCompletedConversations);
+        nextUnread.delete(payload.conversation_id);
+        const nextRunning = new Set(state.runningConversations);
+        nextRunning.delete(payload.conversation_id);
         return {
           workspaceConversations: newWorkspaceConversations,
           conversations: nextConversations,
+          unreadCompletedConversations: nextUnread,
+          runningConversations: nextRunning,
           activeConversationId: isActive ? null : state.activeConversationId,
           activeConversationState: isActive ? null : state.activeConversationState,
           activeTimeline: isActive ? null : state.activeTimeline,
