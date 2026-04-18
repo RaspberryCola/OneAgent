@@ -43,7 +43,7 @@ impl ApplicationServices {
         let agents = AgentAppService::new(db.clone());
         Self {
             agents: agents.clone(),
-            conversations: ConversationAppService::new(runtime.clone()),
+            conversations: ConversationAppService::new(db.clone(), runtime.clone()),
             task_runs: TaskRunAppService::new(db.clone(), runtime.clone()),
             permissions: PermissionAppService::new(runtime.clone()),
             attachments: AttachmentAppService::new(),

@@ -7,7 +7,7 @@ use crate::{
     storage::Database,
 };
 
-use super::ApplicationResult;
+use super::{ApplicationError, ApplicationResult};
 
 #[derive(Clone)]
 pub struct AgentAppService {
@@ -75,6 +75,11 @@ impl AgentAppService {
         &self,
         input: UpsertAgentProfileInput,
     ) -> ApplicationResult<AgentProfile> {
+        if input.command.trim().is_empty() {
+            return Err(ApplicationError::Validation(
+                "agent command cannot be empty".to_string(),
+            ));
+        }
         Ok(self.db.upsert_agent_profile(input)?)
     }
 }

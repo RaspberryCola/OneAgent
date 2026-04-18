@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-This is the single source of truth for backend refactor work after A1/A2/A3/B1/B2/B3/D1.
+This is the single source of truth for backend refactor work after A1/A2/A3/B1/B2/B3/B4/D1.
 
 It replaces:
 
@@ -18,11 +18,11 @@ Completed:
 - transaction entry exists: `storage/sqlite/tx.rs`
 - `runtime` split is wired: `session_manager`, `recovery`, `stream_processor`, `projector/*`, `snapshot_model`
 - `application/*` is wired through `gateway`
+- B4 gateway/application consolidation is done: `gateway` now delegates conversation list/search/send/cancel/delete, timeline/state, and session-config/model/mode operations through `application`
 - ACP physical modularization is wired under `agent_adapters/acp/*`
 
 Partially completed:
 
-- B4: application services are mostly thin wrappers; use-case orchestration is still concentrated in `runtime/mod.rs`
 - C2: ACP typed protocol coverage is incomplete
 - D2: tests pass (`cargo test`), but use-case regression matrix is still missing
 - D3: synchronous SQLite access is still directly used on async paths
@@ -44,18 +44,7 @@ Partially completed:
 
 ## 4. Next-Stage Goals
 
-### G1. Finish B4 (application-centric use cases)
-
-- Move orchestration skeletons for `create/import/send/cancel/delete` from `runtime/mod.rs` into `application/*`
-- Keep `runtime` focused on session lifecycle, replay/recovery, stream processing, projection dispatch
-
-Acceptance:
-
-- `gateway` remains thin facade
-- `application` owns use-case orchestration
-- `runtime/mod.rs` size and responsibilities are reduced
-
-### G2. Expand transaction coverage (A3 continuation)
+### G1. Expand transaction coverage (A3 continuation)
 
 - Extend atomic boundaries to remaining multi-write flows:
   - `import conversation`
@@ -66,7 +55,7 @@ Acceptance:
 
 - no multi-write flow relies on sequential best-effort success
 
-### G3. Close C2 (ACP typing)
+### G2. Close C2 (ACP typing)
 
 - Add/extend typed models for key ACP message families
 - Keep `serde_json::Value` usage at protocol boundary only
@@ -75,7 +64,7 @@ Acceptance:
 
 - key ACP update/permission/session messages are parsed into typed intermediates
 
-### G4. Close D2 (regression matrix)
+### G3. Close D2 (regression matrix)
 
 - Add behavior tests for:
   - `create/import/send/cancel/replay`
@@ -87,7 +76,7 @@ Acceptance:
 
 - failures in core workflows are caught without manual UI verification
 
-### G5. Advance D3 (async/storage boundary)
+### G4. Advance D3 (async/storage boundary)
 
 - Reduce synchronous DB work on high-frequency stream paths
 - Introduce explicit boundaries for future `spawn_blocking`/pool migration
@@ -99,11 +88,10 @@ Acceptance:
 
 ## 5. Execution Order
 
-1. B4 completion (G1)
-2. Transaction expansion (G2)
-3. D2 regression matrix (G4) in parallel with G1/G2 where possible
-4. C2 typing completion (G3)
-5. D3 boundary hardening (G5)
+1. Transaction expansion (G1)
+2. D2 regression matrix (G3) in parallel with G1 where possible
+3. C2 typing completion (G2)
+4. D3 boundary hardening (G4)
 
 ## 6. Parallel Work Rules
 
@@ -133,9 +121,7 @@ Rules:
 
 ## 8. Current Focus Queue
 
-- P0: B4 completion (`application` orchestration extraction)
-- P1: A3 continuation (transaction coverage completion)
-- P2: D2 regression matrix
-- P3: C2 typed ACP model completion
-- P4: D3 boundary/performance hardening
-
+- P0: A3 continuation (transaction coverage completion)
+- P1: D2 regression matrix
+- P2: C2 typed ACP model completion
+- P3: D3 boundary/performance hardening

@@ -58,11 +58,6 @@ impl Gateway {
         &self,
         input: UpsertAgentProfileInput,
     ) -> GatewayResult<AgentProfile> {
-        if input.command.trim().is_empty() {
-            return Err(GatewayError::Validation(
-                "agent command cannot be empty".to_string(),
-            ));
-        }
         Ok(self.app.agents.upsert_agent_profile(input)?)
     }
 
@@ -84,22 +79,16 @@ impl Gateway {
         filter: ConversationFilter,
     ) -> GatewayResult<Vec<Conversation>> {
         Ok(self
-            .db
-            .list_conversations(workspace_id, filter.include_tasks)?)
+            .app
+            .conversations
+            .list_conversations(workspace_id, filter)?)
     }
 
     pub fn search_conversations(
         &self,
         input: SearchConversationsInput,
     ) -> GatewayResult<Vec<Conversation>> {
-        if input.query.trim().is_empty() {
-            return Err(GatewayError::Validation(
-                "search query cannot be empty".to_string(),
-            ));
-        }
-        Ok(self
-            .db
-            .search_conversations(&input.workspace_id, &input.query, input.include_tasks)?)
+        Ok(self.app.conversations.search_conversations(input)?)
     }
 
     pub async fn list_discovered_sessions(
@@ -155,11 +144,6 @@ impl Gateway {
         text: &str,
         attachments: Vec<AttachmentInput>,
     ) -> GatewayResult<TimelineResponse> {
-        if text.trim().is_empty() {
-            return Err(GatewayError::Validation(
-                "message cannot be empty".to_string(),
-            ));
-        }
         Ok(self
             .app
             .conversations
@@ -179,15 +163,15 @@ impl Gateway {
         &self,
         input: SessionConfigInput,
     ) -> GatewayResult<Vec<SessionConfigOption>> {
-        Ok(self.runtime.set_session_config(input).await?)
+        Ok(self.app.conversations.set_session_config(input).await?)
     }
 
     pub async fn set_model(&self, input: SetModelInput) -> GatewayResult<AcpSessionModels> {
-        Ok(self.runtime.set_model(input).await?)
+        Ok(self.app.conversations.set_model(input).await?)
     }
 
     pub async fn set_mode(&self, input: SetModeInput) -> GatewayResult<AcpSessionModeState> {
-        Ok(self.runtime.set_mode(input).await?)
+        Ok(self.app.conversations.set_mode(input).await?)
     }
 
     pub fn persist_attachment_blob(
@@ -234,14 +218,14 @@ impl Gateway {
         &self,
         conversation_id: &str,
     ) -> GatewayResult<TimelineResponse> {
-        Ok(self.runtime.timeline(conversation_id)?)
+        Ok(self.app.conversations.timeline(conversation_id)?)
     }
 
     pub fn get_conversation_state(
         &self,
         conversation_id: &str,
     ) -> GatewayResult<ConversationState> {
-        Ok(self.runtime.conversation_state(conversation_id)?)
+        Ok(self.app.conversations.conversation_state(conversation_id)?)
     }
 
     pub fn list_task_runs(&self, workspace_id: &str) -> GatewayResult<Vec<TaskRun>> {
