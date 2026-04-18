@@ -1,4 +1,5 @@
 pub mod agent_adapters;
+pub mod application;
 pub mod capability_services;
 pub mod channel_api;
 pub mod domain;

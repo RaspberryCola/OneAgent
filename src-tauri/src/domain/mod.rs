@@ -762,6 +762,17 @@ impl From<crate::gateway::GatewayError> for BackendError {
                     BackendError::new(ErrorCode::InvalidInput, msg)
                 }
             }
+            crate::gateway::GatewayError::Application(e) => match e {
+                crate::application::ApplicationError::Storage(inner) => {
+                    BackendError::new(ErrorCode::StorageError, inner.to_string())
+                }
+                crate::application::ApplicationError::Runtime(inner) => {
+                    BackendError::new(ErrorCode::AdapterError, inner.to_string())
+                }
+                crate::application::ApplicationError::Validation(msg) => {
+                    BackendError::new(ErrorCode::InvalidInput, msg)
+                }
+            },
         }
     }
 }
