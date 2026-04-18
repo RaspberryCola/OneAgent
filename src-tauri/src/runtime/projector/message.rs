@@ -19,6 +19,7 @@ impl Runtime {
             &MessageKind::Thinking,
         );
         let mut stream_messages = self.streaming_messages.lock();
+        let is_new_stream = !stream_messages.contains_key(&stream_key);
         if !stream_messages.contains_key(&stream_key) {
             drop(stream_messages);
             self.finalize_text_stream(conversation_id, turn_id)?;
@@ -48,11 +49,6 @@ impl Runtime {
             }),
             created_at: active.started_at,
         };
-        let is_new_stream = !self
-            .db
-            .list_messages(conversation_id)?
-            .iter()
-            .any(|existing| existing.id == message.id);
         drop(stream_messages);
         self.db.upsert_message(&message)?;
         self.emit(
@@ -85,6 +81,7 @@ impl Runtime {
             &MessageKind::Text,
         );
         let mut stream_messages = self.streaming_messages.lock();
+        let is_new_stream = !stream_messages.contains_key(&stream_key);
         let active = stream_messages
             .entry(stream_key)
             .or_insert_with(|| crate::runtime::ActiveStreamMessage {
@@ -104,11 +101,6 @@ impl Runtime {
             content_json: json!({ "text": active.content, "stream": true }),
             created_at: active.started_at,
         };
-        let is_new_stream = !self
-            .db
-            .list_messages(conversation_id)?
-            .iter()
-            .any(|existing| existing.id == message.id);
         drop(stream_messages);
         self.db.upsert_message(&message)?;
         self.record_lifecycle_event(

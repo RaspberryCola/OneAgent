@@ -11,7 +11,12 @@ Current files:
 - `mod.rs`
 - `connection.rs`
 - `migrations.rs`
+- `tx.rs`
 
-Planned next file:
+Status:
 
-- `tx.rs` (A3)
+- A3 transaction boundary scaffold is in place.
+- `Database::with_transaction` and atomic helpers exist for key multi-write flows:
+  - `create_conversation_atomic`
+  - `create_task_run_atomic`
+  - `resolve_permission_atomic`

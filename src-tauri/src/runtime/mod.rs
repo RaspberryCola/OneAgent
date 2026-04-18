@@ -23,9 +23,11 @@ pub mod session_manager;
 pub mod stream_processor;
 pub mod projector;
 pub mod recovery;
+pub mod snapshot_model;
 
 pub use types::{EventEmitter, RuntimeError, RuntimeResult, ActiveStreamMessage, ManagedSession};
 use session_manager::{SessionManager, default_prompt_capabilities};
+use snapshot_model::RuntimeSnapshotState;
 
 #[derive(Clone)]
 pub struct Runtime {
@@ -233,7 +235,8 @@ impl Runtime {
             &binding,
             "ConversationCreated",
             &json!({ "origin": "oneagent_managed" }),
-            &serde_json::to_value(&initial_state).unwrap_or_else(|_| json!({})),
+            &serde_json::to_value(RuntimeSnapshotState::from_conversation_state(&initial_state))
+                .unwrap_or_else(|_| json!({})),
         )?;
         self.session_manager
             .insert(conversation.id.clone(), managed_session);
@@ -254,7 +257,8 @@ impl Runtime {
         self.db.replace_snapshot(
             &conversation.id,
             1,
-            &serde_json::to_value(&state).unwrap_or_else(|_| json!({})),
+            &serde_json::to_value(RuntimeSnapshotState::from_conversation_state(&state))
+                .unwrap_or_else(|_| json!({})),
             state.conversation.last_event_seq,
         )?;
         self.emit_conversation_state(&conversation.id)?;
@@ -375,7 +379,8 @@ impl Runtime {
             &binding,
             "ConversationImported",
             &json!({ "remote_session_id": remote_session_id }),
-            &serde_json::to_value(&initial_state).unwrap_or_else(|_| json!({})),
+            &serde_json::to_value(RuntimeSnapshotState::from_conversation_state(&initial_state))
+                .unwrap_or_else(|_| json!({})),
         )?;
         if let Some(session) = managed_session {
             self.session_manager
@@ -411,7 +416,8 @@ impl Runtime {
         self.db.replace_snapshot(
             &conversation.id,
             1,
-            &serde_json::to_value(&state).unwrap_or_else(|_| json!({})),
+            &serde_json::to_value(RuntimeSnapshotState::from_conversation_state(&state))
+                .unwrap_or_else(|_| json!({})),
             state.conversation.last_event_seq,
         )?;
         self.emit_conversation_state(&conversation.id)?;
@@ -497,7 +503,8 @@ impl Runtime {
             &binding,
             "TaskRunCreated",
             &json!({ "goal": input.goal }),
-            &serde_json::to_value(&initial_state).unwrap_or_else(|_| json!({})),
+            &serde_json::to_value(RuntimeSnapshotState::from_conversation_state(&initial_state))
+                .unwrap_or_else(|_| json!({})),
         )?;
         self.session_manager
             .insert(conversation.id.clone(), managed_session);
@@ -515,7 +522,8 @@ impl Runtime {
         self.db.replace_snapshot(
             &conversation.id,
             1,
-            &serde_json::to_value(&state).unwrap_or_else(|_| json!({})),
+            &serde_json::to_value(RuntimeSnapshotState::from_conversation_state(&state))
+                .unwrap_or_else(|_| json!({})),
             state.conversation.last_event_seq,
         )?;
         self.emit_task_run_state(&conversation.id)?;
@@ -713,7 +721,8 @@ impl Runtime {
         self.db.replace_snapshot(
             &conversation_id,
             1,
-            &serde_json::to_value(&state).unwrap_or_else(|_| json!({})),
+            &serde_json::to_value(RuntimeSnapshotState::from_conversation_state(&state))
+                .unwrap_or_else(|_| json!({})),
             self.db.get_conversation(&conversation_id)?.last_event_seq,
         )?;
         if let Some(task_run) = self.db.get_task_run(&conversation_id)? {
@@ -1089,37 +1098,25 @@ impl Runtime {
     }
 
     fn conversation_config_options(&self, conversation_id: &str) -> Vec<SessionConfigOption> {
-        self.db
-            .get_snapshot(conversation_id)
-            .ok()
-            .flatten()
-            .and_then(|snapshot| {
-                serde_json::from_value::<ConversationState>(snapshot.state_json).ok()
-            })
+        self.snapshot_state(conversation_id)
             .map(|state| state.config_options)
             .unwrap_or_default()
     }
 
     fn conversation_models(&self, conversation_id: &str) -> Option<AcpSessionModels> {
-        self.db
-            .get_snapshot(conversation_id)
-            .ok()
-            .flatten()
-            .and_then(|snapshot| {
-                serde_json::from_value::<ConversationState>(snapshot.state_json).ok()
-            })
-            .and_then(|state| state.models)
+        self.snapshot_state(conversation_id).and_then(|state| state.models)
     }
 
     fn conversation_modes(&self, conversation_id: &str) -> Option<AcpSessionModeState> {
+        self.snapshot_state(conversation_id).and_then(|state| state.modes)
+    }
+
+    fn snapshot_state(&self, conversation_id: &str) -> Option<RuntimeSnapshotState> {
         self.db
             .get_snapshot(conversation_id)
             .ok()
             .flatten()
-            .and_then(|snapshot| {
-                serde_json::from_value::<ConversationState>(snapshot.state_json).ok()
-            })
-            .and_then(|state| state.modes)
+            .and_then(|snapshot| RuntimeSnapshotState::from_snapshot_value(snapshot.state_json))
     }
 
     pub fn conversation_state(&self, conversation_id: &str) -> RuntimeResult<ConversationState> {
@@ -1181,13 +1178,14 @@ impl Runtime {
         conversation_id: &str,
         config_options: Vec<SessionConfigOption>,
     ) -> RuntimeResult<()> {
-        let mut state = self.conversation_state(conversation_id)?;
-        state.config_options = config_options;
+        let mut snapshot_state = self.snapshot_state(conversation_id).unwrap_or_default();
+        snapshot_state.config_options = config_options;
+        let event_seq = self.db.get_conversation(conversation_id)?.last_event_seq;
         self.db.replace_snapshot(
             conversation_id,
             1,
-            &serde_json::to_value(&state).unwrap_or_else(|_| Value::Null),
-            state.conversation.last_event_seq,
+            &serde_json::to_value(&snapshot_state).unwrap_or_else(|_| Value::Null),
+            event_seq,
         )?;
         Ok(())
     }
@@ -1197,13 +1195,14 @@ impl Runtime {
         conversation_id: &str,
         models: AcpSessionModels,
     ) -> RuntimeResult<()> {
-        let mut state = self.conversation_state(conversation_id)?;
-        state.models = Some(models);
+        let mut snapshot_state = self.snapshot_state(conversation_id).unwrap_or_default();
+        snapshot_state.models = Some(models);
+        let event_seq = self.db.get_conversation(conversation_id)?.last_event_seq;
         self.db.replace_snapshot(
             conversation_id,
             1,
-            &serde_json::to_value(&state).unwrap_or_else(|_| Value::Null),
-            state.conversation.last_event_seq,
+            &serde_json::to_value(&snapshot_state).unwrap_or_else(|_| Value::Null),
+            event_seq,
         )?;
         Ok(())
     }
@@ -1213,13 +1212,14 @@ impl Runtime {
         conversation_id: &str,
         modes: AcpSessionModeState,
     ) -> RuntimeResult<()> {
-        let mut state = self.conversation_state(conversation_id)?;
-        state.modes = Some(modes);
+        let mut snapshot_state = self.snapshot_state(conversation_id).unwrap_or_default();
+        snapshot_state.modes = Some(modes);
+        let event_seq = self.db.get_conversation(conversation_id)?.last_event_seq;
         self.db.replace_snapshot(
             conversation_id,
             1,
-            &serde_json::to_value(&state).unwrap_or_else(|_| Value::Null),
-            state.conversation.last_event_seq,
+            &serde_json::to_value(&snapshot_state).unwrap_or_else(|_| Value::Null),
+            event_seq,
         )?;
         Ok(())
     }

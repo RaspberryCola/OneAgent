@@ -16,9 +16,15 @@
 
 相关文档：
 
-- [docs/backend-architecture-adr-a1.md](/Users/smkl/mydevelop/OneAgent/docs/backend-architecture-adr-a1.md)
-- [docs/backend-refactor-collaboration-a1.md](/Users/smkl/mydevelop/OneAgent/docs/backend-refactor-collaboration-a1.md)
-- [docs/backend-architecture-refactor-plan.md](/Users/smkl/mydevelop/OneAgent/docs/backend-architecture-refactor-plan.md)
+- [docs/backend-refactor-next.md](/Users/smkl/mydevelop/OneAgent/docs/backend-refactor-next.md)
+
+## 1.1 实施现状快照（2026-04-19）
+
+- `storage` 已完成 `sqlite/repositories/mappers` 物理拆分，并已引入 `sqlite/tx.rs`。
+- `runtime` 已完成 `session_manager/recovery/stream_processor/projector/snapshot_model` 拆分并接线。
+- `application` 已接入 `Gateway` 主流程，不再是纯占位目录。
+- ACP 已目录化拆分，类型化（C2）仍在持续推进。
+- 当前主要缺口是：`application` 用例骨架深化、事务覆盖面补齐、以及 D2 回归测试矩阵。
 
 ## 2. 设计目标
 
@@ -620,4 +626,3 @@ OneAgent 后端未来的正确方向不是继续在 `runtime/mod.rs`、`storage/
 - 用稳定 facade 保护上层 API
 
 后续所有后端升级都应以这份文档为基线；如果要偏离，必须先更新 ADR，而不是在实现里悄悄偏离。
-

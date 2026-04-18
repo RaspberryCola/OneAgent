@@ -16,3 +16,4 @@ Notes:
 - `messages` and `tool_calls` are currently implemented in `events.rs`.
 - `mcp` is currently implemented in `terminals.rs`.
 - Further physical splits are optional cleanup and can be scheduled independently.
+- Transaction-critical write paths are currently centralized in `storage/sqlite/tx.rs`.

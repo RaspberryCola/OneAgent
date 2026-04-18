@@ -1,12 +1,23 @@
-# Storage Mappers Landing Zone
+# Storage Mappers Status
 
-Reserved for row mappers and serialization helpers that should not stay embedded in repository implementations.
+Row mappers and serialization helpers have been extracted from repository implementations.
 
-Expected split:
+Current mapper modules:
 
+- `agent_profile.rs`
+- `binding.rs`
 - `conversation.rs`
+- `mcp.rs`
 - `message.rs`
-- `tool_call.rs`
 - `permission.rs`
+- `runtime_event.rs`
+- `skill.rs`
+- `snapshot.rs`
+- `task_run.rs`
 - `terminal.rs`
+- `tool_call.rs`
+- `workspace.rs`
 
+Notes:
+
+- `mod.rs` centralizes mapper exports and shared conversion helpers.
