@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../../lib/store';
+import { TIMING } from '../../lib/constants';
 
 interface ThoughtDisplayProps {
   content: string;
@@ -29,7 +30,7 @@ export function ThoughtDisplay({ content, status, duration_ms }: ThoughtDisplayP
       const start = Date.now();
       const timer = setInterval(() => {
         setElapsed(Date.now() - start);
-      }, 100);
+      }, TIMING.THOUGHT_UPDATE_INTERVAL_MS);
       return () => clearInterval(timer);
     } else {
       setElapsed(duration_ms || 0);

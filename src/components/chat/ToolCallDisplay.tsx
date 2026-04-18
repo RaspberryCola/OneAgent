@@ -1,17 +1,13 @@
 import React, { useState } from 'react';
 import { CollapsibleContent } from '../ui/CollapsibleContent';
 import type { ToolCallProjection, TerminalRecord, PermissionDecision } from '../../lib/backend/types';
+import { DISPLAY_LIMITS } from '../../lib/constants';
 
 interface ToolCallDisplayProps {
   toolCall: ToolCallProjection;
   terminals: TerminalRecord[];
   permissionDecision?: PermissionDecision | null;
 }
-
-// Constants for truncation limits
-const MAX_CONTENT_PREVIEW = 200;
-const MAX_JSON_PREVIEW = 300;
-const MAX_PARAM_PREVIEW = 100;
 
 // Shared permission decision configuration (single source of truth for labels and icons)
 const PERMISSION_DECISION_CONFIG: Record<string, { label: string; icon: 'check' | 'x' | null }> = {
@@ -46,17 +42,17 @@ function extractInputSummary(rawInput: any): string {
   const path = getStringVal(rawInput, 'path');
   if (path) return path;
   const content = getStringVal(rawInput, 'content');
-  if (content) return content.slice(0, MAX_CONTENT_PREVIEW);
+  if (content) return content.slice(0, DISPLAY_LIMITS.MAX_CONTENT_PREVIEW);
   const text = getStringVal(rawInput, 'text');
-  if (text) return text.slice(0, MAX_CONTENT_PREVIEW);
+  if (text) return text.slice(0, DISPLAY_LIMITS.MAX_CONTENT_PREVIEW);
   const query = getStringVal(rawInput, 'query');
-  if (query) return query.slice(0, MAX_CONTENT_PREVIEW);
+  if (query) return query.slice(0, DISPLAY_LIMITS.MAX_CONTENT_PREVIEW);
   const file = getStringVal(rawInput, 'file');
   if (file) return file;
 
   // Fallback: stringify and truncate
   const str = JSON.stringify(rawInput, null, 2);
-  return str.length > MAX_JSON_PREVIEW ? str.slice(0, MAX_JSON_PREVIEW) + '...' : str;
+  return str.length > DISPLAY_LIMITS.MAX_JSON_PREVIEW ? str.slice(0, DISPLAY_LIMITS.MAX_JSON_PREVIEW) + '...' : str;
 }
 
 // Helper: build concise parameter summary based on tool kind
@@ -98,7 +94,7 @@ function buildParamSummary(kind: string, rawInput: any): string | undefined {
   for (const key of ['file_path', 'command', 'path', 'pattern', 'query', 'url', 'content']) {
     const val = getStringVal(rawInput, key);
     if (val) {
-      return val.length > MAX_PARAM_PREVIEW ? val.slice(0, MAX_PARAM_PREVIEW) + '...' : val;
+      return val.length > DISPLAY_LIMITS.MAX_PARAM_PREVIEW ? val.slice(0, DISPLAY_LIMITS.MAX_PARAM_PREVIEW) + '...' : val;
     }
   }
   return undefined;

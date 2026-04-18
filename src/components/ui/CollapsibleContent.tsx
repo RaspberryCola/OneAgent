@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
+import { DISPLAY_LIMITS } from '../../lib/constants';
 
 interface CollapsibleContentProps {
   children: React.ReactNode;
@@ -13,7 +14,7 @@ interface CollapsibleContentProps {
 
 export function CollapsibleContent({
   children,
-  maxHeight = 240,
+  maxHeight = DISPLAY_LIMITS.COLLAPSIBLE_DEFAULT_MAX_HEIGHT,
   defaultCollapsed = true,
   className = '',
   contentClassName = '',

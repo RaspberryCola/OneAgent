@@ -40,9 +40,7 @@ import { ToolCallDisplay } from "./components/chat/ToolCallDisplay";
 import { TerminalDisplay } from "./components/chat/TerminalDisplay";
 import { PermissionDisplay } from "./components/chat/PermissionDisplay";
 import { WorkspaceDropdown } from "./components/ui/WorkspaceDropdown";
-
-const MAX_EMBEDDED_TEXT_BYTES = 128 * 1024;
-const MAX_EMBEDDED_MEDIA_BYTES = 10 * 1024 * 1024;
+import { ATTACHMENT_LIMITS } from "./lib/constants";
 
 type LocalAttachment = {
   id: string;
@@ -252,17 +250,17 @@ function resolveAttachment(
   }
 
   const prompt = capabilities.prompt_capabilities;
-  if (attachment.kind === "image" && prompt.image && attachment.size <= MAX_EMBEDDED_MEDIA_BYTES) {
+  if (attachment.kind === "image" && prompt.image && attachment.size <= ATTACHMENT_LIMITS.MAX_EMBEDDED_MEDIA_BYTES) {
     return { canSend: true, mode: "image", label: "Will send as image", deliveryPreference: "embedded" };
   }
-  if (attachment.kind === "audio" && prompt.audio && attachment.size <= MAX_EMBEDDED_MEDIA_BYTES) {
+  if (attachment.kind === "audio" && prompt.audio && attachment.size <= ATTACHMENT_LIMITS.MAX_EMBEDDED_MEDIA_BYTES) {
     return { canSend: true, mode: "audio", label: "Will send as audio", deliveryPreference: "embedded" };
   }
   if (
     attachment.kind === "file" &&
     prompt.embedded_context &&
     isTextLikeMime(attachment.mimeType) &&
-    attachment.size <= MAX_EMBEDDED_TEXT_BYTES
+    attachment.size <= ATTACHMENT_LIMITS.MAX_EMBEDDED_TEXT_BYTES
   ) {
     return { canSend: true, mode: "resource", label: "Will embed file contents", deliveryPreference: "embedded" };
   }

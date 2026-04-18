@@ -1,6 +1,7 @@
 import React from 'react';
 import { CollapsibleContent } from '../ui/CollapsibleContent';
 import type { TerminalRecord } from '../../lib/backend/types';
+import { DISPLAY_LIMITS } from '../../lib/constants';
 
 interface TerminalDisplayProps {
   content: string;
@@ -17,7 +18,7 @@ export function TerminalDisplay({ content, stream, event, terminal }: TerminalDi
           [terminal: {terminal?.command || "sh"}] {event}
         </div>
         <div className="pl-2 border-l-2 border-light-gray/50 ml-1 w-full">
-          <CollapsibleContent maxHeight={300}>
+          <CollapsibleContent maxHeight={DISPLAY_LIMITS.TERMINAL_DISPLAY_MAX_HEIGHT}>
             <pre className="text-[12px] font-mono whitespace-pre-wrap break-words text-stone mt-1">
               {content || "..."}
             </pre>
