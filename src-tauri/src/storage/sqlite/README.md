@@ -1,15 +1,17 @@
-# SQLite Infrastructure Landing Zone
+# SQLite Infrastructure Status
 
-Reserved for:
+Current scope:
 
 - connection handling
 - migrations
 - transaction helpers
 
-Expected files:
+Current files:
 
 - `mod.rs`
 - `connection.rs`
 - `migrations.rs`
-- `tx.rs`
 
+Planned next file:
+
+- `tx.rs` (A3)

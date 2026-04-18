@@ -129,8 +129,9 @@ Every refactor patch should answer:
 ### High-conflict files today
 
 - `src-tauri/src/runtime/mod.rs`
-- `src-tauri/src/storage/mod.rs`
-- `src-tauri/src/agent_adapters/acp.rs`
+- `src-tauri/src/storage/facade.rs`
+- `src-tauri/src/agent_adapters/acp/process.rs`
+- `src-tauri/src/agent_adapters/acp/parser.rs`
 
 ### Preferred strategy
 
@@ -140,7 +141,7 @@ Every refactor patch should answer:
 
 ## Initial Skeleton Directories
 
-The source tree now includes placeholder landing zones for:
+The source tree now includes landing zones for:
 
 - `src-tauri/src/application/`
 - `src-tauri/src/agent_adapters/acp/`
@@ -148,5 +149,8 @@ The source tree now includes placeholder landing zones for:
 - `src-tauri/src/storage/repositories/`
 - `src-tauri/src/storage/mappers/`
 
-These placeholders do not mean the modules are wired into the build yet. They exist to standardize where follow-up work lands.
+Current wiring status:
 
+- `src-tauri/src/storage/**`: wired. `Database` facade delegates to repositories.
+- `src-tauri/src/agent_adapters/acp/**`: wired and in active use.
+- `src-tauri/src/application/**`: still a landing zone, not wired into `lib.rs` flow yet.

@@ -12,10 +12,21 @@
 
 本文重点分析以下核心模块及其辐射问题：
 
-- `src-tauri/src/agent_adapters/acp.rs`
+- `src-tauri/src/agent_adapters/acp/*`（历史上为单文件 `acp.rs`）
 - `src-tauri/src/runtime/mod.rs`
-- `src-tauri/src/storage/mod.rs`
+- `src-tauri/src/storage/facade.rs`（历史上为 `storage/mod.rs`）
 - 以及与它们强耦合的 `gateway` / `channel_api` / `capability_services`
+
+## 1.1 当前进度快照（2026-04-19）
+
+- A1：完成（ADR 与协作约束已落地）
+- A2：完成（`storage` 已拆分为 `sqlite/*` + `repositories/*` + `mappers/*`，`Database` facade 已收口为薄委托）
+- A3：未开始（`src-tauri/src/storage/sqlite/tx.rs` 尚未引入）
+- B1：完成（`runtime/session_manager.rs` 已提取并接线）
+- B2/B3/B4：未完成（`runtime/mod.rs` 仍承载 recovery / stream processor 主逻辑，application 仍是 landing zone）
+- C1：部分完成（ACP 已目录化拆分）
+- C2：部分完成（类型化推进中，尚未覆盖关键 ACP 消息全链路）
+- D2：部分完成（当前单测通过，但缺 create/import/send/cancel/replay 的用例级回归矩阵）
 
 ## 2. 当前后端的真实结构
 
@@ -73,9 +84,9 @@ Tauri Commands (channel_api)
 
 这是当前最核心的架构瓶颈。
 
-### 2.2 `storage/mod.rs` 当前承担的职责
+### 2.2 `storage` 历史瓶颈（已部分收敛）
 
-`src-tauri/src/storage/mod.rs` 把以下内容全部塞在一个 `Database` 类型里：
+历史上，`src-tauri/src/storage/mod.rs` 把以下内容全部塞在一个 `Database` 类型里：
 
 - 数据库连接管理
   - `src-tauri/src/storage/mod.rs:25-42`
@@ -102,6 +113,12 @@ Tauri Commands (channel_api)
 - 任何 agent 都很容易在这个文件里产生编辑冲突
 - repository 无法独立测试
 - transaction 边界无法被明确建模
+
+当前状态补充：
+
+- 该巨型实现已迁移出 `storage/mod.rs`。
+- `storage/facade.rs` 现已收口为薄 facade，具体实现位于 `repositories/*` 与 `mappers/*`。
+- 仍待完成的是 `sqlite/tx.rs` 事务边界统一入口（A3 前置）。
 
 ### 2.3 `agent_adapters/acp.rs` 当前承担的职责
 
@@ -593,7 +610,8 @@ src-tauri/src/
 
 结果：
 
-- `storage/mod.rs` 只保留 facade
+- `storage/mod.rs` 只保留 re-export
+- `storage/facade.rs` 只保留 facade
 - 引入 `repositories/*`
 - 引入 `sqlite/migrations.rs`
 - 引入 `tx.rs`
@@ -680,7 +698,7 @@ src-tauri/src/
 
 目标：
 
-- 把 `storage/mod.rs` 从“巨型数据库对象”拆成稳定基础设施层
+- 把历史“巨型 `storage/mod.rs` / `storage/facade.rs`”拆成稳定基础设施层
 
 主要工作：
 
@@ -711,7 +729,8 @@ src-tauri/src/
 
 验收标准：
 
-- `storage/mod.rs` 只做 re-export / facade
+- `storage/mod.rs` 只做 re-export
+- `storage/facade.rs` 只做 facade 委托
 - 不再存在一个文件承载全部 schema + repo + mapper
 
 ---
@@ -1172,4 +1191,3 @@ src-tauri/src/
 - 可以逐步迁移，不必停机式重构
 - 每一步都有明确产出和验收标准
 - 能在较短时间内显著降低维护复杂度
-

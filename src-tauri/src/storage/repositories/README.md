@@ -1,19 +1,18 @@
-# Storage Repositories Landing Zone
+# Storage Repositories Status
 
-Reserved for repository-oriented persistence modules.
-
-Expected split:
+Repository-oriented persistence modules currently in use:
 
 - `agent_profiles.rs`
 - `workspaces.rs`
 - `conversations.rs`
-- `task_runs.rs`
 - `events.rs`
-- `snapshots.rs`
-- `messages.rs`
-- `tool_calls.rs`
 - `permissions.rs`
 - `terminals.rs`
-- `mcp.rs`
 - `skills.rs`
 
+Notes:
+
+- `task_runs` and `snapshots` are currently implemented in `conversations.rs`.
+- `messages` and `tool_calls` are currently implemented in `events.rs`.
+- `mcp` is currently implemented in `terminals.rs`.
+- Further physical splits are optional cleanup and can be scheduled independently.
