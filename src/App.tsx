@@ -793,8 +793,9 @@ export default function App() {
     }
   };
 
-  // Scroll to bottom function
+  // Scroll to bottom function - also resets user scroll state to resume auto-scroll
   const scrollToBottom = () => {
+    userHasScrolledUpRef.current = false;
     performScrollToBottom("smooth");
   };
 
@@ -897,30 +898,53 @@ export default function App() {
   const isBusy = isSending || (conversationStatus?.pulse ?? false);
 
   // Calculate the last agent text message ID for each turn (for copy functionality)
+  // Exclude the currently running turn (if any) from showing copy button
   const lastAgentMessageIdsPerTurn = useMemo(() => {
     const turnLastAgentMessages = new Map<string, string>();
-    
+
+    // Find the current running turn_id (if any) - use the latest agent message's turn_id when busy
+    let activeTurnId: string | null = null;
+    if (isBusy) {
+      // Find the latest agent text message's turn_id
+      const agentMessages = activeTimelineItems
+        .filter((item) => item.type === 'message')
+        .map((item) => item.data as Types.MessageProjection)
+        .filter((msg) => msg.role === 'agent' && msg.kind === 'text' && msg.turn_id);
+
+      if (agentMessages.length > 0) {
+        // Get the last agent message (sorted by created_at)
+        const lastAgentMessage = agentMessages[agentMessages.length - 1];
+        activeTurnId = lastAgentMessage.turn_id;
+      }
+    }
+
     // Group messages by turn_id and find the last agent text message in each turn
     activeTimelineItems
       .filter((item) => item.type === 'message')
       .forEach((item) => {
         const msg = item.data as Types.MessageProjection;
         if (msg.role === 'agent' && msg.kind === 'text' && msg.turn_id) {
+          // Skip the currently active turn - don't show copy button until turn is finished
+          if (msg.turn_id === activeTurnId) {
+            return;
+          }
           // Update the last agent message for this turn (will be the last one after iteration)
           turnLastAgentMessages.set(msg.turn_id, msg.id);
         }
       });
-    
+
     return turnLastAgentMessages;
-  }, [activeTimelineItems]);
+  }, [activeTimelineItems, isBusy]);
 
   // Auto-scroll to bottom on message updates
   useEffect(() => {
     if (!scrollAreaRef.current) return;
 
-    // When agent is busy (streaming), always scroll to bottom instantly
+    // When agent is busy (streaming), only auto-scroll if user hasn't manually scrolled up
     if (isBusy) {
-      performScrollToBottom("auto");
+      if (!userHasScrolledUpRef.current) {
+        performScrollToBottom("auto");
+      }
       return;
     }
 
@@ -934,7 +958,7 @@ export default function App() {
     const content = scrollContentRef.current;
     if (!content) return;
 
-    const shouldStickToBottom = () => isBusy || !userHasScrolledUpRef.current;
+    const shouldStickToBottom = () => !userHasScrolledUpRef.current;
     const syncToBottom = () => {
       if (!shouldStickToBottom()) return;
       performScrollToBottom(isBusy ? "auto" : "smooth");
