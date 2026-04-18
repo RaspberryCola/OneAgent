@@ -32,6 +32,23 @@ impl PolicyEngine {
         normalized.to_string()
     }
 
+    pub fn build_decision(
+        conversation_id: &str,
+        tool_call_id: &str,
+        fingerprint: &str,
+        decision: PermissionDecisionKind,
+    ) -> PermissionDecision {
+        PermissionDecision {
+            id: Uuid::new_v4().to_string(),
+            conversation_id: conversation_id.to_string(),
+            tool_call_id: tool_call_id.to_string(),
+            scope: "session".to_string(),
+            fingerprint: fingerprint.to_string(),
+            decision,
+            created_at: Utc::now(),
+        }
+    }
+
     pub fn find_session_policy(
         &self,
         conversation_id: &str,
@@ -57,15 +74,7 @@ impl PolicyEngine {
         fingerprint: &str,
         decision: PermissionDecisionKind,
     ) -> StorageResult<PermissionDecision> {
-        let entry = PermissionDecision {
-            id: Uuid::new_v4().to_string(),
-            conversation_id: conversation_id.to_string(),
-            tool_call_id: tool_call_id.to_string(),
-            scope: "session".to_string(),
-            fingerprint: fingerprint.to_string(),
-            decision,
-            created_at: Utc::now(),
-        };
+        let entry = Self::build_decision(conversation_id, tool_call_id, fingerprint, decision);
         self.db.record_permission_decision(&entry)?;
         Ok(entry)
     }

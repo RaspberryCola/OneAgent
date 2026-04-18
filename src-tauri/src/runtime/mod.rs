@@ -170,14 +170,6 @@ impl Runtime {
         let workspace = self.db.get_workspace(&input.workspace_id)?;
         let profile = self.db.get_agent_profile(&input.agent_profile_id)?;
         let mcp_servers = self.mcp_registry.list_for_workspace(&workspace.id)?;
-        let conversation = self.db.create_conversation(
-            &workspace.id,
-            &profile.id,
-            ConversationOrigin::OneagentManaged,
-            input
-                .title
-                .unwrap_or_else(|| "New conversation".to_string()),
-        )?;
         let managed_session = match profile.kind {
             AgentKind::Acp => ManagedSession::Acp(
                 AcpLiveSession::start_new(&profile, &workspace.cwd, &mcp_servers).await?,
@@ -192,6 +184,20 @@ impl Runtime {
             ManagedSession::Acp(session) => session.handle.clone(),
             ManagedSession::Passive(handle) => handle.clone(),
         };
+        let now = Utc::now();
+        let conversation = Conversation {
+            id: Uuid::new_v4().to_string(),
+            workspace_id: workspace.id.clone(),
+            agent_profile_id: profile.id.clone(),
+            origin: ConversationOrigin::OneagentManaged,
+            status: ConversationStatus::Initializing,
+            title: input
+                .title
+                .unwrap_or_else(|| "New conversation".to_string()),
+            created_at: now,
+            updated_at: now,
+            last_event_seq: 0,
+        };
         let binding = AgentSessionBinding {
             id: Uuid::new_v4().to_string(),
             conversation_id: conversation.id.clone(),
@@ -202,23 +208,35 @@ impl Runtime {
             source: AgentSessionSource::New,
             last_synced_at: Utc::now(),
         };
-        self.db.upsert_binding(&binding)?;
+        let initial_runtime = ConversationRuntimeState {
+            connection_phase: ConnectionPhase::Ready,
+            session_phase: SessionPhase::Hot,
+            turn_phase: TurnPhase::Idle,
+            last_error: None,
+            last_transition_at: Utc::now(),
+        };
+        let initial_state = ConversationState {
+            conversation: conversation.clone(),
+            runtime: initial_runtime.clone(),
+            binding: Some(binding.clone()),
+            task_run: None,
+            config_options: handle.config_options.clone(),
+            models: handle.models.clone(),
+            modes: handle.modes.clone(),
+            pending_permissions: Vec::new(),
+        };
+        self.db.create_conversation_atomic(
+            &conversation,
+            &binding,
+            "ConversationCreated",
+            &json!({ "origin": "oneagent_managed" }),
+            &serde_json::to_value(&initial_state).unwrap_or_else(|_| json!({})),
+        )?;
         self.session_manager
             .insert(conversation.id.clone(), managed_session);
-        self.record_lifecycle_event(
-            &conversation.id,
-            "ConversationCreated",
-            json!({ "origin": "oneagent_managed" }),
-        )?;
         self.set_runtime_state(
             &conversation.id,
-            ConversationRuntimeState {
-                connection_phase: ConnectionPhase::Ready,
-                session_phase: SessionPhase::Hot,
-                turn_phase: TurnPhase::Idle,
-                last_error: None,
-                last_transition_at: Utc::now(),
-            },
+            initial_runtime,
         )?;
         let state = ConversationState {
             conversation: self.db.get_conversation(&conversation.id)?,
@@ -284,13 +302,19 @@ impl Runtime {
         let workspace = self.db.get_workspace(workspace_id)?;
         let profile = self.db.get_agent_profile(agent_profile_id)?;
         let mcp_servers = self.mcp_registry.list_for_workspace(&workspace.id)?;
-        let conversation = self.db.create_conversation(
-            &workspace.id,
-            &profile.id,
-            ConversationOrigin::Imported,
-            format!("Imported {remote_session_id}"),
-        )?;
-        let loaded = match profile.kind {
+        let now = Utc::now();
+        let conversation = Conversation {
+            id: Uuid::new_v4().to_string(),
+            workspace_id: workspace.id.clone(),
+            agent_profile_id: profile.id.clone(),
+            origin: ConversationOrigin::Imported,
+            status: ConversationStatus::Initializing,
+            title: format!("Imported {remote_session_id}"),
+            created_at: now,
+            updated_at: now,
+            last_event_seq: 0,
+        };
+        let (loaded, managed_session) = match profile.kind {
             AgentKind::Acp => {
                 let (session, replay_events) = AcpLiveSession::start_loaded(
                     &profile,
@@ -299,19 +323,21 @@ impl Runtime {
                     &mcp_servers,
                 )
                 .await?;
-                self.session_manager.insert(
-                    conversation.id.clone(),
-                    ManagedSession::Acp(session.clone()),
-                );
-                LoadedSession {
-                    handle: session.handle.clone(),
-                    replay_events,
-                }
+                (
+                    LoadedSession {
+                        handle: session.handle.clone(),
+                        replay_events,
+                    },
+                    Some(ManagedSession::Acp(session)),
+                )
             }
             AgentKind::Compat => {
-                self.adapter_for(&profile)
-                    .load_session(&profile, remote_session_id, &workspace.cwd, &mcp_servers)
-                    .await?
+                (
+                    self.adapter_for(&profile)
+                        .load_session(&profile, remote_session_id, &workspace.cwd, &mcp_servers)
+                        .await?,
+                    None,
+                )
             }
         };
         let binding = AgentSessionBinding {
@@ -324,18 +350,40 @@ impl Runtime {
             source: AgentSessionSource::Imported,
             last_synced_at: Utc::now(),
         };
-        self.db.upsert_binding(&binding)?;
+        let initial_runtime = ConversationRuntimeState {
+            connection_phase: ConnectionPhase::Ready,
+            session_phase: SessionPhase::Hot,
+            turn_phase: TurnPhase::Idle,
+            last_error: None,
+            last_transition_at: Utc::now(),
+        };
+        let initial_state = ConversationState {
+            conversation: conversation.clone(),
+            runtime: initial_runtime.clone(),
+            binding: Some(binding.clone()),
+            task_run: None,
+            config_options: loaded.handle.config_options.clone(),
+            models: loaded.handle.models.clone(),
+            modes: loaded.handle.modes.clone(),
+            pending_permissions: Vec::new(),
+        };
+        self.db.create_conversation_atomic(
+            &conversation,
+            &binding,
+            "ConversationImported",
+            &json!({ "remote_session_id": remote_session_id }),
+            &serde_json::to_value(&initial_state).unwrap_or_else(|_| json!({})),
+        )?;
+        if let Some(session) = managed_session {
+            self.session_manager
+                .insert(conversation.id.clone(), session);
+        }
         if !self.session_manager.is_session_in_memory(&conversation.id) {
             self.session_manager.insert(
                 conversation.id.clone(),
                 ManagedSession::Passive(loaded.handle.clone()),
             );
         }
-        self.record_lifecycle_event(
-            &conversation.id,
-            "ConversationImported",
-            json!({ "remote_session_id": remote_session_id }),
-        )?;
         self.apply_replay_events(&conversation.id, &loaded).await?;
         self.set_runtime_state(
             &conversation.id,
@@ -374,17 +422,6 @@ impl Runtime {
         let workspace = self.db.get_workspace(&input.workspace_id)?;
         let profile = self.db.get_agent_profile(&input.agent_profile_id)?;
         let mcp_servers = self.mcp_registry.list_for_workspace(&workspace.id)?;
-        let conversation = self.db.create_conversation(
-            &workspace.id,
-            &profile.id,
-            ConversationOrigin::WorkerTask,
-            input
-                .title
-                .unwrap_or_else(|| input.goal.chars().take(40).collect()),
-        )?;
-        let task =
-            self.db
-                .create_task_run(&conversation.id, &workspace.id, &profile.id, &input.goal)?;
         let managed_session = match profile.kind {
             AgentKind::Acp => ManagedSession::Acp(
                 AcpLiveSession::start_new(&profile, &workspace.cwd, &mcp_servers).await?,
@@ -399,6 +436,31 @@ impl Runtime {
             ManagedSession::Acp(session) => session.handle.clone(),
             ManagedSession::Passive(handle) => handle.clone(),
         };
+        let now = Utc::now();
+        let conversation = Conversation {
+            id: Uuid::new_v4().to_string(),
+            workspace_id: workspace.id.clone(),
+            agent_profile_id: profile.id.clone(),
+            origin: ConversationOrigin::WorkerTask,
+            status: ConversationStatus::Initializing,
+            title: input
+                .title
+                .unwrap_or_else(|| input.goal.chars().take(40).collect()),
+            created_at: now,
+            updated_at: now,
+            last_event_seq: 0,
+        };
+        let task = TaskRun {
+            id: Uuid::new_v4().to_string(),
+            conversation_id: conversation.id.clone(),
+            workspace_id: workspace.id.clone(),
+            agent_profile_id: profile.id.clone(),
+            goal: input.goal.clone(),
+            status: TaskRunStatus::Pending,
+            result_summary: None,
+            created_at: now,
+            updated_at: now,
+        };
         let binding = AgentSessionBinding {
             id: Uuid::new_v4().to_string(),
             conversation_id: conversation.id.clone(),
@@ -409,31 +471,39 @@ impl Runtime {
             source: AgentSessionSource::New,
             last_synced_at: Utc::now(),
         };
-        self.db.upsert_binding(&binding)?;
+        let initial_runtime = ConversationRuntimeState {
+            connection_phase: ConnectionPhase::Ready,
+            session_phase: SessionPhase::Hot,
+            turn_phase: TurnPhase::Idle,
+            last_error: None,
+            last_transition_at: Utc::now(),
+        };
+        let initial_state = ConversationState {
+            conversation: conversation.clone(),
+            runtime: initial_runtime.clone(),
+            binding: Some(binding.clone()),
+            task_run: Some(task.clone()),
+            config_options: handle.config_options.clone(),
+            models: handle.models.clone(),
+            modes: handle.modes.clone(),
+            pending_permissions: Vec::new(),
+        };
+        self.db.create_task_run_atomic(
+            &conversation,
+            &task,
+            &binding,
+            "TaskRunCreated",
+            &json!({ "goal": input.goal }),
+            &serde_json::to_value(&initial_state).unwrap_or_else(|_| json!({})),
+        )?;
         self.session_manager
             .insert(conversation.id.clone(), managed_session);
-        self.record_lifecycle_event(
-            &conversation.id,
-            "TaskRunCreated",
-            json!({ "goal": input.goal }),
-        )?;
-        self.set_runtime_state(
-            &conversation.id,
-            ConversationRuntimeState {
-                connection_phase: ConnectionPhase::Ready,
-                session_phase: SessionPhase::Hot,
-                turn_phase: TurnPhase::Idle,
-                last_error: None,
-                last_transition_at: Utc::now(),
-            },
-        )?;
-        self.db
-            .update_task_run(&conversation.id, TaskRunStatus::Running, None)?;
+        self.set_runtime_state(&conversation.id, initial_runtime)?;
         let state = ConversationState {
             conversation: self.db.get_conversation(&conversation.id)?,
             runtime: self.runtime_state(&conversation.id),
             binding: Some(binding),
-            task_run: Some(task),
+            task_run: self.db.get_task_run(&conversation.id)?,
             config_options: handle.config_options.clone(),
             models: handle.models.clone(),
             modes: handle.modes.clone(),
@@ -886,17 +956,10 @@ impl Runtime {
         self.streaming_messages
             .lock()
             .retain(|key, _| !key.starts_with(&prefix));
-        self.db
-            .cancel_pending_permissions_for_turn(conversation_id)?;
-        if self.db.get_task_run(conversation_id)?.is_some() {
-            self.db.update_task_run(
-                conversation_id,
-                TaskRunStatus::Cancelled,
-                Some("cancelled"),
-            )?;
+        if let Some(task_run) = self.db.cancel_turn_atomic(conversation_id)? {
             self.emit(
                 "task_run:state_changed",
-                &json!({ "conversation_id": conversation_id, "task_run": self.db.get_task_run(conversation_id)? }),
+                &json!({ "conversation_id": conversation_id, "task_run": task_run }),
             );
         }
         self.update_runtime_state(conversation_id, |runtime| {
@@ -914,7 +977,6 @@ impl Runtime {
             runtime.turn_phase = TurnPhase::Idle;
             runtime.last_error = None;
         })?;
-        self.record_lifecycle_event(conversation_id, "TurnCancelled", json!({}))?;
         self.emit(
             "conversation:turn_finished",
             &json!({ "conversation_id": conversation_id, "turn_id": serde_json::Value::Null, "status": "cancelled" }),
@@ -1105,20 +1167,19 @@ impl Runtime {
                 "permission fingerprint does not match latest pending request".to_string(),
             ));
         }
-        let record = self.policy_engine.record_decision(
+        let record = PolicyEngine::build_decision(
             conversation_id,
             tool_call_id,
             fingerprint,
             decision,
-        )?;
+        );
         let managed_session = self.session_manager.get(conversation_id);
         if let Some(ManagedSession::Acp(session)) = managed_session {
             session
                 .resolve_permission(tool_call_id, record.decision.clone())
                 .await?;
         }
-        self.db
-            .update_pending_permission_status(&pending.id, PendingPermissionStatus::Resolved)?;
+        self.db.resolve_permission_atomic(&record, &pending.id)?;
         self.emit(
             "conversation:permission_resolved",
             &json!({ "conversation_id": conversation_id, "decision": record }),
