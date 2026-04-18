@@ -539,6 +539,7 @@ export default function App() {
   const [isMobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isDesktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'general' | 'agents' | 'mcp'>('general');
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<LocalAttachment[]>([]);
   const [isAddingAttachment, setIsAddingAttachment] = useState(false);
@@ -600,6 +601,8 @@ export default function App() {
     cancelTurn,
     switchWorkspace,
     pickWorkspace,
+    alwaysExpandThinking,
+    setAlwaysExpandThinking,
   } = useAppStore();
 
   useEffect(() => {
@@ -1865,30 +1868,85 @@ export default function App() {
                   <Settings className="w-3.5 h-3.5" />
                   <span>Settings</span>
                 </div>
-                <nav className="space-y-0.5">
-                  <button className="w-full text-left px-3 py-1.5 rounded-md bg-light-gray/60 text-pure-black text-[12px] font-medium transition-colors">
-                    Agents
+                <nav className="space-y-0.5 flex-1">
+                    <button
+                      onClick={() => setSettingsTab('general')}
+                      className={`w-full text-left px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${
+                        settingsTab === 'general' ? 'bg-light-gray/60 text-pure-black' : 'text-stone hover:bg-light-gray/30'
+                      }`}
+                    >
+                      General
+                    </button>
+                    <button
+                      onClick={() => setSettingsTab('agents')}
+                      className={`w-full text-left px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${
+                        settingsTab === 'agents' ? 'bg-light-gray/60 text-pure-black' : 'text-stone hover:bg-light-gray/30'
+                      }`}
+                    >
+                      Agents
+                    </button>
+                    <button
+                      onClick={() => setSettingsTab('mcp')}
+                      className={`w-full text-left px-3 py-1.5 rounded-md text-[12px] transition-colors ${
+                        settingsTab === 'mcp' ? 'bg-light-gray/60 text-pure-black' : 'text-stone hover:bg-light-gray/30'
+                      }`}
+                    >
+                      MCP
+                    </button>
+                  </nav>
+                <div className="mt-4 pt-4 border-t border-light-gray/50">
+                  <button
+                    onClick={() => setIsSettingsOpen(false)}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-[12px] font-medium text-stone hover:bg-light-gray/30 transition-colors"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>关闭</span>
                   </button>
-                  <button className="w-full text-left px-3 py-1.5 rounded-md text-stone hover:bg-light-gray/30 text-[12px] transition-colors">
-                    MCP
-                  </button>
-                </nav>
+                </div>
               </aside>
 
               <div className="flex-1 flex flex-col min-w-0 bg-pure-white relative">
-                <header className="h-12 flex items-center justify-between px-6 shrink-0 border-b border-light-gray/30">
-                  <h2 className="font-display font-medium text-[15px]">Agents</h2>
-                  <button
-                    onClick={() => setIsSettingsOpen(false)}
-                    className="p-1 text-stone hover:text-pure-black rounded-md hover:bg-light-gray/50 transition-colors"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </header>
-
                 <div className="flex-1 overflow-y-auto p-6">
-                  <div className="space-y-8">
-                    <section>
+                  {settingsTab === 'general' && (
+                    <div className="space-y-6">
+                      <section>
+                        <div className="flex items-center justify-between mb-3 px-1">
+                          <div className="text-[10px] text-silver font-medium uppercase tracking-wider">Display</div>
+                        </div>
+
+                        <div className="border border-light-gray/60 rounded-container overflow-hidden bg-pure-white">
+                          <div className="flex items-center justify-between py-3 px-4">
+                            <div className="flex flex-col gap-0.5">
+                              <span className="font-display font-medium text-[13px] text-pure-black">
+                                始终展示模型思考内容
+                              </span>
+                              <span className="text-[11px] text-stone">
+                                开启后，所有思考块默认展开显示，包括已完成的对话
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => setAlwaysExpandThinking(!alwaysExpandThinking)}
+                              className={`relative w-12 h-7 rounded-full transition-colors border ${
+                                alwaysExpandThinking
+                                  ? 'bg-pure-black border-pure-black'
+                                  : 'bg-pure-white border-light-gray'
+                              }`}
+                            >
+                              <div
+                                className={`absolute top-[1px] w-6 h-6 rounded-full transition-transform ${
+                                  alwaysExpandThinking ? 'left-[22px] bg-pure-white' : 'left-[2px] bg-light-gray'
+                                }`}
+                              />
+                            </button>
+                          </div>
+                        </div>
+                      </section>
+                    </div>
+                  )}
+
+                  {settingsTab === 'agents' && (
+                    <div className="space-y-8">
+                      <section>
                       <div className="flex items-center justify-between mb-3 px-1">
                         <div className="text-[10px] text-silver font-medium uppercase tracking-wider">Agents</div>
                       </div>
@@ -1962,10 +2020,24 @@ export default function App() {
                           </p>
                         </div>
                       </section>
-                )}
-              </div>
-            </div>
-            {showScrollButton && (
+                    )}
+                    </div>
+                  )}
+
+                  {settingsTab === 'mcp' && (
+                    <div className="space-y-6">
+                      <section>
+                        <div className="flex gap-3 p-3 rounded-container bg-snow border border-light-gray/20">
+                          <AlertCircle className="w-3.5 h-3.5 text-stone shrink-0 mt-0.5" />
+                          <p className="text-[11px] text-stone leading-relaxed">
+                            MCP server configuration will be available in a future update.
+                          </p>
+                        </div>
+                      </section>
+                    </div>
+                  )}
+                </div>
+                {showScrollButton && (
               <div className="pointer-events-none absolute inset-x-0 bottom-6 z-20 flex justify-center px-4 md:px-6">
                 <button
                   type="button"
@@ -1979,10 +2051,10 @@ export default function App() {
               </div>
             )}
           </div>
-            </div>
-          </div>
         </div>
-      )}
+      </div>
+    </div>
+  )}
 
       <AnimatePresence>
         {isSearchOpen && (

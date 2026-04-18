@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useAppStore } from '../../lib/store';
 
 interface ThoughtDisplayProps {
   content: string;
@@ -7,9 +8,21 @@ interface ThoughtDisplayProps {
 }
 
 export function ThoughtDisplay({ content, status, duration_ms }: ThoughtDisplayProps) {
-  const [isExpanded, setIsExpanded] = useState(status === "thinking");
+  const alwaysExpandThinking = useAppStore((state) => state.alwaysExpandThinking);
+  const [isExpanded, setIsExpanded] = useState(alwaysExpandThinking || status === "thinking");
   const [elapsed, setElapsed] = useState<number>(0);
-  
+
+  // Update expanded state when setting changes
+  useEffect(() => {
+    if (alwaysExpandThinking) {
+      setIsExpanded(true);
+    } else if (status !== "thinking") {
+      // Only collapse done thoughts when setting is off
+      // Keep thinking thoughts expanded
+      setIsExpanded(false);
+    }
+  }, [alwaysExpandThinking, status]);
+
   useEffect(() => {
     if (status === "thinking") {
       setIsExpanded(true);
@@ -23,8 +36,8 @@ export function ThoughtDisplay({ content, status, duration_ms }: ThoughtDisplayP
     }
   }, [status, duration_ms]);
 
-  const displayTime = status === "thinking" 
-    ? (elapsed / 1000).toFixed(1) 
+  const displayTime = status === "thinking"
+    ? (elapsed / 1000).toFixed(1)
     : duration_ms ? (duration_ms / 1000).toFixed(1) : null;
 
   return (
@@ -35,11 +48,11 @@ export function ThoughtDisplay({ content, status, duration_ms }: ThoughtDisplayP
           className="flex items-center gap-2 group cursor-pointer bg-transparent border-none p-0"
         >
           <span className="text-[12px] font-mono text-silver hover:text-stone transition-none">
-            {status === "thinking" ? "[thinking...]" : "[thought]"} 
+            {status === "thinking" ? "[thinking...]" : "[thought]"}
             {displayTime && ` ${displayTime}s`}
           </span>
         </button>
-        
+
         {isExpanded && (
           <div className="text-[13px] text-stone leading-relaxed whitespace-pre-wrap pl-2 border-l-2 border-light-gray/50 ml-1">
             {content || "..."}

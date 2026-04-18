@@ -5,6 +5,17 @@ import * as Events from './backend/events';
 
 let activeTurnSyncToken = 0;
 
+const SETTINGS_STORAGE_KEY = "oneagent.settings.v1";
+
+function readSettingsStorage(): { alwaysExpandThinking?: boolean } | null {
+  const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+  return raw ? JSON.parse(raw) : null;
+}
+
+function writeSettingsStorage(value: { alwaysExpandThinking: boolean }) {
+  window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(value));
+}
+
 export type TimelineItem =
   | { type: 'message'; key: string; data: Types.MessageProjection }
   | { type: 'tool_call'; key: string; data: Types.ToolCallProjection }
@@ -305,6 +316,9 @@ interface AppState {
   // Running conversations (to detect completion transition)
   runningConversations: Set<string>;
 
+  // User Settings
+  alwaysExpandThinking: boolean;
+
   // Actions
   init: () => Promise<void>;
   selectConversation: (id: string | null) => Promise<void>;
@@ -325,6 +339,9 @@ interface AppState {
   switchWorkspace: (workspace: Types.Workspace) => Promise<void>;
   pickWorkspace: () => Promise<Types.Workspace | null>;
   refreshWorkspaces: () => Promise<void>;
+
+  // Settings Actions
+  setAlwaysExpandThinking: (value: boolean) => void;
 
   // Event Handlers
   _setupEventSubscriptions: () => void;
@@ -353,6 +370,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeTimelineItems: [],
   unreadCompletedConversations: new Set(),
   runningConversations: new Set(),
+
+  // Initialize settings from localStorage
+  alwaysExpandThinking: readSettingsStorage()?.alwaysExpandThinking ?? false,
 
   init: async () => {
     try {
@@ -1089,6 +1109,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (error) {
       console.error('Failed to refresh workspaces', error);
     }
+  },
+
+  setAlwaysExpandThinking: (value: boolean) => {
+    writeSettingsStorage({ alwaysExpandThinking: value });
+    set({ alwaysExpandThinking: value });
   },
 
   _setupEventSubscriptions: () => {
