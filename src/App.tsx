@@ -41,25 +41,11 @@ import { TerminalDisplay } from "./components/chat/TerminalDisplay";
 import { PermissionDisplay } from "./components/chat/PermissionDisplay";
 import { WorkspaceDropdown } from "./components/ui/WorkspaceDropdown";
 import { ATTACHMENT_LIMITS } from "./lib/constants";
+import { useScrollManager, useAttachmentHandler } from "./hooks";
+import type { LocalAttachment as HookLocalAttachment, AttachmentResolution as HookAttachmentResolution } from "./hooks";
 
-type LocalAttachment = {
-  id: string;
-  name: string;
-  path: string;
-  mimeType: string;
-  kind: Types.AttachmentInput["kind"];
-  size: number;
-  source: "picker" | "drag" | "paste";
-  previewUrl?: string;
-};
-
-type AttachmentResolution = {
-  canSend: boolean;
-  mode: "image" | "audio" | "resource" | "resource_link" | "blocked" | "probing";
-  label: string;
-  reason?: string;
-  deliveryPreference: Types.AttachmentInput["delivery_preference"];
-};
+type LocalAttachment = HookLocalAttachment;
+type AttachmentResolution = HookAttachmentResolution;
 
 type ModelChoice = {
   value: string;
@@ -212,68 +198,6 @@ function formatProbeError(error: unknown): string {
     default:
       return backendError.message || "Failed to probe agent capabilities.";
   }
-}
-
-function inferAttachmentKind(mimeType: string): Types.AttachmentInput["kind"] {
-  if (mimeType.startsWith("image/")) return "image";
-  if (mimeType.startsWith("audio/")) return "audio";
-  return "file";
-}
-
-function isTextLikeMime(mimeType: string) {
-  return (
-    mimeType.startsWith("text/") ||
-    [
-      "application/json",
-      "application/xml",
-      "application/javascript",
-      "application/x-javascript",
-      "application/typescript",
-      "application/yaml",
-      "application/x-yaml",
-    ].includes(mimeType)
-  );
-}
-
-function resolveAttachment(
-  attachment: LocalAttachment,
-  capabilities: Types.AgentCapabilities | null | undefined,
-): AttachmentResolution {
-  if (!capabilities?.prompt_capabilities) {
-    return {
-      canSend: false,
-      mode: "probing",
-      label: "Need capability probe",
-      reason: "Probe the agent before sending attachments.",
-      deliveryPreference: "auto",
-    };
-  }
-
-  const prompt = capabilities.prompt_capabilities;
-  if (attachment.kind === "image" && prompt.image && attachment.size <= ATTACHMENT_LIMITS.MAX_EMBEDDED_MEDIA_BYTES) {
-    return { canSend: true, mode: "image", label: "Will send as image", deliveryPreference: "embedded" };
-  }
-  if (attachment.kind === "audio" && prompt.audio && attachment.size <= ATTACHMENT_LIMITS.MAX_EMBEDDED_MEDIA_BYTES) {
-    return { canSend: true, mode: "audio", label: "Will send as audio", deliveryPreference: "embedded" };
-  }
-  if (
-    attachment.kind === "file" &&
-    prompt.embedded_context &&
-    isTextLikeMime(attachment.mimeType) &&
-    attachment.size <= ATTACHMENT_LIMITS.MAX_EMBEDDED_TEXT_BYTES
-  ) {
-    return { canSend: true, mode: "resource", label: "Will embed file contents", deliveryPreference: "embedded" };
-  }
-  if (prompt.resource_link) {
-    return { canSend: true, mode: "resource_link", label: "Will send as file reference", deliveryPreference: "resource_link" };
-  }
-  return {
-    canSend: false,
-    mode: "blocked",
-    label: "Unsupported by agent",
-    reason: "This agent does not advertise a compatible attachment mode.",
-    deliveryPreference: "auto",
-  };
 }
 
 function humanFileSize(size: number) {
@@ -497,50 +421,12 @@ function getLatestPermissionDecision(
     .at(-1) ?? null;
 }
 
-async function readFileAsBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error);
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : "";
-      resolve(result.split(",")[1] ?? "");
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-async function materializeAttachment(file: File, source: LocalAttachment["source"]): Promise<LocalAttachment> {
-  let path = ((file as any).path as string | undefined) ?? "";
-  if (!path) {
-    const base64 = await readFileAsBase64(file);
-    const persisted = await API.persistAttachmentBlob({
-      name: file.name,
-      mime_type: file.type || null,
-      base64_data: base64,
-    });
-    path = persisted.path;
-  }
-  const mimeType = file.type || "application/octet-stream";
-  return {
-    id: crypto.randomUUID(),
-    name: file.name,
-    path,
-    mimeType,
-    kind: inferAttachmentKind(mimeType),
-    size: file.size,
-    source,
-    previewUrl: mimeType.startsWith("image/") ? URL.createObjectURL(file) : undefined,
-  };
-}
-
 export default function App() {
   const [isMobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isDesktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'general' | 'agents' | 'mcp'>('general');
   const [input, setInput] = useState("");
-  const [attachments, setAttachments] = useState<LocalAttachment[]>([]);
-  const [isAddingAttachment, setIsAddingAttachment] = useState(false);
   const [composerNotice, setComposerNotice] = useState<string | null>(null);
   const [pendingDeleteConversationId, setPendingDeleteConversationId] = useState<string | null>(null);
   const [pendingModelValue, setPendingModelValue] = useState<string | null>(null);
@@ -565,14 +451,16 @@ export default function App() {
   const [workspaceLoadingDirs, setWorkspaceLoadingDirs] = useState<Set<string>>(new Set());
   const [workspaceDirErrors, setWorkspaceDirErrors] = useState<Record<string, string>>({});
   const [isSending, setIsSending] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const scrollAreaRef = useRef<HTMLDivElement | null>(null);
-  const scrollContentRef = useRef<HTMLDivElement | null>(null);
-  const [showScrollButton, setShowScrollButton] = useState(false);
-  const userHasScrolledUpRef = useRef(false);
-  const isProgrammaticScrollingRef = useRef(false);
-  const scrollResetTimeoutRef = useRef<number | null>(null);
-  const scrollRafRef = useRef<number | null>(null);
+
+  const {
+    scrollAreaRef,
+    scrollContentRef,
+    setScrollAreaRef,
+    scrollToBottom,
+    forceScrollToBottom,
+    showScrollButton,
+    userHasScrolledUp,
+  } = useScrollManager();
 
   const {
     isInitializing,
@@ -602,6 +490,27 @@ export default function App() {
     alwaysExpandThinking,
     setAlwaysExpandThinking,
   } = useAppStore();
+
+  const activeAgent = agentProfiles.find((agent) => agent.id === activeAgentProfileId) ?? null;
+  const activeCapabilities = activeAgent?.capabilities_cache ?? null;
+
+  const {
+    attachments,
+    isAddingAttachment,
+    attachmentStates,
+    blockedAttachment,
+    canSend: canSendAttachments,
+    removeAttachment,
+    handleFileInput,
+    handleDrop,
+    handlePaste,
+    resetAttachments,
+    fileInputRef,
+  } = useAttachmentHandler({
+    agentProfileId: activeAgentProfileId ?? null,
+    capabilities: activeCapabilities,
+    onNotice: setComposerNotice,
+  });
 
   useEffect(() => {
     init();
@@ -715,115 +624,6 @@ export default function App() {
       });
   };
 
-  // Check if scroll is near bottom (within threshold)
-  const checkIsAtBottom = () => {
-    if (scrollAreaRef.current) {
-      const scrollContainer = scrollAreaRef.current;
-      const maxScrollTop = scrollContainer.scrollHeight - scrollContainer.clientHeight;
-      // Consider at bottom if within 50px of the maximum scroll position
-      return maxScrollTop - scrollContainer.scrollTop <= 50;
-    }
-    return true;
-  };
-
-  // Handle scroll events to detect user manual scrolling
-  const handleScrollEvent = () => {
-    // Ignore scroll events triggered by programmatic scrolling
-    if (isProgrammaticScrollingRef.current) {
-      return;
-    }
-
-    const isAtBottom = checkIsAtBottom();
-    setShowScrollButton(!isAtBottom);
-
-    if (isAtBottom) {
-      userHasScrolledUpRef.current = false;
-    } else {
-      // User has scrolled up away from bottom
-      userHasScrolledUpRef.current = true;
-    }
-  };
-
-  const clearProgrammaticScrollReset = () => {
-    if (scrollResetTimeoutRef.current !== null) {
-      window.clearTimeout(scrollResetTimeoutRef.current);
-      scrollResetTimeoutRef.current = null;
-    }
-  };
-
-  const scheduleProgrammaticScrollReset = (delayMs: number) => {
-    clearProgrammaticScrollReset();
-    scrollResetTimeoutRef.current = window.setTimeout(() => {
-      isProgrammaticScrollingRef.current = false;
-      scrollResetTimeoutRef.current = null;
-      handleScrollEvent();
-    }, delayMs);
-  };
-
-  const performScrollToBottom = (behavior: ScrollBehavior = "auto") => {
-    const scrollContainer = scrollAreaRef.current;
-    if (!scrollContainer) return;
-
-    if (scrollRafRef.current !== null) {
-      window.cancelAnimationFrame(scrollRafRef.current);
-      scrollRafRef.current = null;
-    }
-
-    isProgrammaticScrollingRef.current = true;
-    scrollContainer.scrollTo({
-      top: scrollContainer.scrollHeight,
-      behavior,
-    });
-    userHasScrolledUpRef.current = false;
-    setShowScrollButton(false);
-
-    const finalize = () => {
-      scrollContainer.scrollTop = scrollContainer.scrollHeight;
-      scheduleProgrammaticScrollReset(behavior === "smooth" ? 300 : 80);
-    };
-
-    if (typeof window !== "undefined" && "requestAnimationFrame" in window) {
-      scrollRafRef.current = window.requestAnimationFrame(() => {
-        scrollRafRef.current = window.requestAnimationFrame(() => {
-          scrollRafRef.current = null;
-          finalize();
-        });
-      });
-    } else {
-      finalize();
-    }
-  };
-
-  // Scroll to bottom function - also resets user scroll state to resume auto-scroll
-  const scrollToBottom = () => {
-    userHasScrolledUpRef.current = false;
-    performScrollToBottom("smooth");
-  };
-
-  // Set up scroll listener when ref is available
-  const setScrollAreaRef = (element: HTMLDivElement | null) => {
-    if (scrollAreaRef.current) {
-      scrollAreaRef.current.removeEventListener('scroll', handleScrollEvent);
-    }
-    scrollAreaRef.current = element;
-    if (element) {
-      element.addEventListener('scroll', handleScrollEvent);
-    }
-  };
-
-  // Cleanup scroll listener on unmount
-  useEffect(() => {
-    return () => {
-      clearProgrammaticScrollReset();
-      if (scrollRafRef.current !== null) {
-        window.cancelAnimationFrame(scrollRafRef.current);
-      }
-      if (scrollAreaRef.current) {
-        scrollAreaRef.current.removeEventListener('scroll', handleScrollEvent);
-      }
-    };
-  }, []);
-
   useEffect(() => {
     return () => {
       attachments.forEach((attachment) => {
@@ -866,11 +666,9 @@ export default function App() {
     return [...agentDiscoveryStatus].sort((a, b) => order[a.availability] - order[b.availability]);
   }, [agentDiscoveryStatus]);
 
-  const activeAgent = agentProfiles.find((agent) => agent.id === activeAgentProfileId) ?? null;
   const activeDiscoveryStatus =
     agentDiscoveryStatus.find((status) => status.profile_id === activeAgentProfileId)
     ?? agentDiscoveryStatus.find((status) => status.command === activeAgent?.command);
-  const activeCapabilities = activeAgent?.capabilities_cache ?? null;
   const availableAgents = agentDiscoveryStatus.filter((agent) => agent.installed);
   const conversationModelSelector = useMemo(
     () => buildModelSelectorState(
@@ -884,12 +682,7 @@ export default function App() {
     [draftConfigOptions, draftModels]
   );
   const modelSelector = activeConversationId ? conversationModelSelector : draftModelSelector;
-  const attachmentStates = attachments.map((attachment) => ({
-    attachment,
-    resolution: resolveAttachment(attachment, activeCapabilities),
-  }));
-  const blockedAttachment = attachmentStates.find((entry) => !entry.resolution.canSend);
-  const canSend = input.trim().length > 0 && !!activeAgentProfileId && !blockedAttachment && !isAddingAttachment;
+  const canSend = input.trim().length > 0 && !!activeAgentProfileId && !blockedAttachment && !isAddingAttachment && canSendAttachments;
   const isWorkspaceLocked = activeConversationId !== null;
   const currentConversation =
     activeConversationState?.conversation ??  // 优先使用实时轮询的状态
@@ -939,30 +732,28 @@ export default function App() {
 
   // Auto-scroll to bottom on message updates
   useEffect(() => {
-    if (!scrollAreaRef.current) return;
-
     // When agent is busy (streaming), only auto-scroll if user hasn't manually scrolled up
     if (isBusy) {
-      if (!userHasScrolledUpRef.current) {
-        performScrollToBottom("auto");
+      if (!userHasScrolledUp) {
+        forceScrollToBottom();
       }
       return;
     }
 
     // When not busy, scroll to bottom only if user hasn't manually scrolled up
-    if (!userHasScrolledUpRef.current) {
-      performScrollToBottom("smooth");
+    if (!userHasScrolledUp) {
+      scrollToBottom();
     }
-  }, [activeTimeline?.messages, isBusy]);
+  }, [activeTimeline?.messages, isBusy, userHasScrolledUp, forceScrollToBottom, scrollToBottom]);
 
   useEffect(() => {
     const content = scrollContentRef.current;
     if (!content) return;
 
-    const shouldStickToBottom = () => !userHasScrolledUpRef.current;
+    const shouldStickToBottom = () => !userHasScrolledUp;
     const syncToBottom = () => {
       if (!shouldStickToBottom()) return;
-      performScrollToBottom(isBusy ? "auto" : "smooth");
+      forceScrollToBottom();
     };
 
     if (typeof ResizeObserver !== "undefined") {
@@ -975,13 +766,11 @@ export default function App() {
 
     const timer = window.setTimeout(syncToBottom, 100);
     return () => window.clearTimeout(timer);
-  }, [isBusy, activeConversationId]);
+  }, [isBusy, activeConversationId, userHasScrolledUp, forceScrollToBottom]);
 
   useEffect(() => {
-    userHasScrolledUpRef.current = false;
-    setShowScrollButton(false);
-    performScrollToBottom("auto");
-  }, [activeConversationId]);
+    scrollToBottom();
+  }, [activeConversationId, scrollToBottom]);
 
   useEffect(() => {
     if (activeConversationId || !activeAgentProfileId) return;
@@ -1072,11 +861,8 @@ export default function App() {
     return meta;
   }, [activeTimeline?.events]);
 
-  const resetComposer = (items: LocalAttachment[] = attachments) => {
-    items.forEach((attachment) => {
-      if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
-    });
-    setAttachments([]);
+  const resetComposer = () => {
+    resetAttachments();
     setInput("");
     setComposerNotice(null);
   };
@@ -1084,7 +870,6 @@ export default function App() {
   const handleSend = async () => {
     if (!canSend || !activeAgentProfileId || isBusy) return;
     setIsSending(true);
-    const draftAttachments = attachments;
     const payload: Types.AttachmentInput[] = attachmentStates.map(({ attachment, resolution }) => ({
       id: attachment.id,
       name: attachment.name,
@@ -1103,18 +888,13 @@ export default function App() {
         sessionConfigOverrides.push({ config_id: "__mode_override__", value: selectedModeValue });
       }
     }
-    setAttachments([]);
+    resetAttachments();
     setInput("");
     setComposerNotice(null);
     try {
       await sendMessage(text, payload, sessionConfigOverrides);
-      draftAttachments.forEach((attachment) => {
-        if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
-      });
     } catch (error) {
       console.error("Failed to send message", error);
-      setInput(text);
-      setAttachments(draftAttachments);
       setComposerNotice("Failed to send message.");
     } finally {
       setIsSending(false);
@@ -1130,61 +910,6 @@ export default function App() {
       e.preventDefault();
       void handleSend();
     }
-  };
-
-  const addFiles = async (files: FileList | File[], source: LocalAttachment["source"]) => {
-    if (!activeAgentProfileId) {
-      setComposerNotice("Select an agent before adding attachments.");
-      return;
-    }
-    setIsAddingAttachment(true);
-    try {
-      const capabilities = await ensureAgentCapabilities(activeAgentProfileId);
-      if (!capabilities?.prompt_capabilities) {
-        setComposerNotice(formatDiscoveryNotice(activeDiscoveryStatus) ?? "This agent has not returned ACP prompt capabilities yet.");
-        return;
-      }
-      const next = await Promise.all(Array.from(files).map((file) => materializeAttachment(file, source)));
-      setAttachments((current) => [...current, ...next]);
-      setComposerNotice(null);
-    } catch (error) {
-      console.error("Failed to add attachments", error);
-      setComposerNotice("Failed to process one or more attachments.");
-    } finally {
-      setIsAddingAttachment(false);
-    }
-  };
-
-  const handleFileInput = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files?.length) {
-      await addFiles(event.target.files, "picker");
-    }
-    event.target.value = "";
-  };
-
-  const handleDrop = async (event: React.DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    if (event.dataTransfer.files?.length) {
-      await addFiles(event.dataTransfer.files, "drag");
-    }
-  };
-
-  const handlePaste = async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const files = Array.from(event.clipboardData.files ?? []);
-    if (files.length > 0) {
-      event.preventDefault();
-      await addFiles(files, "paste");
-    }
-  };
-
-  const removeAttachment = (id: string) => {
-    setAttachments((current) => {
-      const target = current.find((attachment) => attachment.id === id);
-      if (target?.previewUrl) {
-        URL.revokeObjectURL(target.previewUrl);
-      }
-      return current.filter((attachment) => attachment.id !== id);
-    });
   };
 
   const draftSelections =
@@ -1351,7 +1076,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-full bg-pure-white font-body text-pure-black selection:bg-light-gray overflow-hidden">
-      <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileInput} />
+      <input ref={fileInputRef as React.Ref<HTMLInputElement>} type="file" multiple className="hidden" onChange={handleFileInput} />
 
       {isMobileSidebarOpen && (
         <div className="fixed inset-0 bg-pure-black/20 z-20 md:hidden transition-opacity" onClick={() => setMobileSidebarOpen(false)} />
