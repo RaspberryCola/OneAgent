@@ -23,3 +23,12 @@ export type {
 
 export { useModeSelector } from './useModeSelector';
 export type { UseModeSelectorOptions, UseModeSelectorReturn } from './useModeSelector';
+
+export { useWorkspaceFileTree } from './useWorkspaceFileTree';
+export type {
+  UseWorkspaceFileTreeOptions,
+  UseWorkspaceFileTreeReturn,
+} from './useWorkspaceFileTree';
+
+export { useSearch } from './useSearch';
+export type { UseSearchOptions, UseSearchReturn } from './useSearch';

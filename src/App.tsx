@@ -41,7 +41,7 @@ import { TerminalDisplay } from "./components/chat/TerminalDisplay";
 import { PermissionDisplay } from "./components/chat/PermissionDisplay";
 import { WorkspaceDropdown } from "./components/ui/WorkspaceDropdown";
 import { ATTACHMENT_LIMITS } from "./lib/constants";
-import { useScrollManager, useAttachmentHandler, useModelSelector, useModeSelector } from "./hooks";
+import { useScrollManager, useAttachmentHandler, useModelSelector, useModeSelector, useWorkspaceFileTree, useSearch } from "./hooks";
 import type {
   LocalAttachment as HookLocalAttachment,
   AttachmentResolution as HookAttachmentResolution,
@@ -272,18 +272,6 @@ export default function App() {
   const [pendingDeleteConversationId, setPendingDeleteConversationId] = useState<string | null>(null);
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(new Set());
   const [permissionDecisions, setPermissionDecisions] = useState<Types.PermissionDecision[]>([]);
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<Types.Conversation[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [isWorkspacePanelOpen, setIsWorkspacePanelOpen] = useState(false);
-  const [workspaceRootFiles, setWorkspaceRootFiles] = useState<Types.WorkspaceFileEntry[]>([]);
-  const [isWorkspaceRootLoading, setIsWorkspaceRootLoading] = useState(false);
-  const [workspaceRootError, setWorkspaceRootError] = useState<string | null>(null);
-  const [expandedWorkspaceDirs, setExpandedWorkspaceDirs] = useState<Set<string>>(new Set());
-  const [workspaceDirChildren, setWorkspaceDirChildren] = useState<Record<string, Types.WorkspaceFileEntry[]>>({});
-  const [workspaceLoadingDirs, setWorkspaceLoadingDirs] = useState<Set<string>>(new Set());
-  const [workspaceDirErrors, setWorkspaceDirErrors] = useState<Record<string, string>>({});
   const [isSending, setIsSending] = useState(false);
 
   const {
@@ -355,6 +343,39 @@ export default function App() {
     clearPendingValue,
   } = useModelSelector({ enabled: true, onNotice: setComposerNotice });
 
+  const {
+    isPanelOpen: isWorkspacePanelOpen,
+    setIsPanelOpen: setIsWorkspacePanelOpen,
+    rootFiles: workspaceRootFiles,
+    isRootLoading: isWorkspaceRootLoading,
+    rootError: workspaceRootError,
+    expandedDirs: expandedWorkspaceDirs,
+    dirChildren: workspaceDirChildren,
+    loadingDirs: workspaceLoadingDirs,
+    dirErrors: workspaceDirErrors,
+    toggleDirectory: toggleWorkspaceDirectory,
+    refreshRoot: refreshWorkspaceRoot,
+    collapseDirectory: collapseWorkspaceDirectory,
+  } = useWorkspaceFileTree({
+    workspaceId: activeWorkspace?.id ?? null,
+    cwd: activeWorkspace?.cwd ?? null,
+    enabled: true,
+  });
+
+  const {
+    isOpen: isSearchOpen,
+    query: searchQuery,
+    results: searchResults,
+    isSearching,
+    openSearch,
+    closeSearch,
+    setQuery: setSearchQuery,
+    clearResults,
+  } = useSearch({
+    workspaceId: activeWorkspace?.id ?? null,
+    enabled: true,
+  });
+
   useEffect(() => {
     init();
   }, [init]);
@@ -370,102 +391,12 @@ export default function App() {
     }
   }, [activeWorkspace?.id]);
 
-  useEffect(() => {
-    if (!isWorkspacePanelOpen || !activeWorkspace) {
-      setWorkspaceRootFiles([]);
-      setWorkspaceRootError(null);
-      setIsWorkspaceRootLoading(false);
-      setExpandedWorkspaceDirs(new Set());
-      setWorkspaceDirChildren({});
-      setWorkspaceLoadingDirs(new Set());
-      setWorkspaceDirErrors({});
-      return;
-    }
-
-    let cancelled = false;
-    setIsWorkspaceRootLoading(true);
-    setWorkspaceRootError(null);
-    setExpandedWorkspaceDirs(new Set());
-    setWorkspaceDirChildren({});
-    setWorkspaceLoadingDirs(new Set());
-    setWorkspaceDirErrors({});
-
-    void API.listWorkspaceFiles(activeWorkspace.cwd)
-      .then((entries) => {
-        if (cancelled) return;
-        setWorkspaceRootFiles(entries);
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        const message = error instanceof Error ? error.message : "Failed to load workspace files";
-        setWorkspaceRootFiles([]);
-        setWorkspaceRootError(message);
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsWorkspaceRootLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeWorkspace, isWorkspacePanelOpen]);
-
+  // Sync conversation state with workspace panel
   useEffect(() => {
     if (activeConversationId === null && isWorkspacePanelOpen) {
       setIsWorkspacePanelOpen(false);
     }
   }, [activeConversationId, isWorkspacePanelOpen]);
-
-  const toggleWorkspaceDirectory = (directoryPath: string) => {
-    const alreadyExpanded = expandedWorkspaceDirs.has(directoryPath);
-    if (alreadyExpanded) {
-      setExpandedWorkspaceDirs((prev) => {
-        const next = new Set(prev);
-        next.delete(directoryPath);
-        return next;
-      });
-      return;
-    }
-
-    setExpandedWorkspaceDirs((prev) => {
-      const next = new Set(prev);
-      next.add(directoryPath);
-      return next;
-    });
-
-    if (!activeWorkspace || workspaceDirChildren[directoryPath] || workspaceLoadingDirs.has(directoryPath)) {
-      return;
-    }
-
-    setWorkspaceLoadingDirs((prev) => {
-      const next = new Set(prev);
-      next.add(directoryPath);
-      return next;
-    });
-    setWorkspaceDirErrors((prev) => {
-      const next = { ...prev };
-      delete next[directoryPath];
-      return next;
-    });
-
-    void API.listWorkspaceFiles(activeWorkspace.cwd, directoryPath)
-      .then((entries) => {
-        setWorkspaceDirChildren((prev) => ({ ...prev, [directoryPath]: entries }));
-      })
-      .catch((error) => {
-        const message = error instanceof Error ? error.message : "Failed to load directory";
-        setWorkspaceDirErrors((prev) => ({ ...prev, [directoryPath]: message }));
-      })
-      .finally(() => {
-        setWorkspaceLoadingDirs((prev) => {
-          const next = new Set(prev);
-          next.delete(directoryPath);
-          return next;
-        });
-      });
-  };
 
   useEffect(() => {
     return () => {
@@ -823,7 +754,7 @@ export default function App() {
                 <span className="text-caption truncate w-full block">New Chat</span>
               </button>
               <button
-                onClick={() => setIsSearchOpen(true)}
+                onClick={openSearch}
                 className="w-full text-left px-3 py-1.5 rounded-container flex items-center gap-2.5 transition-colors min-w-0 text-near-black hover:bg-light-gray/60"
               >
                 <Search className="w-3.5 h-3.5 shrink-0" />
@@ -998,7 +929,7 @@ export default function App() {
           {activeConversationId && (
             <button
               type="button"
-              onClick={() => setIsWorkspacePanelOpen((open) => !open)}
+              onClick={() => setIsWorkspacePanelOpen(!isWorkspacePanelOpen)}
               className={`p-1 shrink-0 rounded-md transition-colors hover:bg-light-gray/50 ${
                 isWorkspacePanelOpen ? "text-pure-black" : "text-stone hover:text-pure-black"
               }`}
@@ -1484,20 +1415,11 @@ export default function App() {
             setQuery={setSearchQuery}
             results={searchResults}
             isSearching={isSearching}
-            onClose={() => {
-              setIsSearchOpen(false);
-              setSearchQuery("");
-              setSearchResults([]);
-            }}
+            onClose={closeSearch}
             onSelect={(id) => {
               void selectConversation(id);
-              setIsSearchOpen(false);
-              setSearchQuery("");
-              setSearchResults([]);
+              closeSearch();
             }}
-            workspaceId={activeWorkspace?.id ?? ""}
-            setResults={setSearchResults}
-            setIsSearching={setIsSearching}
           />
         )}
       </AnimatePresence>
@@ -2088,9 +2010,6 @@ function SearchOverlay({
   isSearching,
   onClose,
   onSelect,
-  workspaceId,
-  setResults,
-  setIsSearching,
 }: {
   query: string;
   setQuery: (q: string) => void;
@@ -2098,9 +2017,6 @@ function SearchOverlay({
   isSearching: boolean;
   onClose: () => void;
   onSelect: (id: string) => void;
-  workspaceId: string;
-  setResults: (results: Types.Conversation[]) => void;
-  setIsSearching: (loading: boolean) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const { agentProfiles } = useAppStore();
@@ -2116,32 +2032,6 @@ function SearchOverlay({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
-
-  useEffect(() => {
-    if (!query.trim()) {
-      setResults([]);
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      void (async () => {
-        setIsSearching(true);
-        try {
-          const data = await API.searchConversations({
-            workspace_id: workspaceId,
-            query: query,
-          });
-          setResults(data);
-        } catch (error) {
-          console.error("Search failed:", error);
-        } finally {
-          setIsSearching(false);
-        }
-      })();
-    }, 300);
-
-    return () => clearTimeout(timer);
-  }, [query, workspaceId, setResults, setIsSearching]);
 
   return (
     <motion.div
