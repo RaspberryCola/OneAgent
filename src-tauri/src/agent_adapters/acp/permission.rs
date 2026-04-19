@@ -11,6 +11,7 @@ use crate::{
 };
 
 use super::live_session::PermissionOption;
+use super::types::AcpPermissionRequest;
 
 /// Parse a permission request notification from the agent.
 /// Returns the runtime event, permission request ID, and available options.
@@ -18,45 +19,30 @@ pub fn parse_permission_request(
     message: &Value,
     turn_id: &str,
 ) -> Option<(RuntimeStreamEvent, i64, Vec<PermissionOption>)> {
-    let permission_id = message.get("id")?.as_i64()?;
-    let params = message.get("params")?;
-    let tool_call = params.get("toolCall")?;
-    let options = params
-        .get("options")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| {
-                    Some(PermissionOption {
-                        option_id: item.get("optionId")?.as_str()?.to_string(),
-                        kind: item.get("kind")?.as_str()?.to_string(),
-                    })
-                })
-                .collect::<Vec<_>>()
+    let request = serde_json::from_value::<AcpPermissionRequest>(message.clone()).ok()?;
+    let permission_id = request.id;
+    let options_raw = request.params.options;
+    let tool_call = request.params.tool_call;
+
+    let options = options_raw
+        .iter()
+        .map(|item| PermissionOption {
+            option_id: item.option_id.clone(),
+            kind: item.kind.clone(),
         })
-        .unwrap_or_default();
+        .collect::<Vec<_>>();
+
+    let tool_call_content = tool_call.content.clone().unwrap_or_default();
+    let normalized_content = super::parser::extract_content(Some(&tool_call_content));
     Some((
         RuntimeStreamEvent::PermissionRequest {
             turn_id: turn_id.to_string(),
-            tool_call_id: tool_call
-                .get("toolCallId")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-            tool_kind: tool_call
-                .get("kind")
-                .and_then(Value::as_str)
-                .unwrap_or("other")
-                .to_string(),
-            title: tool_call
-                .get("title")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string(),
-            raw_input: tool_call.get("input").cloned().unwrap_or_else(|| json!({})),
-            paths: super::parser::extract_paths(tool_call.get("content")),
-            options: params.get("options").cloned().unwrap_or_else(|| json!([])),
+            tool_call_id: tool_call.tool_call_id,
+            tool_kind: tool_call.kind.unwrap_or_else(|| "other".to_string()),
+            title: tool_call.title.unwrap_or_default(),
+            raw_input: tool_call.input.unwrap_or_else(|| json!({})),
+            paths: super::parser::extract_paths(normalized_content.clone()),
+            options: serde_json::to_value(&options_raw).unwrap_or_else(|_| json!([])),
         },
         permission_id,
         options,

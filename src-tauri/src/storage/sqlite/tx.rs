@@ -339,6 +339,57 @@ impl Database {
         })
     }
 
+    pub fn delete_conversation_atomic(&self, conversation_id: &str) -> StorageResult<()> {
+        self.with_transaction(|tx| {
+            tx.execute(
+                "DELETE FROM terminal_records WHERE conversation_id = ?1",
+                params![conversation_id],
+            )?;
+            tx.execute(
+                "DELETE FROM pending_permission_requests WHERE conversation_id = ?1",
+                params![conversation_id],
+            )?;
+            tx.execute(
+                "DELETE FROM permission_decisions WHERE conversation_id = ?1",
+                params![conversation_id],
+            )?;
+            tx.execute(
+                "DELETE FROM tool_call_projections WHERE conversation_id = ?1",
+                params![conversation_id],
+            )?;
+            tx.execute(
+                "DELETE FROM message_projections WHERE conversation_id = ?1",
+                params![conversation_id],
+            )?;
+            tx.execute(
+                "DELETE FROM runtime_events WHERE conversation_id = ?1",
+                params![conversation_id],
+            )?;
+            tx.execute(
+                "DELETE FROM conversation_snapshots WHERE conversation_id = ?1",
+                params![conversation_id],
+            )?;
+            tx.execute(
+                "DELETE FROM task_runs WHERE conversation_id = ?1",
+                params![conversation_id],
+            )?;
+            tx.execute(
+                "DELETE FROM agent_session_bindings WHERE conversation_id = ?1",
+                params![conversation_id],
+            )?;
+            let deleted = tx.execute(
+                "DELETE FROM conversations WHERE id = ?1",
+                params![conversation_id],
+            )?;
+            if deleted == 0 {
+                return Err(StorageError::NotFound(format!(
+                    "conversation {conversation_id}"
+                )));
+            }
+            Ok(())
+        })
+    }
+
     pub fn cancel_turn_atomic(
         &self,
         conversation_id: &str,
@@ -398,8 +449,8 @@ mod tests {
 
     use crate::domain::{
         AgentKind, AgentSessionBinding, AgentSessionSource, Conversation, ConversationOrigin,
-        ConversationRuntimeState, ConversationState, ConversationStatus, ConnectionPhase,
-        SessionPhase, TurnPhase,
+        ConversationRuntimeState, ConversationState, ConversationStatus, ConnectionPhase, MessageKind,
+        MessageProjection, MessageRole, SessionPhase, TurnPhase,
     };
     use crate::storage::{sqlite::connection::Database, StorageError};
 
@@ -536,5 +587,75 @@ mod tests {
         assert!(db.get_binding("conv_atomic").unwrap().is_some());
         assert_eq!(db.list_events("conv_atomic").unwrap().len(), 1);
         assert!(db.get_snapshot("conv_atomic").unwrap().is_some());
+    }
+
+    #[test]
+    fn delete_conversation_atomic_removes_related_records() {
+        let db = Database::new_in_memory().unwrap();
+        let ws = db.open_workspace("/tmp").unwrap();
+        let _profile = db
+            .upsert_agent_profile(crate::domain::UpsertAgentProfileInput {
+                id: Some("profile_1".to_string()),
+                kind: AgentKind::Acp,
+                name: "p".to_string(),
+                command: "agent".to_string(),
+                args: vec![],
+                env: BTreeMap::new(),
+                launch_mode: crate::domain::AgentLaunchMode::Native,
+                runtime_preference: None,
+                package_name: None,
+                package_version: None,
+                display_source: crate::domain::AgentDisplaySource::Native,
+                enabled: true,
+            })
+            .unwrap();
+
+        let mut conversation = build_conversation("conv_delete_atomic");
+        conversation.workspace_id = ws.id.clone();
+        let binding = build_binding(&conversation.id);
+        let state = ConversationState {
+            conversation: conversation.clone(),
+            runtime: ConversationRuntimeState {
+                connection_phase: ConnectionPhase::Ready,
+                session_phase: SessionPhase::Hot,
+                turn_phase: TurnPhase::Idle,
+                last_error: None,
+                last_transition_at: Utc::now(),
+            },
+            binding: Some(binding.clone()),
+            task_run: None,
+            config_options: vec![],
+            models: None,
+            modes: None,
+            pending_permissions: vec![],
+        };
+
+        db.create_conversation_atomic(
+            &conversation,
+            &binding,
+            "ConversationCreated",
+            &json!({ "origin": "oneagent_managed" }),
+            &serde_json::to_value(&state).unwrap(),
+        )
+        .unwrap();
+
+        db.upsert_message(&MessageProjection {
+            id: Uuid::new_v4().to_string(),
+            conversation_id: conversation.id.clone(),
+            turn_id: "turn_1".to_string(),
+            role: MessageRole::User,
+            kind: MessageKind::Text,
+            content_json: json!({ "text": "hello" }),
+            created_at: Utc::now(),
+        })
+        .unwrap();
+
+        db.delete_conversation_atomic(&conversation.id).unwrap();
+
+        assert!(db.get_conversation(&conversation.id).is_err());
+        assert!(db.get_binding(&conversation.id).unwrap().is_none());
+        assert!(db.get_snapshot(&conversation.id).unwrap().is_none());
+        assert!(db.list_events(&conversation.id).unwrap().is_empty());
+        assert!(db.list_messages(&conversation.id).unwrap().is_empty());
     }
 }

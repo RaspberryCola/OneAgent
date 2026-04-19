@@ -23,9 +23,13 @@ Completed:
 
 Partially completed:
 
-- C2: ACP typed protocol coverage is incomplete
 - D2: tests pass (`cargo test`), but use-case regression matrix is still missing
 - D3: synchronous SQLite access is still directly used on async paths
+
+Completed in this cycle:
+
+- G1 closed: remaining multi-write delete flow is now transactional (`delete_conversation_atomic`)
+- G2 closed for key ACP families: `session/update` and `session/request_permission` now parse typed protocol models before mapping to runtime events
 
 ## 3. Stable Contracts (Do Not Break)
 
@@ -121,7 +125,5 @@ Rules:
 
 ## 8. Current Focus Queue
 
-- P0: A3 continuation (transaction coverage completion)
-- P1: D2 regression matrix
-- P2: C2 typed ACP model completion
-- P3: D3 boundary/performance hardening
+- P0: D2 regression matrix
+- P1: D3 boundary/performance hardening

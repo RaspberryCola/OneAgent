@@ -143,7 +143,8 @@ mod tests {
     #[test]
     fn upserts_and_retrieves_terminal() {
         let db = Database::new_in_memory().unwrap();
-        let repo = TerminalRepository::new(&db.conn);
+        let conn = db.conn.lock();
+        let repo = TerminalRepository::new(&conn);
         let terminal = create_test_terminal();
 
         repo.upsert(&terminal).unwrap();
@@ -160,7 +161,8 @@ mod tests {
     #[test]
     fn updates_terminal_status_and_buffers() {
         let db = Database::new_in_memory().unwrap();
-        let repo = TerminalRepository::new(&db.conn);
+        let conn = db.conn.lock();
+        let repo = TerminalRepository::new(&conn);
         let mut terminal = create_test_terminal();
 
         repo.upsert(&terminal).unwrap();
@@ -186,7 +188,8 @@ mod tests {
     #[test]
     fn lists_terminals_for_conversation() {
         let db = Database::new_in_memory().unwrap();
-        let repo = TerminalRepository::new(&db.conn);
+        let conn = db.conn.lock();
+        let repo = TerminalRepository::new(&conn);
 
         let terminal1 = TerminalRecord {
             id: "term_1".to_string(),
@@ -228,7 +231,8 @@ mod tests {
     #[test]
     fn handles_multiple_terminals_per_conversation() {
         let db = Database::new_in_memory().unwrap();
-        let repo = TerminalRepository::new(&db.conn);
+        let conn = db.conn.lock();
+        let repo = TerminalRepository::new(&conn);
 
         let terminal1 = TerminalRecord {
             id: "term_1".to_string(),

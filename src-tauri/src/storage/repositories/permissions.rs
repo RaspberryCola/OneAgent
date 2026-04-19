@@ -152,7 +152,8 @@ mod tests {
     #[test]
     fn records_and_retrieves_permission_decision() {
         let db = Database::new_in_memory().unwrap();
-        let repo = PermissionRepository::new(&db.conn);
+        let conn = db.conn.lock();
+        let repo = PermissionRepository::new(&conn);
         let decision = create_test_decision();
 
         repo.record_decision(&decision).unwrap();
@@ -167,7 +168,8 @@ mod tests {
     #[test]
     fn upserts_and_retrieves_pending_request() {
         let db = Database::new_in_memory().unwrap();
-        let repo = PermissionRepository::new(&db.conn);
+        let conn = db.conn.lock();
+        let repo = PermissionRepository::new(&conn);
         let request = create_test_pending_request();
 
         repo.upsert_pending(&request).unwrap();
@@ -182,7 +184,8 @@ mod tests {
     #[test]
     fn updates_pending_status() {
         let db = Database::new_in_memory().unwrap();
-        let repo = PermissionRepository::new(&db.conn);
+        let conn = db.conn.lock();
+        let repo = PermissionRepository::new(&conn);
         let request = create_test_pending_request();
 
         repo.upsert_pending(&request).unwrap();
@@ -196,7 +199,8 @@ mod tests {
     #[test]
     fn lists_pending_requests() {
         let db = Database::new_in_memory().unwrap();
-        let repo = PermissionRepository::new(&db.conn);
+        let conn = db.conn.lock();
+        let repo = PermissionRepository::new(&conn);
 
         let request1 = create_test_pending_request();
         let request2 = PendingPermissionRequest {
@@ -221,7 +225,8 @@ mod tests {
     #[test]
     fn cancels_pending_for_turn() {
         let db = Database::new_in_memory().unwrap();
-        let repo = PermissionRepository::new(&db.conn);
+        let conn = db.conn.lock();
+        let repo = PermissionRepository::new(&conn);
 
         let request1 = create_test_pending_request();
         let request2 = PendingPermissionRequest {
@@ -250,7 +255,8 @@ mod tests {
     #[test]
     fn stores_different_decision_kinds() {
         let db = Database::new_in_memory().unwrap();
-        let repo = PermissionRepository::new(&db.conn);
+        let conn = db.conn.lock();
+        let repo = PermissionRepository::new(&conn);
 
         let kinds = vec![
             PermissionDecisionKind::AllowOnce,

@@ -15,6 +15,7 @@ use crate::{
 };
 
 use super::types::ACP_PROTOCOL_VERSION;
+use super::types::{AcpSessionUpdate, AcpToolContentItem};
 
 /// Extract error message from a JSON-RPC error response.
 pub fn jsonrpc_error_message(response: &Value) -> Option<String> {
@@ -264,21 +265,21 @@ pub fn parse_models(result: Option<&Value>) -> Option<AcpSessionModels> {
 /// Parse a session/update notification into runtime stream events.
 pub fn parse_session_update(message: &Value, turn_id: &str) -> Vec<RuntimeStreamEvent> {
     let mut events = Vec::new();
-    let Some(update) = message.get("params").and_then(|p| p.get("update")) else {
+    let Some(update_value) = message
+        .get("params")
+        .and_then(|p| p.get("update"))
+        .cloned()
+    else {
         return events;
     };
-    let update_kind = update
-        .get("sessionUpdate")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    match update_kind {
-        "user_message_chunk" | "agent_message_chunk" => {
-            if let Some(text) = update
-                .get("content")
-                .and_then(|v| v.get("text"))
-                .and_then(Value::as_str)
-            {
-                let role = if update_kind == "agent_message_chunk" {
+    let Ok(update) = serde_json::from_value::<AcpSessionUpdate>(update_value) else {
+        return events;
+    };
+
+    match update {
+        AcpSessionUpdate::UserMessageChunk { .. } | AcpSessionUpdate::AgentMessageChunk { .. } => {
+            if let Some(text) = update.message_text() {
+                let role = if matches!(update, AcpSessionUpdate::AgentMessageChunk { .. }) {
                     "agent"
                 } else {
                     "user"
@@ -299,14 +300,10 @@ pub fn parse_session_update(message: &Value, turn_id: &str) -> Vec<RuntimeStream
                 }
             }
         }
-        "agent_thought_chunk" | "thought" | "thinking" => {
-            let content = update
-                .get("content")
-                .and_then(|v| v.get("text"))
-                .and_then(Value::as_str)
-                .or_else(|| update.get("description").and_then(Value::as_str))
-                .or_else(|| update.get("subject").and_then(Value::as_str))
-                .unwrap_or_default();
+        AcpSessionUpdate::AgentThoughtChunk { .. }
+        | AcpSessionUpdate::Thought { .. }
+        | AcpSessionUpdate::Thinking { .. } => {
+            let content = update.thought_text().unwrap_or_default();
             if !content.trim().is_empty() {
                 events.push(RuntimeStreamEvent::ThinkingChunk {
                     turn_id: turn_id.to_string(),
@@ -314,73 +311,60 @@ pub fn parse_session_update(message: &Value, turn_id: &str) -> Vec<RuntimeStream
                 });
             }
         }
-        "plan" => {
+        AcpSessionUpdate::Plan { entries } => {
             events.push(RuntimeStreamEvent::Plan {
                 turn_id: turn_id.to_string(),
-                entries: update.get("entries").cloned().unwrap_or_else(|| json!([])),
+                entries,
             });
         }
-        "tool_call" | "tool_call_update" => {
-            let content = extract_content(update.get("content"));
-            let terminal_refs = content
-                .get("terminal_ids")
-                .cloned()
-                .unwrap_or_else(|| json!([]));
-            let raw_output = content
-                .get("text")
-                .cloned()
-                .unwrap_or_else(|| json!({ "text": "" }));
-
-            // Fix: try multiple field names for input (rawInput for ACP spec, input for legacy)
-            let raw_input = update
-                .get("rawInput")
-                .or_else(|| update.get("input"))
-                .cloned()
-                .unwrap_or_else(|| json!({}));
-
-            events.push(RuntimeStreamEvent::ToolCall {
-                turn_id: turn_id.to_string(),
-                tool_call_id: update
-                    .get("toolCallId")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
-                title: update
-                    .get("title")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
-                kind: update
-                    .get("kind")
-                    .and_then(Value::as_str)
-                    .unwrap_or("other")
-                    .to_string(),
-                status: normalize_tool_status(
-                    update
-                        .get("status")
-                        .and_then(Value::as_str)
-                        .unwrap_or("pending"),
-                ),
+        AcpSessionUpdate::ToolCall { .. } | AcpSessionUpdate::ToolCallUpdate { .. } => {
+            if let Some((
+                tool_call_id,
+                title,
+                kind,
+                status,
                 raw_input,
-                raw_output,
-                content: content.get("content").cloned().unwrap_or_else(|| json!([])),
-                diffs: content.get("diffs").cloned().unwrap_or_else(|| json!([])),
-                terminal_ids: terminal_refs.clone(),
-                locations: json!({
-                    "terminals": terminal_refs,
-                    "paths": extract_paths(update.get("content"))
-                }),
-            });
-        }
-        "config_option_update" => {
-            // Update configOptions from the notification
-            if let Some(config_options) = update.get("configOptions").and_then(Value::as_array) {
-                events.push(RuntimeStreamEvent::ConfigOptionsUpdated {
-                    config_options: parse_config_options_from_array(config_options),
+                input,
+                content,
+            )) = update.tool_call_parts()
+            {
+                let content = extract_content(content);
+                let terminal_refs = content
+                    .get("terminal_ids")
+                    .cloned()
+                    .unwrap_or_else(|| json!([]));
+                let raw_output = content
+                    .get("text")
+                    .cloned()
+                    .unwrap_or_else(|| json!({ "text": "" }));
+                let raw_input = raw_input
+                    .cloned()
+                    .or_else(|| input.cloned())
+                    .unwrap_or_else(|| json!({}));
+
+                events.push(RuntimeStreamEvent::ToolCall {
+                    turn_id: turn_id.to_string(),
+                    tool_call_id: tool_call_id.unwrap_or_default().to_string(),
+                    title: title.unwrap_or_default().to_string(),
+                    kind: kind.unwrap_or("other").to_string(),
+                    status: normalize_tool_status(status.unwrap_or("pending")),
+                    raw_input,
+                    raw_output,
+                    content: content.get("content").cloned().unwrap_or_else(|| json!([])),
+                    diffs: content.get("diffs").cloned().unwrap_or_else(|| json!([])),
+                    terminal_ids: terminal_refs.clone(),
+                    locations: json!({
+                        "terminals": terminal_refs,
+                        "paths": extract_paths(content)
+                    }),
                 });
             }
         }
-        _ => {}
+        AcpSessionUpdate::ConfigOptionUpdate { config_options } => {
+            events.push(RuntimeStreamEvent::ConfigOptionsUpdated {
+                config_options: parse_config_options_from_array(&config_options),
+            });
+        }
     }
     events
 }
@@ -430,8 +414,8 @@ pub fn extract_and_strip_think_tags(content: &str) -> (String, String) {
 }
 
 /// Extract content from tool call update content array.
-pub fn extract_content(content: Option<&Value>) -> Value {
-    let Some(items) = content.and_then(Value::as_array) else {
+pub fn extract_content(content: Option<&[AcpToolContentItem]>) -> Value {
+    let Some(items) = content else {
         return json!({
             "text": { "text": "" },
             "content": [],
@@ -448,26 +432,23 @@ pub fn extract_content(content: Option<&Value>) -> Value {
     let texts: Vec<String> = items
         .iter()
         .filter_map(|item| {
-            item.get("content")
-                .and_then(|c| c.get("text"))
-                .or_else(|| item.get("text"))
-                .or_else(|| item.get("output"))
-                .and_then(Value::as_str)
-                .map(ToOwned::to_owned)
+            item.content
+                .as_ref()
+                .and_then(|c| c.text.clone())
+                .or_else(|| item.text.clone())
+                .or_else(|| item.output.clone())
         })
         .collect();
 
     let diffs: Vec<Value> = items
         .iter()
-        .filter_map(|item| item.get("diff").cloned())
+        .filter_map(|item| item.diff.clone())
         .collect();
 
     let terminal_ids: Vec<String> = items
         .iter()
         .filter_map(|item| {
-            item.get("terminalId")
-                .and_then(Value::as_str)
-                .map(ToOwned::to_owned)
+            item.terminal_id.clone()
         })
         .collect();
 
@@ -481,8 +462,9 @@ pub fn extract_content(content: Option<&Value>) -> Value {
 }
 
 /// Extract file paths from content array.
-pub fn extract_paths(content: Option<&Value>) -> Vec<String> {
+pub fn extract_paths(content: Value) -> Vec<String> {
     content
+        .get("content")
         .and_then(Value::as_array)
         .map(|items| {
             items
@@ -800,31 +782,38 @@ mod tests {
     #[test]
     fn extracts_content_with_various_formats() {
         // Terminal ref only
-        let content1 = json!([{ "terminalId": "term_1" }]);
+        let content1: Vec<AcpToolContentItem> =
+            serde_json::from_value(json!([{ "terminalId": "term_1" }])).unwrap();
         let result1 = extract_content(Some(&content1));
         assert_eq!(result1["terminal_ids"], json!(["term_1"]));
 
         // Text content
-        let content2 = json!([{ "content": { "text": "hello" } }]);
+        let content2: Vec<AcpToolContentItem> =
+            serde_json::from_value(json!([{ "content": { "text": "hello" } }])).unwrap();
         let result2 = extract_content(Some(&content2));
         assert_eq!(result2["text"]["text"], "hello");
 
         // Diff content
-        let content3 = json!([{ "diff": { "path": "src/lib.rs", "patch": "@@" } }]);
+        let content3: Vec<AcpToolContentItem> = serde_json::from_value(
+            json!([{ "diff": { "path": "src/lib.rs", "patch": "@@" } }]),
+        )
+        .unwrap();
         let result3 = extract_content(Some(&content3));
         assert_eq!(result3["diffs"][0]["path"], "src/lib.rs");
 
         // Legacy format with output field
-        let content4 = json!([{ "output": "legacy output" }]);
+        let content4: Vec<AcpToolContentItem> =
+            serde_json::from_value(json!([{ "output": "legacy output" }])).unwrap();
         let result4 = extract_content(Some(&content4));
         assert_eq!(result4["output"], "legacy output");
 
         // Mixed content
-        let content5 = json!([
+        let content5: Vec<AcpToolContentItem> = serde_json::from_value(json!([
             { "terminalId": "term_1" },
             { "content": { "text": "output" } },
             { "diff": { "path": "file.rs", "patch": "@@" } }
-        ]);
+        ]))
+        .unwrap();
         let result5 = extract_content(Some(&content5));
         assert_eq!(result5["terminal_ids"].as_array().unwrap().len(), 1);
         assert_eq!(result5["diffs"].as_array().unwrap().len(), 1);
@@ -833,11 +822,12 @@ mod tests {
 
     #[test]
     fn extracts_paths_from_content() {
-        let content = json!([
+        let content: Vec<AcpToolContentItem> = serde_json::from_value(json!([
             { "content": { "uri": "file:///tmp/test.txt" } },
             { "content": { "uri": "file:///home/user/file.rs" } }
-        ]);
-        let paths = extract_paths(Some(&content));
+        ]))
+        .unwrap();
+        let paths = extract_paths(extract_content(Some(&content)));
         assert_eq!(paths.len(), 2);
         assert_eq!(paths[0], "file:///tmp/test.txt");
         assert_eq!(paths[1], "file:///home/user/file.rs");
@@ -845,9 +835,9 @@ mod tests {
 
     #[test]
     fn extracts_empty_paths_when_no_content() {
-        assert!(extract_paths(None).is_empty());
-        assert!(extract_paths(Some(&json!([]))).is_empty());
-        assert!(extract_paths(Some(&json!({}))).is_empty());
+        assert!(extract_paths(json!({})).is_empty());
+        assert!(extract_paths(json!({ "content": [] })).is_empty());
+        assert!(extract_paths(json!({ "content": {} })).is_empty());
     }
 
     #[test]

@@ -96,7 +96,7 @@ impl Database {
     }
 
     pub fn delete_conversation(&self, conversation_id: &str) -> StorageResult<()> {
-        ConversationRepository::new(&self.conn.lock()).delete(conversation_id)
+        self.delete_conversation_atomic(conversation_id)
     }
 
     pub fn upsert_binding(&self, binding: &AgentSessionBinding) -> StorageResult<()> {
