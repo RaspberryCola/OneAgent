@@ -9,7 +9,6 @@ import {
 
   ChevronRight,
   Code,
-  Copy,
   Cpu,
   Folder,
   FolderOpen,
@@ -28,21 +27,16 @@ import {
   ToggleLeft,
   X,
 } from "lucide-react";
-import { Streamdown } from "streamdown";
-import { code } from "@streamdown/code";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAppStore } from "./lib/store";
 import * as API from "./lib/backend/commands";
 import type * as Types from "./lib/backend/types";
 import { ThoughtDisplay } from "./components/chat/ThoughtDisplay";
 import { ToolCallDisplay } from "./components/chat/ToolCallDisplay";
-import { TerminalDisplay } from "./components/chat/TerminalDisplay";
 import { PermissionDisplay } from "./components/chat/PermissionDisplay";
 import { SearchOverlay } from "./components/search/SearchOverlay";
 import { SidebarItem } from "./components/sidebar/SidebarItem";
-import { ErrorMessage } from "./components/timeline/ErrorMessage";
-import { PlanMessage } from "./components/timeline/PlanMessage";
-import { StatusMessage } from "./components/timeline/StatusMessage";
+import { TimelineMessage } from "./components/timeline/TimelineMessage";
 import { WorkspaceDropdown } from "./components/ui/WorkspaceDropdown";
 import { ATTACHMENT_LIMITS } from "./lib/constants";
 import { useScrollManager, useAttachmentHandler, useModelSelector, useModeSelector, useWorkspaceFileTree, useSearch } from "./hooks";
@@ -54,42 +48,6 @@ import type {
 
 type LocalAttachment = HookLocalAttachment;
 type AttachmentResolution = HookAttachmentResolution;
-
-const markdownComponents = {
-  p: ({ children }: any) => <p className="mb-1 last:mb-0">{children}</p>,
-  inlineCode: ({ children }: any) => (
-    <code className="bg-snow border border-light-gray px-1.5 py-0.5 rounded-md font-mono text-[0.9em] text-pure-black">
-      {children}
-    </code>
-  ),
-  ul: ({ children }: any) => <ul className="list-disc pl-5 mb-2 space-y-0.5">{children}</ul>,
-  ol: ({ children }: any) => <ol className="list-decimal pl-5 mb-2 space-y-0.5">{children}</ol>,
-  li: ({ children }: any) => <li className="text-[14px] leading-relaxed">{children}</li>,
-  h1: ({ children }: any) => <h1 className="text-xl font-display font-medium mb-2">{children}</h1>,
-  h2: ({ children }: any) => <h2 className="text-lg font-display font-medium mb-1.5 mt-3">{children}</h2>,
-  h3: ({ children }: any) => <h3 className="text-md font-display font-medium mb-1 mt-3">{children}</h3>,
-  a: ({ children, href }: any) => (
-    <a href={href} className="underline underline-offset-2 hover:text-stone transition-colors">
-      {children}
-    </a>
-  ),
-  table: ({ children }: any) => (
-    <div className="w-full overflow-x-auto my-2">
-      <table className="w-full border-collapse min-w-0">{children}</table>
-    </div>
-  ),
-  thead: ({ children }: any) => <thead className="bg-snow">{children}</thead>,
-  tbody: ({ children }: any) => <tbody>{children}</tbody>,
-  tr: ({ children }: any) => <tr className="border-b border-light-gray last:border-b-0">{children}</tr>,
-  th: ({ children }: any) => (
-    <th className="px-3 py-2 text-left text-[13px] font-medium text-near-black border-b border-light-gray">
-      {children}
-    </th>
-  ),
-  td: ({ children }: any) => (
-    <td className="px-3 py-2 text-[13px] text-pure-black">{children}</td>
-  ),
-};
 
 const AGENT_LOGOS: Record<string, string> = {
   claude: "/logos/ai-major/claude.svg",
@@ -1577,7 +1535,7 @@ function Composer({
                         className="absolute bottom-full left-0 mb-2 w-max min-w-[220px] max-w-[320px] max-h-[300px] overflow-y-auto bg-pure-white border border-light-gray rounded-container z-[70] py-1.5 flex flex-col scrollbar-thin shadow-none"
                       >
                         <div className="px-3 py-1">
-                          <span className="text-[10px] font-medium text-silver uppercase tracking-wider">Models</span>
+                          <span className="text-[10px] font-medium text-silver tracking-wider">Models</span>
                         </div>
                         {modelSelector.choices.map((choice) => (
                           <button
@@ -1653,7 +1611,7 @@ function Composer({
                       className="absolute bottom-full left-0 mb-2 w-max min-w-[220px] max-w-[320px] max-h-[300px] overflow-y-auto bg-pure-white border border-light-gray rounded-container z-[70] py-1.5 flex flex-col scrollbar-thin shadow-none"
                     >
                       <div className="px-3 py-1">
-                        <span className="text-[10px] font-medium text-silver uppercase tracking-wider">Available Modes</span>
+                        <span className="text-[10px] font-medium text-silver tracking-wider">Modes</span>
                       </div>
                       {modeChoices.map((choice: any) => (
                         <button
@@ -1697,171 +1655,6 @@ function Composer({
             onClick={onSend}
           >
             <ArrowUp className={isCompact ? "w-3.5 h-3.5" : "w-4 h-4"} />
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-
-function TimelineMessage({
-  message,
-  terminals,
-  lastAgentMessageIdsPerTurn,
-}: {
-  message: Types.MessageProjection;
-  terminals: Types.TerminalRecord[];
-  lastAgentMessageIdsPerTurn: Map<string, string>;
-}) {
-  if (message.kind === "plan") {
-    return <PlanMessage entries={Array.isArray(message.content_json?.entries) ? message.content_json.entries : []} />;
-  }
-  if (message.kind === "terminal") {
-    return (
-      <TerminalDisplay
-        content={message.content_json?.content || ""}
-        stream={message.content_json?.stream || "stdout"}
-        event={message.content_json?.event || "running"}
-        terminal={terminals.find((item) => item.terminal_id === message.content_json?.terminal_id) ?? null}
-      />
-    );
-  }
-  if (message.kind === "status") {
-    return <StatusMessage content={message.content_json?.message || message.content_json?.text || ""} />;
-  }
-  if (message.kind === "error") {
-    return <ErrorMessage content={message.content_json?.message || message.content_json?.text || ""} />;
-  }
-  // Check if this is the last agent message in its turn
-  const isLastAgentInTurn = message.role === 'agent' && 
-    message.kind === 'text' && 
-    !!message.turn_id && 
-    lastAgentMessageIdsPerTurn.get(message.turn_id) === message.id;
-  return (
-    <Message
-      role={message.role as "user" | "agent" | "assistant" | "tool" | "system"}
-      content={message.content_json?.text || message.content_json?.message || ""}
-      attachments={Array.isArray(message.content_json?.attachments) ? message.content_json.attachments : []}
-      kind={message.kind}
-      contentJson={message.content_json}
-      messageId={message.id}
-      isLastAgentMessage={isLastAgentInTurn}
-    />
-  );
-}
-
-function Message({
-  role,
-  content,
-  attachments,
-  kind,
-  contentJson,
-  messageId,
-  isLastAgentMessage,
-}: {
-  role: "user" | "agent" | "assistant" | "tool" | "system";
-  content: string;
-  attachments: Types.AttachmentInput[];
-  kind?: string;
-  contentJson?: any;
-  messageId?: string;
-  isLastAgentMessage?: boolean;
-}) {
-  const isUser = role === "user";
-  const isDiff = kind === "diff";
-  const [copied, setCopied] = useState(false);
-
-  // Efficiently strip tags without unnecessary state if possible
-  const displayContent = useMemo(() => {
-    if (isUser || isDiff || !content) return content;
-    // Strip <think> and <thinking> blocks including incomplete ones (important for streaming)
-    return content
-      .replace(/<think>[\s\S]*?(?:<\/think>|$)/g, "")
-      .replace(/<thinking>[\s\S]*?(?:<\/thinking>|$)/g, "")
-      .trim();
-  }, [content, isUser, isDiff]);
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(displayContent);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch (err) {
-      console.error("Failed to copy:", err);
-    }
-  };
-
-  // Determine if copy button should be shown
-  const showCopyButton = isUser || isLastAgentMessage;
-
-  if (!displayContent && !isUser && !isDiff && attachments.length === 0) return null;
-
-  return (
-    <div className={`group flex w-full ${isUser ? "justify-end" : "justify-start"}`}>
-      <div className={`flex flex-col gap-1 min-w-0 w-full ${isUser ? "max-w-[95%] md:max-w-[85%] items-end" : "items-start"} mt-0.5`}>
-        <div className={`text-chat leading-relaxed break-words min-w-0 w-fit max-w-full ${isUser ? "bg-light-gray px-4 py-2 rounded-container" : "text-pure-black py-2 pl-0 pr-4"}`}>
-          {isUser ? (
-            <div className="whitespace-pre-wrap">{displayContent}</div>
-          ) : isDiff ? (
-            <div className="space-y-4 w-full">
-              {Array.isArray(contentJson?.diffs) && contentJson.diffs.map((diff: any, idx: number) => (
-                <div key={idx} className="border border-light-gray rounded-lg overflow-hidden bg-pure-white w-full max-w-full min-w-0">
-                  <div className="bg-snow px-3 py-1.5 border-b border-light-gray flex items-center gap-2">
-                    <Code className="w-3.5 h-3.5 text-stone" />
-                    <span className="text-[11px] font-mono font-medium text-near-black truncate">{diff.path}</span>
-                  </div>
-                  <pre className="p-3 text-[12px] font-mono overflow-x-auto whitespace-pre">
-                    {diff.patch.split('\n').map((line: string, i: number) => {
-                      const isAdded = line.startsWith('+');
-                      const isRemoved = line.startsWith('-');
-                      return (
-                        <div key={i} className={`${isAdded ? "bg-snow text-near-black font-medium" : isRemoved ? "bg-light-gray/30 text-stone" : ""}`}>
-                          {line}
-                        </div>
-                      );
-                    })}
-                  </pre>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <Streamdown
-              components={markdownComponents}
-              plugins={{ code }}
-              lineNumbers={false}
-            >
-              {displayContent || ""}
-            </Streamdown>
-          )}
-          {attachments.length > 0 && (
-            <div className={`mt-3 space-y-2 ${!isUser ? "" : ""}`}>
-              {attachments.map((attachment) => (
-                <div key={attachment.id} className="rounded-xl border border-light-gray bg-pure-white/80 px-3 py-2 text-[12px] text-stone">
-                  <div className="font-medium text-pure-black truncate">{attachment.name}</div>
-                  <div className="flex gap-2 flex-wrap">
-                    <span>{attachment.kind}</span>
-                    <span>{attachment.delivery_preference}</span>
-                    {attachment.mime_type && <span>{attachment.mime_type}</span>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        {showCopyButton && (
-          <button
-            type="button"
-            onClick={handleCopy}
-            className="opacity-0 group-hover:opacity-100 p-1 rounded-full text-stone hover:text-pure-black hover:bg-light-gray transition-all cursor-pointer"
-            title="Copy message"
-            aria-label={`Copy message ${messageId || ''}`}
-          >
-            {copied ? (
-              <Check className="w-3.5 h-3.5" />
-            ) : (
-              <Copy className="w-3.5 h-3.5" />
-            )}
           </button>
         )}
       </div>

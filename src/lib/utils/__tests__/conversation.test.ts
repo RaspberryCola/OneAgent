@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { buildConversationTitle, isConversationActive, findConversationAcrossWorkspaces } from '../conversation';
+import {
+  buildConversationTitle,
+  isConversationActive,
+  findConversationAcrossWorkspaces,
+  stripThinkingTags,
+} from '../conversation';
 import type { ConversationState, Conversation } from '../../backend/types';
 
 describe('conversation utilities', () => {
@@ -156,6 +161,23 @@ describe('conversation utilities', () => {
 
       const result = findConversationAcrossWorkspaces(map, 'conv2');
       expect(result).toEqual({ workspaceId: 'ws1', conversation: convs[1] });
+    });
+  });
+
+  describe('stripThinkingTags', () => {
+    it('removes completed think blocks', () => {
+      const input = 'before<think>hidden</think>after';
+      expect(stripThinkingTags(input)).toBe('beforeafter');
+    });
+
+    it('removes incomplete thinking blocks during streaming', () => {
+      const input = 'visible<thinking>streaming';
+      expect(stripThinkingTags(input)).toBe('visible');
+    });
+
+    it('preserves plain content', () => {
+      const input = 'plain content';
+      expect(stripThinkingTags(input)).toBe('plain content');
     });
   });
 });

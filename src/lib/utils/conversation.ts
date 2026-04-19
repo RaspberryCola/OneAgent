@@ -26,3 +26,9 @@ export function findConversationAcrossWorkspaces(
   }
   return null;
 }
+
+export function stripThinkingTags(content: string): string {
+  return content
+    .replace(/<think>[\s\S]*?(?:<\/think>|$)/g, '')
+    .replace(/<thinking>[\s\S]*?(?:<\/thinking>|$)/g, '');
+}
