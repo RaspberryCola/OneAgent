@@ -23,13 +23,14 @@ Completed:
 
 Partially completed:
 
-- D2: tests pass (`cargo test`), but use-case regression matrix is still missing
 - D3: synchronous SQLite access is still directly used on async paths
 
 Completed in this cycle:
 
 - G1 closed: remaining multi-write delete flow is now transactional (`delete_conversation_atomic`)
 - G2 closed for key ACP families: `session/update` and `session/request_permission` now parse typed protocol models before mapping to runtime events
+- G3 closed: regression matrix now includes transactional behavior coverage (`import/cancel/permission resolve`) plus runtime projection behavior coverage (terminal accumulation, message/tool_call transitions)
+- G4 advanced: conversation state assembly now avoids repeated snapshot reads by decoding snapshot parts once per state emission path
 
 ## 3. Stable Contracts (Do Not Break)
 
@@ -125,5 +126,4 @@ Rules:
 
 ## 8. Current Focus Queue
 
-- P0: D2 regression matrix
-- P1: D3 boundary/performance hardening
+- P0: D3 boundary/performance hardening

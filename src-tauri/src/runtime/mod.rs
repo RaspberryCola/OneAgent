@@ -1210,17 +1210,29 @@ impl Runtime {
     }
 
     fn conversation_config_options(&self, conversation_id: &str) -> Vec<SessionConfigOption> {
-        self.snapshot_state(conversation_id)
-            .map(|state| state.config_options)
-            .unwrap_or_default()
+        self.snapshot_parts(conversation_id).0
     }
 
     fn conversation_models(&self, conversation_id: &str) -> Option<AcpSessionModels> {
-        self.snapshot_state(conversation_id).and_then(|state| state.models)
+        self.snapshot_parts(conversation_id).1
     }
 
     fn conversation_modes(&self, conversation_id: &str) -> Option<AcpSessionModeState> {
-        self.snapshot_state(conversation_id).and_then(|state| state.modes)
+        self.snapshot_parts(conversation_id).2
+    }
+
+    fn snapshot_parts(
+        &self,
+        conversation_id: &str,
+    ) -> (
+        Vec<SessionConfigOption>,
+        Option<AcpSessionModels>,
+        Option<AcpSessionModeState>,
+    ) {
+        match self.snapshot_state(conversation_id) {
+            Some(state) => (state.config_options, state.models, state.modes),
+            None => (Vec::new(), None, None),
+        }
     }
 
     fn snapshot_state(&self, conversation_id: &str) -> Option<RuntimeSnapshotState> {
@@ -1232,14 +1244,15 @@ impl Runtime {
     }
 
     pub fn conversation_state(&self, conversation_id: &str) -> RuntimeResult<ConversationState> {
+        let (config_options, models, modes) = self.snapshot_parts(conversation_id);
         Ok(ConversationState {
             conversation: self.db.get_conversation(conversation_id)?,
             runtime: self.runtime_state(conversation_id),
             binding: self.db.get_binding(conversation_id)?,
             task_run: self.db.get_task_run(conversation_id)?,
-            config_options: self.conversation_config_options(conversation_id),
-            models: self.conversation_models(conversation_id),
-            modes: self.conversation_modes(conversation_id),
+            config_options,
+            models,
+            modes,
             pending_permissions: self.db.list_pending_permissions(conversation_id)?,
         })
     }
@@ -1474,11 +1487,17 @@ fn summarize_task_timeline(
 mod tests {
     use super::*;
     use crate::domain::{
-        ConversationStatus, MessageKind, MessageProjection, MessageRole, TimelineResponse,
-        ToolCallProjection,
+        AgentDisplaySource, AgentKind, AgentLaunchMode, AgentSessionBinding,
+        AgentSessionSource, Conversation, ConversationOrigin, ConversationRuntimeState,
+        ConversationStatus, ConnectionPhase, MessageKind, MessageProjection, MessageRole,
+        SessionPhase, TimelineResponse, ToolCallProjection, TurnPhase,
     };
+    use crate::runtime::snapshot_model::RuntimeSnapshotState;
+    use crate::storage::Database;
     use chrono::Utc;
     use serde_json::json;
+    use std::collections::BTreeMap;
+    use uuid::Uuid;
 
     fn create_test_timeline() -> TimelineResponse {
         TimelineResponse {
@@ -1532,6 +1551,77 @@ mod tests {
             started_at: Some(Utc::now()),
             ended_at: Some(Utc::now()),
         }
+    }
+
+    fn create_runtime_with_conversation() -> (Runtime, String) {
+        let db = Database::new_in_memory().unwrap();
+        let workspace = db.open_workspace("/tmp").unwrap();
+        let profile = db
+            .upsert_agent_profile(crate::domain::UpsertAgentProfileInput {
+                id: Some("profile_1".to_string()),
+                kind: AgentKind::Acp,
+                name: "p".to_string(),
+                command: "agent".to_string(),
+                args: vec![],
+                env: BTreeMap::new(),
+                launch_mode: AgentLaunchMode::Native,
+                runtime_preference: None,
+                package_name: None,
+                package_version: None,
+                display_source: AgentDisplaySource::Native,
+                enabled: true,
+            })
+            .unwrap();
+
+        let now = Utc::now();
+        let conversation = Conversation {
+            id: Uuid::new_v4().to_string(),
+            workspace_id: workspace.id,
+            agent_profile_id: profile.id,
+            origin: ConversationOrigin::OneagentManaged,
+            status: ConversationStatus::Connected,
+            title: "test".to_string(),
+            created_at: now,
+            updated_at: now,
+            last_event_seq: 0,
+        };
+        let binding = AgentSessionBinding {
+            id: Uuid::new_v4().to_string(),
+            conversation_id: conversation.id.clone(),
+            adapter_kind: AgentKind::Acp,
+            remote_session_id: "remote_1".to_string(),
+            cwd: "/tmp".to_string(),
+            load_supported: true,
+            source: AgentSessionSource::New,
+            last_synced_at: now,
+        };
+        let state = crate::domain::ConversationState {
+            conversation: conversation.clone(),
+            runtime: ConversationRuntimeState {
+                connection_phase: ConnectionPhase::Ready,
+                session_phase: SessionPhase::Hot,
+                turn_phase: TurnPhase::Idle,
+                last_error: None,
+                last_transition_at: now,
+            },
+            binding: Some(binding.clone()),
+            task_run: None,
+            config_options: vec![],
+            models: None,
+            modes: None,
+            pending_permissions: vec![],
+        };
+
+        db.create_conversation_atomic(
+            &conversation,
+            &binding,
+            "ConversationCreated",
+            &json!({}),
+            &serde_json::to_value(RuntimeSnapshotState::from_conversation_state(&state)).unwrap(),
+        )
+        .unwrap();
+
+        (Runtime::new(db), conversation.id)
     }
 
     #[test]
@@ -1633,5 +1723,112 @@ mod tests {
             summarize_task_timeline(&timeline, &ConversationStatus::Connected),
             Some("agent response".to_string())
         );
+    }
+
+    #[test]
+    fn terminal_output_is_accumulated_across_chunks() {
+        let (runtime, conversation_id) = create_runtime_with_conversation();
+        let turn_id = "turn_terminal";
+
+        runtime
+            .project_terminal_event(
+                &conversation_id,
+                turn_id,
+                "term_1".to_string(),
+                "running".to_string(),
+                Some("/tmp".to_string()),
+                Some("echo".to_string()),
+                json!(["hello"]),
+                Some("stdout".to_string()),
+                Some("hel".to_string()),
+                None,
+            )
+            .unwrap();
+        runtime
+            .project_terminal_event(
+                &conversation_id,
+                turn_id,
+                "term_1".to_string(),
+                "running".to_string(),
+                None,
+                None,
+                json!([]),
+                Some("stdout".to_string()),
+                Some("lo".to_string()),
+                None,
+            )
+            .unwrap();
+
+        let terminal = runtime
+            .db
+            .get_terminal_by_remote_id(&conversation_id, "term_1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(terminal.stdout_buffer, "hello");
+    }
+
+    #[test]
+    fn tool_call_projection_writes_diff_message_and_completed_state() {
+        let (runtime, conversation_id) = create_runtime_with_conversation();
+        let turn_id = "turn_tool";
+
+        runtime
+            .project_tool_call(
+                &conversation_id,
+                turn_id,
+                "call_1".to_string(),
+                "Run".to_string(),
+                "execute".to_string(),
+                "completed".to_string(),
+                json!({ "cmd": "echo hi" }),
+                json!({ "text": "hi" }),
+                json!([]),
+                json!([{ "path": "src/main.rs" }]),
+                json!(["term_1"]),
+                json!({}),
+            )
+            .unwrap();
+
+        let calls = runtime.db.list_tool_calls(&conversation_id).unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].status, crate::domain::ToolCallStatus::Completed);
+        assert!(calls[0].ended_at.is_some());
+
+        let messages = runtime.db.list_messages(&conversation_id).unwrap();
+        assert!(messages
+            .iter()
+            .any(|m| m.kind == MessageKind::Diff && m.role == MessageRole::Tool));
+    }
+
+    #[test]
+    fn message_chunk_then_complete_produces_final_non_stream_message() {
+        let (runtime, conversation_id) = create_runtime_with_conversation();
+        let turn_id = "turn_msg";
+
+        runtime
+            .project_message_chunk(
+                &conversation_id,
+                turn_id,
+                "agent".to_string(),
+                "Hel".to_string(),
+            )
+            .unwrap();
+        runtime
+            .project_message_complete(
+                &conversation_id,
+                turn_id,
+                "agent".to_string(),
+                "Hello".to_string(),
+            )
+            .unwrap();
+
+        let messages = runtime.db.list_messages(&conversation_id).unwrap();
+        let final_msg = messages
+            .iter()
+            .find(|m| m.turn_id == turn_id && m.kind == MessageKind::Text)
+            .cloned()
+            .unwrap();
+        assert_eq!(final_msg.content_json["stream"], json!(false));
+        assert_eq!(final_msg.content_json["text"], json!("Hello"));
     }
 }
