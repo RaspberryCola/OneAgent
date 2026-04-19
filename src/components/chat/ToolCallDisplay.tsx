@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { CollapsibleContent } from '../ui/CollapsibleContent';
 import type { ToolCallProjection, TerminalRecord, PermissionDecision } from '../../lib/backend/types';
 import { DISPLAY_LIMITS } from '../../lib/constants';
@@ -23,16 +23,71 @@ function getPermissionDecisionConfig(decision: string) {
   return PERMISSION_DECISION_CONFIG[decision] || { label: null, icon: null };
 }
 
+// Helper: normalize potentially dirty string values from upstream payloads.
+function sanitizeDisplayString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const lowered = trimmed.toLowerCase();
+  if (lowered === 'undefined' || lowered === 'null') return undefined;
+  return trimmed;
+}
+
 // Helper: safely get string value with type check
 function getStringVal(obj: any, key: string): string | undefined {
-  const val = obj[key];
-  return typeof val === 'string' ? val : undefined;
+  return sanitizeDisplayString(obj?.[key]);
+}
+
+function hasMeaningfulValue(value: any): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string') return sanitizeDisplayString(value) !== undefined;
+  if (typeof value === 'number' || typeof value === 'boolean') return true;
+  if (Array.isArray(value)) return value.some((item) => hasMeaningfulValue(item));
+  if (typeof value === 'object') return Object.values(value).some((item) => hasMeaningfulValue(item));
+  return false;
+}
+
+function getTerminalInputFallback(terminals: TerminalRecord[]): { command: string; args?: string[]; cwd?: string } | undefined {
+  const terminal = terminals.find((item) => sanitizeDisplayString(item.command));
+  if (!terminal) return undefined;
+  const args = Array.isArray(terminal.args_json)
+    ? terminal.args_json.filter((arg): arg is string => typeof arg === 'string' && arg.trim().length > 0)
+    : [];
+  return {
+    command: terminal.command,
+    args: args.length > 0 ? args : undefined,
+    cwd: sanitizeDisplayString(terminal.cwd),
+  };
+}
+
+function getOutputDisplayValue(rawOutput: any): string {
+  if (typeof rawOutput === 'string') return rawOutput;
+
+  const summary = extractOutputSummary(rawOutput);
+  if (summary) return summary;
+
+  if (Array.isArray(rawOutput?.content)) {
+    const contentText = rawOutput.content
+      .map((item: any) =>
+        sanitizeDisplayString(item?.content?.text)
+        || sanitizeDisplayString(item?.text)
+        || sanitizeDisplayString(item?.output)
+        || (sanitizeDisplayString(item?.path) ? `[diff] ${item.path}` : ''),
+      )
+      .filter(Boolean)
+      .join('\n');
+    if (sanitizeDisplayString(contentText)) {
+      return contentText;
+    }
+  }
+
+  return JSON.stringify(rawOutput, null, 2);
 }
 
 // Helper: extract human-readable input summary from raw_input_json
 function extractInputSummary(rawInput: any): string {
   if (!rawInput) return '';
-  if (typeof rawInput === 'string') return rawInput;
+  if (typeof rawInput === 'string') return sanitizeDisplayString(rawInput) ?? '';
 
   // Try common input field patterns
   if (rawInput.command) {
@@ -100,14 +155,50 @@ function buildParamSummary(kind: string, rawInput: any): string | undefined {
   return undefined;
 }
 
+function normalizeToolKind(kind: unknown): string {
+  const normalized = sanitizeDisplayString(kind)?.toLowerCase();
+  if (!normalized || normalized === 'other') return 'other';
+  return normalized;
+}
+
+function getToolKindDisplayName(kind: string): string {
+  switch (kind) {
+    case 'edit':
+      return 'File Edit';
+    case 'read':
+      return 'File Read';
+    case 'write':
+      return 'File Write';
+    case 'execute':
+    case 'execute_command':
+      return 'Bash';
+    case 'search':
+    case 'grep':
+      return 'Text Search';
+    case 'glob':
+      return 'File Match';
+    case 'web_search':
+      return 'Web Search';
+    case 'mcp':
+      return 'MCP Tool';
+    default:
+      return 'Tool Call';
+  }
+}
+
 // Helper: extract human-readable output summary
 function extractOutputSummary(rawOutput: any): string | null {
   if (!rawOutput) return null;
-  if (typeof rawOutput === 'string') return rawOutput;
+  if (typeof rawOutput === 'string') return sanitizeDisplayString(rawOutput) ?? null;
 
   // Try text field (from our enhanced extraction)
-  if (rawOutput.text) return String(rawOutput.text);
-  if (rawOutput.output) return String(rawOutput.output);
+  const text = rawOutput?.text;
+  if (typeof text === 'string') return sanitizeDisplayString(text) ?? null;
+  if (text && typeof text === 'object' && typeof text.text === 'string') {
+    return sanitizeDisplayString(text.text) ?? null;
+  }
+
+  if (typeof rawOutput?.output === 'string') return sanitizeDisplayString(rawOutput.output) ?? null;
 
   return null;
 }
@@ -217,26 +308,51 @@ function ExpandIcon({ expanded }: { expanded: boolean }) {
 
 export function ToolCallDisplay({ toolCall, terminals, permissionDecision }: ToolCallDisplayProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [cachedInput, setCachedInput] = useState<any>(() => {
+    if (hasMeaningfulValue(toolCall.raw_input_json)) return toolCall.raw_input_json;
+    return getTerminalInputFallback(terminals);
+  });
 
-  const status = toolCall.status.toLowerCase();
-  const isRunning = status === "running" || status === "declared" || status === "in_progress";
+  const normalizedKind = normalizeToolKind(toolCall.kind);
+
+  useEffect(() => {
+    if (hasMeaningfulValue(toolCall.raw_input_json)) {
+      setCachedInput(toolCall.raw_input_json);
+      return;
+    }
+    const terminalFallback = getTerminalInputFallback(terminals);
+    if (terminalFallback && !hasMeaningfulValue(cachedInput)) {
+      setCachedInput(terminalFallback);
+    }
+  }, [toolCall.raw_input_json, terminals, cachedInput]);
+
+  const effectiveInput = hasMeaningfulValue(toolCall.raw_input_json)
+    ? toolCall.raw_input_json
+    : (hasMeaningfulValue(cachedInput) ? cachedInput : undefined);
 
   // Compute summaries directly (lightweight operations, no memoization needed)
-  const inputSummary = extractInputSummary(toolCall.raw_input_json);
-  const paramSummary = buildParamSummary(toolCall.kind, toolCall.raw_input_json);
+  const inputSummary = extractInputSummary(effectiveInput);
+  const paramSummary = buildParamSummary(normalizedKind, effectiveInput);
   const outputSummary = extractOutputSummary(toolCall.raw_output_json);
 
-  // Use param summary if available, fallback to input summary
-  const displaySummary = paramSummary || inputSummary;
+  // Summary source order: params -> input
+  const rawDisplaySummary = paramSummary || inputSummary;
 
-  const hasInput = Boolean(toolCall.raw_input_json && Object.keys(toolCall.raw_input_json || {}).length > 0);
-  const hasOutput = Boolean(outputSummary || (toolCall.raw_output_json && Object.keys(toolCall.raw_output_json || {}).length > 0));
+  const hasInput = hasMeaningfulValue(effectiveInput);
+  const hasOutput = hasMeaningfulValue(toolCall.raw_output_json) || Boolean(outputSummary);
   const hasDetail = hasInput || hasOutput || terminals.length > 0;
 
-  const toolTitle = toolCall.title || toolCall.kind;
+  const stableTitle = getToolKindDisplayName(normalizedKind);
 
   // Permission decision label - uses shared PERMISSION_DECISION_CONFIG
   const permissionLabel = permissionDecision ? getPermissionDecisionConfig(permissionDecision.decision).label : null;
+  const displaySummary = (() => {
+    const summary = sanitizeDisplayString(rawDisplaySummary);
+    const title = sanitizeDisplayString(stableTitle);
+    if (!summary) return undefined;
+    if (title && summary === title) return undefined;
+    return rawDisplaySummary;
+  })();
 
   return (
     <div className="flex w-full justify-start mt-0.5 mb-1">
@@ -249,8 +365,8 @@ export function ToolCallDisplay({ toolCall, terminals, permissionDecision }: Too
           <StatusDot status={toolCall.status} permissionDecision={permissionDecision} />
 
           {/* Tool title */}
-          <span className="text-[12px] font-mono text-stone group-hover:text-pure-black transition-colors truncate">
-            {toolTitle}
+          <span className="shrink-0 whitespace-nowrap text-[12px] font-mono text-stone group-hover:text-pure-black transition-colors">
+            {stableTitle}
           </span>
 
           {/* Permission decision label (if exists) */}
@@ -262,7 +378,7 @@ export function ToolCallDisplay({ toolCall, terminals, permissionDecision }: Too
 
           {/* Parameter summary - show alongside permission label if space allows */}
           {displaySummary && (
-            <span className="text-[11px] font-mono text-silver truncate max-w-[40%] md:max-w-[50%]">
+            <span className="min-w-0 flex-1 text-[11px] font-mono text-silver truncate">
               {displaySummary}
             </span>
           )}
@@ -282,7 +398,7 @@ export function ToolCallDisplay({ toolCall, terminals, permissionDecision }: Too
                   <pre className="text-[11px] font-mono text-stone whitespace-pre-wrap break-words bg-snow rounded-container px-2 py-1.5">
                     {typeof toolCall.raw_input_json === 'string'
                       ? toolCall.raw_input_json
-                      : JSON.stringify(toolCall.raw_input_json, null, 2)}
+                      : JSON.stringify(effectiveInput, null, 2)}
                   </pre>
                 </CollapsibleContent>
               </div>
@@ -293,9 +409,7 @@ export function ToolCallDisplay({ toolCall, terminals, permissionDecision }: Too
                 <div className="text-[10px] font-mono uppercase tracking-wide text-silver mb-1">Output</div>
                 <CollapsibleContent maxHeight={300}>
                   <pre className="text-[11px] font-mono text-stone whitespace-pre-wrap break-words bg-snow rounded-container px-2 py-1.5">
-                    {typeof toolCall.raw_output_json === 'string'
-                      ? toolCall.raw_output_json
-                      : JSON.stringify(toolCall.raw_output_json, null, 2)}
+                    {getOutputDisplayValue(toolCall.raw_output_json)}
                   </pre>
                 </CollapsibleContent>
               </div>

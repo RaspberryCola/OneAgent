@@ -106,6 +106,26 @@ impl AcpLiveSession {
             )
             .await?;
         let fallback_session_id = Uuid::new_v4().to_string();
+        let mut config_options = parse_config_options(response.get("result"));
+        // Sanitize max_tokens to avoid OpenCode API errors.
+        // OpenCode requires max_tokens in [1, 32768].
+        for option in config_options.iter_mut() {
+            if option.id.eq_ignore_ascii_case("max_tokens")
+                || option.id.eq_ignore_ascii_case("maxTokens")
+            {
+                let is_invalid = option
+                    .current_value
+                    .as_i64()
+                    .map(|v| v < 1 || v > 32768)
+                    .unwrap_or(true);
+                if is_invalid {
+                    option.current_value = json!(4096);
+                    if let Some(raw) = option.raw.as_object_mut() {
+                        raw.insert("currentValue".to_string(), json!(4096));
+                    }
+                }
+            }
+        }
         let handle = AgentSessionHandle {
             adapter_kind: "acp".to_string(),
             remote_session_id: response
@@ -122,7 +142,7 @@ impl AcpLiveSession {
                     .cloned()
                     .unwrap_or_else(|| json!({})),
             ),
-            config_options: parse_config_options(response.get("result")),
+            config_options,
             models: parse_models(response.get("result")),
             modes: parse_modes(response.get("result")),
         };
@@ -184,6 +204,26 @@ impl AcpLiveSession {
                 break message.get("result").cloned();
             }
         };
+        let mut config_options = parse_config_options(response_result.as_ref());
+        // Sanitize max_tokens to avoid OpenCode API errors.
+        // OpenCode requires max_tokens in [1, 32768].
+        for option in config_options.iter_mut() {
+            if option.id.eq_ignore_ascii_case("max_tokens")
+                || option.id.eq_ignore_ascii_case("maxTokens")
+            {
+                let is_invalid = option
+                    .current_value
+                    .as_i64()
+                    .map(|v| v < 1 || v > 32768)
+                    .unwrap_or(true);
+                if is_invalid {
+                    option.current_value = json!(4096);
+                    if let Some(raw) = option.raw.as_object_mut() {
+                        raw.insert("currentValue".to_string(), json!(4096));
+                    }
+                }
+            }
+        }
         let handle = AgentSessionHandle {
             adapter_kind: "acp".to_string(),
             remote_session_id: remote_session_id.to_string(),
@@ -195,7 +235,7 @@ impl AcpLiveSession {
                     .cloned()
                     .unwrap_or_else(|| json!({})),
             ),
-            config_options: parse_config_options(response_result.as_ref()),
+            config_options,
             models: parse_models(response_result.as_ref()),
             modes: parse_modes(response_result.as_ref()),
         };

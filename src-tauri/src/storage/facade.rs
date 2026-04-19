@@ -205,6 +205,14 @@ impl Database {
         ToolCallRepository::new(&self.conn.lock()).list(conversation_id)
     }
 
+    pub fn get_tool_call_by_tool_call_id(
+        &self,
+        conversation_id: &str,
+        tool_call_id: &str,
+    ) -> StorageResult<Option<ToolCallProjection>> {
+        ToolCallRepository::new(&self.conn.lock()).get_by_tool_call_id(conversation_id, tool_call_id)
+    }
+
     pub fn count_tool_calls(&self, conversation_id: &str) -> StorageResult<usize> {
         ToolCallRepository::new(&self.conn.lock()).count(conversation_id)
     }

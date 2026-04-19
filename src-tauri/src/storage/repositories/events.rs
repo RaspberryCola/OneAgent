@@ -159,7 +159,10 @@ impl<'a> ToolCallRepository<'a> {
             INSERT INTO tool_call_projections (id, conversation_id, turn_id, tool_call_id, title, kind, status, raw_input_json, raw_output_json, content_json, diffs_json, terminal_ids_json, locations_json, started_at, ended_at)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
             ON CONFLICT(id) DO UPDATE SET
+              title = excluded.title,
+              kind = excluded.kind,
               status = excluded.status,
+              raw_input_json = excluded.raw_input_json,
               raw_output_json = excluded.raw_output_json,
               content_json = excluded.content_json,
               diffs_json = excluded.diffs_json,
@@ -195,6 +198,21 @@ impl<'a> ToolCallRepository<'a> {
         )?;
         let rows = stmt.query_map(params![conversation_id], read_tool_call)?;
         rows.collect::<Result<Vec<_>, _>>()
+            .map_err(crate::storage::error::StorageError::from)
+    }
+
+    pub fn get_by_tool_call_id(
+        &self,
+        conversation_id: &str,
+        tool_call_id: &str,
+    ) -> StorageResult<Option<ToolCallProjection>> {
+        self.conn
+            .query_row(
+                "SELECT id, conversation_id, turn_id, tool_call_id, title, kind, status, raw_input_json, raw_output_json, content_json, diffs_json, terminal_ids_json, locations_json, started_at, ended_at FROM tool_call_projections WHERE conversation_id = ?1 AND tool_call_id = ?2 LIMIT 1",
+                params![conversation_id, tool_call_id],
+                read_tool_call,
+            )
+            .optional()
             .map_err(crate::storage::error::StorageError::from)
     }
 
