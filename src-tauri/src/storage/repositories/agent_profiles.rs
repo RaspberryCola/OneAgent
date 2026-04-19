@@ -1,6 +1,4 @@
-use parking_lot::Mutex;
 use rusqlite::{params, Connection, OptionalExtension};
-use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::domain::{
@@ -11,16 +9,16 @@ use crate::storage::mappers::agent_profile::read_agent_profile;
 use crate::storage::mappers::{enum_text, to_json};
 
 pub struct AgentProfileRepository<'a> {
-    conn: &'a Arc<Mutex<Connection>>,
+    conn: &'a Connection,
 }
 
 impl<'a> AgentProfileRepository<'a> {
-    pub fn new(conn: &'a Arc<Mutex<Connection>>) -> Self {
+    pub fn new(conn: &'a Connection) -> Self {
         Self { conn }
     }
 
     pub fn list(&self) -> StorageResult<Vec<AgentProfile>> {
-        let conn = self.conn.lock();
+        let conn = self.conn;
         let mut stmt = conn.prepare(
             "SELECT id, kind, name, command, args_json, env_json, launch_mode, runtime_preference, package_name, package_version, display_source, capabilities_cache_json, enabled FROM agent_profiles ORDER BY name",
         )?;
@@ -33,7 +31,7 @@ impl<'a> AgentProfileRepository<'a> {
         let profile_id = input.id.unwrap_or_else(|| Uuid::new_v4().to_string());
         let existing_capabilities = self
             .conn
-            .lock()
+            
             .query_row(
                 "SELECT capabilities_cache_json FROM agent_profiles WHERE id = ?1",
                 params![profile_id.clone()],
@@ -57,7 +55,7 @@ impl<'a> AgentProfileRepository<'a> {
             capabilities_cache: existing_capabilities,
             enabled: input.enabled,
         };
-        let conn = self.conn.lock();
+        let conn = self.conn;
         conn.execute(
             r#"
             INSERT INTO agent_profiles (
@@ -102,7 +100,7 @@ impl<'a> AgentProfileRepository<'a> {
         profile_id: &str,
         capabilities: &AgentCapabilities,
     ) -> StorageResult<()> {
-        self.conn.lock().execute(
+        self.conn.execute(
             "UPDATE agent_profiles SET capabilities_cache_json = ?2 WHERE id = ?1",
             params![profile_id, serde_json::to_string(capabilities)?],
         )?;
@@ -110,7 +108,7 @@ impl<'a> AgentProfileRepository<'a> {
     }
 
     pub fn delete(&self, profile_id: &str) -> StorageResult<()> {
-        self.conn.lock().execute(
+        self.conn.execute(
             "DELETE FROM agent_profiles WHERE id = ?1",
             params![profile_id],
         )?;
@@ -118,7 +116,7 @@ impl<'a> AgentProfileRepository<'a> {
     }
 
     pub fn is_referenced(&self, profile_id: &str) -> StorageResult<bool> {
-        let count: i64 = self.conn.lock().query_row(
+        let count: i64 = self.conn.query_row(
             "SELECT COUNT(1) FROM conversations WHERE agent_profile_id = ?1",
             params![profile_id],
             |row| row.get(0),
@@ -128,7 +126,7 @@ impl<'a> AgentProfileRepository<'a> {
 
     pub fn get(&self, profile_id: &str) -> StorageResult<AgentProfile> {
         self.conn
-            .lock()
+            
             .query_row(
                 "SELECT id, kind, name, command, args_json, env_json, launch_mode, runtime_preference, package_name, package_version, display_source, capabilities_cache_json, enabled FROM agent_profiles WHERE id = ?1",
                 params![profile_id],

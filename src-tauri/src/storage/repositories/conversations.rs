@@ -1,7 +1,5 @@
 use chrono::Utc;
-use parking_lot::Mutex;
 use rusqlite::{params, Connection, OptionalExtension};
-use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::domain::{
@@ -15,11 +13,11 @@ use crate::storage::mappers::task_run::read_task_run;
 use crate::storage::mappers::enum_text;
 
 pub struct ConversationRepository<'a> {
-    conn: &'a Arc<Mutex<Connection>>,
+    conn: &'a Connection,
 }
 
 impl<'a> ConversationRepository<'a> {
-    pub fn new(conn: &'a Arc<Mutex<Connection>>) -> Self {
+    pub fn new(conn: &'a Connection) -> Self {
         Self { conn }
     }
 
@@ -42,7 +40,7 @@ impl<'a> ConversationRepository<'a> {
             updated_at: now,
             last_event_seq: 0,
         };
-        self.conn.lock().execute(
+        self.conn.execute(
             r#"
             INSERT INTO conversations (id, workspace_id, agent_profile_id, origin, status, title, created_at, updated_at, last_event_seq)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
@@ -63,7 +61,7 @@ impl<'a> ConversationRepository<'a> {
     }
 
     pub fn update_status(&self, conversation_id: &str, status: ConversationStatus) -> StorageResult<()> {
-        self.conn.lock().execute(
+        self.conn.execute(
             "UPDATE conversations SET status = ?2, updated_at = ?3 WHERE id = ?1",
             params![conversation_id, enum_text(&status), Utc::now().to_rfc3339()],
         )?;
@@ -76,7 +74,7 @@ impl<'a> ConversationRepository<'a> {
         } else {
             "SELECT id, workspace_id, agent_profile_id, origin, status, title, created_at, updated_at, last_event_seq FROM conversations WHERE workspace_id = ?1 AND origin != 'worker_task' ORDER BY updated_at DESC"
         };
-        let conn = self.conn.lock();
+        let conn = self.conn;
         let mut stmt = conn.prepare(sql)?;
         let rows = stmt.query_map(params![workspace_id], read_conversation)?;
         rows.collect::<Result<Vec<_>, _>>()
@@ -101,7 +99,7 @@ impl<'a> ConversationRepository<'a> {
              WHERE workspace_id = ?1 AND origin != 'worker_task' AND title LIKE ?2 \
              ORDER BY updated_at DESC"
         };
-        let conn = self.conn.lock();
+        let conn = self.conn;
         let mut stmt = conn.prepare(sql)?;
         let rows = stmt.query_map(
             params![workspace_id, search_pattern],
@@ -113,7 +111,7 @@ impl<'a> ConversationRepository<'a> {
 
     pub fn get(&self, conversation_id: &str) -> StorageResult<Conversation> {
         self.conn
-            .lock()
+            
             .query_row(
                 "SELECT id, workspace_id, agent_profile_id, origin, status, title, created_at, updated_at, last_event_seq FROM conversations WHERE id = ?1",
                 params![conversation_id],
@@ -123,45 +121,43 @@ impl<'a> ConversationRepository<'a> {
     }
 
     pub fn delete(&self, conversation_id: &str) -> StorageResult<()> {
-        let mut conn = self.conn.lock();
-        let tx = conn.transaction()?;
-        tx.execute(
+        self.conn.execute(
             "DELETE FROM terminal_records WHERE conversation_id = ?1",
             params![conversation_id],
         )?;
-        tx.execute(
+        self.conn.execute(
             "DELETE FROM pending_permission_requests WHERE conversation_id = ?1",
             params![conversation_id],
         )?;
-        tx.execute(
+        self.conn.execute(
             "DELETE FROM permission_decisions WHERE conversation_id = ?1",
             params![conversation_id],
         )?;
-        tx.execute(
+        self.conn.execute(
             "DELETE FROM tool_call_projections WHERE conversation_id = ?1",
             params![conversation_id],
         )?;
-        tx.execute(
+        self.conn.execute(
             "DELETE FROM message_projections WHERE conversation_id = ?1",
             params![conversation_id],
         )?;
-        tx.execute(
+        self.conn.execute(
             "DELETE FROM runtime_events WHERE conversation_id = ?1",
             params![conversation_id],
         )?;
-        tx.execute(
+        self.conn.execute(
             "DELETE FROM conversation_snapshots WHERE conversation_id = ?1",
             params![conversation_id],
         )?;
-        tx.execute(
+        self.conn.execute(
             "DELETE FROM task_runs WHERE conversation_id = ?1",
             params![conversation_id],
         )?;
-        tx.execute(
+        self.conn.execute(
             "DELETE FROM agent_session_bindings WHERE conversation_id = ?1",
             params![conversation_id],
         )?;
-        let deleted = tx.execute(
+        let deleted = self.conn.execute(
             "DELETE FROM conversations WHERE id = ?1",
             params![conversation_id],
         )?;
@@ -170,17 +166,16 @@ impl<'a> ConversationRepository<'a> {
                 "conversation {conversation_id}"
             )));
         }
-        tx.commit()?;
         Ok(())
     }
 }
 
 pub struct TaskRunRepository<'a> {
-    conn: &'a Arc<Mutex<Connection>>,
+    conn: &'a Connection,
 }
 
 impl<'a> TaskRunRepository<'a> {
-    pub fn new(conn: &'a Arc<Mutex<Connection>>) -> Self {
+    pub fn new(conn: &'a Connection) -> Self {
         Self { conn }
     }
 
@@ -203,7 +198,7 @@ impl<'a> TaskRunRepository<'a> {
             created_at: now,
             updated_at: now,
         };
-        self.conn.lock().execute(
+        self.conn.execute(
             r#"
             INSERT INTO task_runs (id, conversation_id, workspace_id, agent_profile_id, goal, status, result_summary, created_at, updated_at)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
@@ -225,7 +220,7 @@ impl<'a> TaskRunRepository<'a> {
 
     pub fn get(&self, conversation_id: &str) -> StorageResult<Option<TaskRun>> {
         self.conn
-            .lock()
+            
             .query_row(
                 "SELECT id, conversation_id, workspace_id, agent_profile_id, goal, status, result_summary, created_at, updated_at FROM task_runs WHERE conversation_id = ?1",
                 params![conversation_id],
@@ -241,7 +236,7 @@ impl<'a> TaskRunRepository<'a> {
         status: TaskRunStatus,
         result_summary: Option<&str>,
     ) -> StorageResult<()> {
-        self.conn.lock().execute(
+        self.conn.execute(
             "UPDATE task_runs SET status = ?2, result_summary = COALESCE(?3, result_summary), updated_at = ?4 WHERE conversation_id = ?1",
             params![
                 conversation_id,
@@ -254,7 +249,7 @@ impl<'a> TaskRunRepository<'a> {
     }
 
     pub fn list(&self, workspace_id: &str) -> StorageResult<Vec<TaskRun>> {
-        let conn = self.conn.lock();
+        let conn = self.conn;
         let mut stmt = conn.prepare(
             "SELECT id, conversation_id, workspace_id, agent_profile_id, goal, status, result_summary, created_at, updated_at FROM task_runs WHERE workspace_id = ?1 ORDER BY updated_at DESC",
         )?;
@@ -265,11 +260,11 @@ impl<'a> TaskRunRepository<'a> {
 }
 
 pub struct SnapshotRepository<'a> {
-    conn: &'a Arc<Mutex<Connection>>,
+    conn: &'a Connection,
 }
 
 impl<'a> SnapshotRepository<'a> {
-    pub fn new(conn: &'a Arc<Mutex<Connection>>) -> Self {
+    pub fn new(conn: &'a Connection) -> Self {
         Self { conn }
     }
 
@@ -280,7 +275,7 @@ impl<'a> SnapshotRepository<'a> {
         state: &serde_json::Value,
         event_seq: i64,
     ) -> StorageResult<()> {
-        self.conn.lock().execute(
+        self.conn.execute(
             r#"
             INSERT INTO conversation_snapshots (conversation_id, snapshot_version, state_json, event_seq, created_at)
             VALUES (?1, ?2, ?3, ?4, ?5)
@@ -297,7 +292,7 @@ impl<'a> SnapshotRepository<'a> {
 
     pub fn get(&self, conversation_id: &str) -> StorageResult<Option<ConversationSnapshot>> {
         self.conn
-            .lock()
+            
             .query_row(
                 "SELECT conversation_id, snapshot_version, state_json, event_seq, created_at FROM conversation_snapshots WHERE conversation_id = ?1",
                 params![conversation_id],

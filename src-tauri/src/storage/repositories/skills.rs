@@ -1,6 +1,4 @@
-use parking_lot::Mutex;
 use rusqlite::{params, Connection};
-use std::sync::Arc;
 
 use crate::domain::{Workspace, SkillRecord, SkillScope};
 use crate::storage::error::StorageResult;
@@ -8,11 +6,11 @@ use crate::storage::mappers::skill::read_skill;
 use crate::storage::mappers::enum_text;
 
 pub struct SkillRepository<'a> {
-    conn: &'a Arc<Mutex<Connection>>,
+    conn: &'a Connection,
 }
 
 impl<'a> SkillRepository<'a> {
-    pub fn new(conn: &'a Arc<Mutex<Connection>>) -> Self {
+    pub fn new(conn: &'a Connection) -> Self {
         Self { conn }
     }
 
@@ -21,7 +19,7 @@ impl<'a> SkillRepository<'a> {
         workspace: &Workspace,
         skills: &[SkillRecord],
     ) -> StorageResult<()> {
-        let conn = self.conn.lock();
+        let conn = self.conn;
         conn.execute(
             "DELETE FROM skill_records WHERE scope = 'project' OR scope = 'agent_specific'",
             [],
@@ -52,7 +50,7 @@ impl<'a> SkillRepository<'a> {
     }
 
     pub fn list(&self) -> StorageResult<Vec<SkillRecord>> {
-        let conn = self.conn.lock();
+        let conn = self.conn;
         let mut stmt = conn.prepare(
             "SELECT id, scope, name, description, location, source_dir, owner, enabled, diagnostics_json FROM skill_records ORDER BY name",
         )?;

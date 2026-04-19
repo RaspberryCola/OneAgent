@@ -1,6 +1,4 @@
-use parking_lot::Mutex;
 use rusqlite::{params, Connection, OptionalExtension};
-use std::sync::Arc;
 
 use crate::domain::{TerminalRecord, McpServerConfig};
 use crate::storage::error::StorageResult;
@@ -9,16 +7,16 @@ use crate::storage::mappers::mcp::read_mcp;
 use crate::storage::mappers::enum_text;
 
 pub struct TerminalRepository<'a> {
-    conn: &'a Arc<Mutex<Connection>>,
+    conn: &'a Connection,
 }
 
 impl<'a> TerminalRepository<'a> {
-    pub fn new(conn: &'a Arc<Mutex<Connection>>) -> Self {
+    pub fn new(conn: &'a Connection) -> Self {
         Self { conn }
     }
 
     pub fn upsert(&self, terminal: &TerminalRecord) -> StorageResult<()> {
-        self.conn.lock().execute(
+        self.conn.execute(
             r#"
             INSERT INTO terminal_records (id, conversation_id, turn_id, terminal_id, cwd, command, args_json, status, stdout_buffer, stderr_buffer, started_at, ended_at)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
@@ -52,7 +50,7 @@ impl<'a> TerminalRepository<'a> {
         terminal_id: &str,
     ) -> StorageResult<Option<TerminalRecord>> {
         self.conn
-            .lock()
+            
             .query_row(
                 "SELECT id, conversation_id, turn_id, terminal_id, cwd, command, args_json, status, stdout_buffer, stderr_buffer, started_at, ended_at FROM terminal_records WHERE conversation_id = ?1 AND terminal_id = ?2 ORDER BY started_at DESC LIMIT 1",
                 params![conversation_id, terminal_id],
@@ -63,7 +61,7 @@ impl<'a> TerminalRepository<'a> {
     }
 
     pub fn list(&self, conversation_id: &str) -> StorageResult<Vec<TerminalRecord>> {
-        let conn = self.conn.lock();
+        let conn = self.conn;
         let mut stmt = conn.prepare(
             "SELECT id, conversation_id, turn_id, terminal_id, cwd, command, args_json, status, stdout_buffer, stderr_buffer, started_at, ended_at FROM terminal_records WHERE conversation_id = ?1 ORDER BY started_at ASC",
         )?;
@@ -74,16 +72,16 @@ impl<'a> TerminalRepository<'a> {
 }
 
 pub struct McpRepository<'a> {
-    conn: &'a Arc<Mutex<Connection>>,
+    conn: &'a Connection,
 }
 
 impl<'a> McpRepository<'a> {
-    pub fn new(conn: &'a Arc<Mutex<Connection>>) -> Self {
+    pub fn new(conn: &'a Connection) -> Self {
         Self { conn }
     }
 
     pub fn list_by_workspace(&self, workspace_id: &str) -> StorageResult<Vec<McpServerConfig>> {
-        let conn = self.conn.lock();
+        let conn = self.conn;
         let mut stmt = conn.prepare(
             "SELECT id, workspace_id, name, command, args_json, env_json, enabled FROM mcp_server_configs WHERE workspace_id = ?1 ORDER BY name",
         )?;
@@ -93,7 +91,7 @@ impl<'a> McpRepository<'a> {
     }
 
     pub fn upsert(&self, config: &McpServerConfig) -> StorageResult<()> {
-        self.conn.lock().execute(
+        self.conn.execute(
             r#"
             INSERT INTO mcp_server_configs (id, workspace_id, name, command, args_json, env_json, enabled)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)

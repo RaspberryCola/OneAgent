@@ -1,7 +1,5 @@
 use chrono::Utc;
-use parking_lot::Mutex;
 use rusqlite::{params, Connection};
-use std::sync::Arc;
 
 use crate::domain::{RuntimeEvent, MessageProjection, ToolCallProjection};
 use crate::storage::error::StorageResult;
@@ -11,11 +9,11 @@ use crate::storage::mappers::tool_call::read_tool_call;
 use crate::storage::mappers::enum_text;
 
 pub struct EventRepository<'a> {
-    conn: &'a Arc<Mutex<Connection>>,
+    conn: &'a Connection,
 }
 
 impl<'a> EventRepository<'a> {
-    pub fn new(conn: &'a Arc<Mutex<Connection>>) -> Self {
+    pub fn new(conn: &'a Connection) -> Self {
         Self { conn }
     }
 
@@ -26,7 +24,7 @@ impl<'a> EventRepository<'a> {
         payload: &serde_json::Value,
     ) -> StorageResult<RuntimeEvent> {
         let now = Utc::now();
-        let conn = self.conn.lock();
+        let conn = self.conn;
         conn.execute(
             "INSERT INTO runtime_events (conversation_id, event_type, payload_json, created_at) VALUES (?1, ?2, ?3, ?4)",
             params![conversation_id, event_type, payload.to_string(), now.to_rfc3339()],
@@ -46,7 +44,7 @@ impl<'a> EventRepository<'a> {
     }
 
     pub fn list(&self, conversation_id: &str) -> StorageResult<Vec<RuntimeEvent>> {
-        let conn = self.conn.lock();
+        let conn = self.conn;
         let mut stmt = conn.prepare(
             "SELECT seq, conversation_id, event_type, payload_json, created_at FROM runtime_events WHERE conversation_id = ?1 ORDER BY seq ASC",
         )?;
@@ -57,16 +55,16 @@ impl<'a> EventRepository<'a> {
 }
 
 pub struct MessageRepository<'a> {
-    conn: &'a Arc<Mutex<Connection>>,
+    conn: &'a Connection,
 }
 
 impl<'a> MessageRepository<'a> {
-    pub fn new(conn: &'a Arc<Mutex<Connection>>) -> Self {
+    pub fn new(conn: &'a Connection) -> Self {
         Self { conn }
     }
 
     pub fn upsert(&self, message: &MessageProjection) -> StorageResult<()> {
-        self.conn.lock().execute(
+        self.conn.execute(
             r#"
             INSERT INTO message_projections (id, conversation_id, turn_id, role, kind, content_json, created_at)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
@@ -86,7 +84,7 @@ impl<'a> MessageRepository<'a> {
     }
 
     pub fn list(&self, conversation_id: &str) -> StorageResult<Vec<MessageProjection>> {
-        let conn = self.conn.lock();
+        let conn = self.conn;
         let mut stmt = conn.prepare(
             "SELECT id, conversation_id, turn_id, role, kind, content_json, created_at FROM message_projections WHERE conversation_id = ?1 ORDER BY created_at ASC",
         )?;
@@ -97,16 +95,16 @@ impl<'a> MessageRepository<'a> {
 }
 
 pub struct ToolCallRepository<'a> {
-    conn: &'a Arc<Mutex<Connection>>,
+    conn: &'a Connection,
 }
 
 impl<'a> ToolCallRepository<'a> {
-    pub fn new(conn: &'a Arc<Mutex<Connection>>) -> Self {
+    pub fn new(conn: &'a Connection) -> Self {
         Self { conn }
     }
 
     pub fn upsert(&self, call: &ToolCallProjection) -> StorageResult<()> {
-        self.conn.lock().execute(
+        self.conn.execute(
             r#"
             INSERT INTO tool_call_projections (id, conversation_id, turn_id, tool_call_id, title, kind, status, raw_input_json, raw_output_json, content_json, diffs_json, terminal_ids_json, locations_json, started_at, ended_at)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
@@ -141,7 +139,7 @@ impl<'a> ToolCallRepository<'a> {
     }
 
     pub fn list(&self, conversation_id: &str) -> StorageResult<Vec<ToolCallProjection>> {
-        let conn = self.conn.lock();
+        let conn = self.conn;
         let mut stmt = conn.prepare(
             "SELECT id, conversation_id, turn_id, tool_call_id, title, kind, status, raw_input_json, raw_output_json, content_json, diffs_json, terminal_ids_json, locations_json, started_at, ended_at FROM tool_call_projections WHERE conversation_id = ?1 ORDER BY COALESCE(started_at, '') ASC",
         )?;

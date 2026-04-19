@@ -1,7 +1,5 @@
 use chrono::Utc;
-use parking_lot::Mutex;
 use rusqlite::{params, Connection, OptionalExtension};
-use std::sync::Arc;
 
 use crate::domain::{
     PermissionDecision, PendingPermissionRequest, PendingPermissionStatus,
@@ -11,16 +9,16 @@ use crate::storage::mappers::permission::{read_permission, read_pending_permissi
 use crate::storage::mappers::enum_text;
 
 pub struct PermissionRepository<'a> {
-    conn: &'a Arc<Mutex<Connection>>,
+    conn: &'a Connection,
 }
 
 impl<'a> PermissionRepository<'a> {
-    pub fn new(conn: &'a Arc<Mutex<Connection>>) -> Self {
+    pub fn new(conn: &'a Connection) -> Self {
         Self { conn }
     }
 
     pub fn record_decision(&self, decision: &PermissionDecision) -> StorageResult<()> {
-        self.conn.lock().execute(
+        self.conn.execute(
             "INSERT INTO permission_decisions (id, conversation_id, tool_call_id, scope, fingerprint, decision, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 decision.id,
@@ -36,7 +34,7 @@ impl<'a> PermissionRepository<'a> {
     }
 
     pub fn list_decisions(&self, conversation_id: &str) -> StorageResult<Vec<PermissionDecision>> {
-        let conn = self.conn.lock();
+        let conn = self.conn;
         let mut stmt = conn.prepare(
             "SELECT id, conversation_id, tool_call_id, scope, fingerprint, decision, created_at FROM permission_decisions WHERE conversation_id = ?1 ORDER BY created_at DESC",
         )?;
@@ -46,7 +44,7 @@ impl<'a> PermissionRepository<'a> {
     }
 
     pub fn upsert_pending(&self, request: &PendingPermissionRequest) -> StorageResult<()> {
-        self.conn.lock().execute(
+        self.conn.execute(
             r#"
             INSERT INTO pending_permission_requests (id, conversation_id, turn_id, tool_call_id, fingerprint, options_json, status, created_at, resolved_at)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
@@ -77,7 +75,7 @@ impl<'a> PermissionRepository<'a> {
         tool_call_id: &str,
     ) -> StorageResult<Option<PendingPermissionRequest>> {
         self.conn
-            .lock()
+            
             .query_row(
                 "SELECT id, conversation_id, turn_id, tool_call_id, fingerprint, options_json, status, created_at, resolved_at FROM pending_permission_requests WHERE conversation_id = ?1 AND tool_call_id = ?2 ORDER BY created_at DESC LIMIT 1",
                 params![conversation_id, tool_call_id],
@@ -88,7 +86,7 @@ impl<'a> PermissionRepository<'a> {
     }
 
     pub fn list_pending(&self, conversation_id: &str) -> StorageResult<Vec<PendingPermissionRequest>> {
-        let conn = self.conn.lock();
+        let conn = self.conn;
         let mut stmt = conn.prepare(
             "SELECT id, conversation_id, turn_id, tool_call_id, fingerprint, options_json, status, created_at, resolved_at FROM pending_permission_requests WHERE conversation_id = ?1 ORDER BY created_at ASC",
         )?;
@@ -102,7 +100,7 @@ impl<'a> PermissionRepository<'a> {
         request_id: &str,
         status: PendingPermissionStatus,
     ) -> StorageResult<()> {
-        self.conn.lock().execute(
+        self.conn.execute(
             "UPDATE pending_permission_requests SET status = ?2, resolved_at = ?3 WHERE id = ?1",
             params![request_id, enum_text(&status), Utc::now().to_rfc3339()],
         )?;
@@ -110,7 +108,7 @@ impl<'a> PermissionRepository<'a> {
     }
 
     pub fn cancel_pending_for_turn(&self, conversation_id: &str) -> StorageResult<()> {
-        self.conn.lock().execute(
+        self.conn.execute(
             "UPDATE pending_permission_requests SET status = 'cancelled', resolved_at = ?2 WHERE conversation_id = ?1 AND status = 'pending'",
             params![conversation_id, Utc::now().to_rfc3339()],
         )?;

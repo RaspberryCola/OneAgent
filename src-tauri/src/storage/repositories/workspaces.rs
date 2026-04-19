@@ -1,8 +1,6 @@
 use chrono::Utc;
-use parking_lot::Mutex;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::PathBuf;
-use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::domain::{Workspace, AgentSessionBinding, AgentSessionSource};
@@ -12,16 +10,16 @@ use crate::storage::mappers::workspace::read_workspace;
 use crate::storage::mappers::enum_text;
 
 pub struct WorkspaceRepository<'a> {
-    conn: &'a Arc<Mutex<Connection>>,
+    conn: &'a Connection,
 }
 
 impl<'a> WorkspaceRepository<'a> {
-    pub fn new(conn: &'a Arc<Mutex<Connection>>) -> Self {
+    pub fn new(conn: &'a Connection) -> Self {
         Self { conn }
     }
 
     pub fn list(&self) -> StorageResult<Vec<Workspace>> {
-        let conn = self.conn.lock();
+        let conn = self.conn;
         let mut stmt =
             conn.prepare("SELECT id, cwd, display_name, trusted, created_at, updated_at FROM workspaces ORDER BY updated_at DESC")?;
         let rows = stmt.query_map([], read_workspace)?;
@@ -38,7 +36,7 @@ impl<'a> WorkspaceRepository<'a> {
             .unwrap_or_else(|| cwd.to_string());
         let existing = self
             .conn
-            .lock()
+            
             .query_row(
                 "SELECT id, cwd, display_name, trusted, created_at, updated_at FROM workspaces WHERE cwd = ?1",
                 params![cwd],
@@ -47,7 +45,7 @@ impl<'a> WorkspaceRepository<'a> {
             .optional()?;
         if let Some(mut workspace) = existing {
             workspace.updated_at = now;
-            self.conn.lock().execute(
+            self.conn.execute(
                 "UPDATE workspaces SET updated_at = ?2 WHERE id = ?1",
                 params![workspace.id, now.to_rfc3339()],
             )?;
@@ -61,7 +59,7 @@ impl<'a> WorkspaceRepository<'a> {
             created_at: now,
             updated_at: now,
         };
-        self.conn.lock().execute(
+        self.conn.execute(
             "INSERT INTO workspaces (id, cwd, display_name, trusted, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 workspace.id,
@@ -77,7 +75,7 @@ impl<'a> WorkspaceRepository<'a> {
 
     pub fn get(&self, workspace_id: &str) -> StorageResult<Workspace> {
         self.conn
-            .lock()
+            
             .query_row(
                 "SELECT id, cwd, display_name, trusted, created_at, updated_at FROM workspaces WHERE id = ?1",
                 params![workspace_id],
@@ -88,16 +86,16 @@ impl<'a> WorkspaceRepository<'a> {
 }
 
 pub struct BindingRepository<'a> {
-    conn: &'a Arc<Mutex<Connection>>,
+    conn: &'a Connection,
 }
 
 impl<'a> BindingRepository<'a> {
-    pub fn new(conn: &'a Arc<Mutex<Connection>>) -> Self {
+    pub fn new(conn: &'a Connection) -> Self {
         Self { conn }
     }
 
     pub fn upsert(&self, binding: &AgentSessionBinding) -> StorageResult<()> {
-        self.conn.lock().execute(
+        self.conn.execute(
             r#"
             INSERT INTO agent_session_bindings (id, conversation_id, adapter_kind, remote_session_id, cwd, load_supported, source, last_synced_at)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
@@ -125,7 +123,7 @@ impl<'a> BindingRepository<'a> {
 
     pub fn get(&self, conversation_id: &str) -> StorageResult<Option<AgentSessionBinding>> {
         self.conn
-            .lock()
+            
             .query_row(
                 "SELECT id, conversation_id, adapter_kind, remote_session_id, cwd, load_supported, source, last_synced_at FROM agent_session_bindings WHERE conversation_id = ?1",
                 params![conversation_id],
