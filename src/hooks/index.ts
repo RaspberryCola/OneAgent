@@ -20,3 +20,6 @@ export type {
   ModelChoice,
   ModelSelectorState,
 } from './useModelSelector';
+
+export { useModeSelector } from './useModeSelector';
+export type { UseModeSelectorOptions, UseModeSelectorReturn } from './useModeSelector';

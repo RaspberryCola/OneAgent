@@ -41,38 +41,15 @@ import { TerminalDisplay } from "./components/chat/TerminalDisplay";
 import { PermissionDisplay } from "./components/chat/PermissionDisplay";
 import { WorkspaceDropdown } from "./components/ui/WorkspaceDropdown";
 import { ATTACHMENT_LIMITS } from "./lib/constants";
-import { useScrollManager, useAttachmentHandler, useModelSelector } from "./hooks";
+import { useScrollManager, useAttachmentHandler, useModelSelector, useModeSelector } from "./hooks";
 import type {
   LocalAttachment as HookLocalAttachment,
   AttachmentResolution as HookAttachmentResolution,
   ModelSelectorState,
 } from "./hooks";
-import { STORAGE_KEYS } from "./lib/constants";
-
-const MODE_CACHE_KEY = STORAGE_KEYS.MODE_CACHE;
-const MODE_SELECTION_CACHE_KEY = STORAGE_KEYS.MODE_SELECTION_CACHE;
 
 type LocalAttachment = HookLocalAttachment;
 type AttachmentResolution = HookAttachmentResolution;
-
-function readJsonStorage<T>(key: string): T | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeJsonStorage<T>(key: string, value: T) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // Ignore cache persistence failures.
-  }
-}
 
 const markdownComponents = {
   p: ({ children }: any) => <p className="mb-1 last:mb-0">{children}</p>,
@@ -194,10 +171,6 @@ function humanFileSize(size: number) {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function modeDisplayLabel(mode: Pick<Types.AcpSessionMode, "id" | "name">): string {
-  return mode.name?.trim() || mode.id?.trim() || "Mode";
-}
-
 function statusMeta(
   runtime?: Types.ConversationRuntimeState | null,
   fallbackStatus?: Types.Conversation["status"],
@@ -297,9 +270,6 @@ export default function App() {
   const [input, setInput] = useState("");
   const [composerNotice, setComposerNotice] = useState<string | null>(null);
   const [pendingDeleteConversationId, setPendingDeleteConversationId] = useState<string | null>(null);
-  const [draftModes, setDraftModes] = useState<Types.AcpSessionModeState | null>(null);
-  const [pendingModeValue, setPendingModeValue] = useState<string | null>(null);
-  const [isSettingMode, setIsSettingMode] = useState(false);
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(new Set());
   const [permissionDecisions, setPermissionDecisions] = useState<Types.PermissionDecision[]>([]);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -347,7 +317,6 @@ export default function App() {
     sendMessage,
     deleteConversation,
     setSessionConfig,
-    setMode,
     cancelTurn,
     switchWorkspace,
     pickWorkspace,
@@ -640,37 +609,14 @@ export default function App() {
   }, [activeConversationId, activeAgentProfileId, activeDiscoveryStatus]);
 
   // Load modes config for new conversations (model config is loaded by useModelSelector)
-  useEffect(() => {
-    if (activeConversationId || !activeWorkspace || !activeAgentProfileId) return;
 
-    const cachedModes =
-      readJsonStorage<Record<string, Types.AcpSessionModeState | null>>(MODE_CACHE_KEY)?.[activeAgentProfileId] ?? null;
-    setDraftModes(cachedModes);
-
-    let cancelled = false;
-    void API.previewSessionConfig({
-      workspace_id: activeWorkspace.id,
-      agent_profile_id: activeAgentProfileId,
-    })
-      .then((result) => {
-        if (cancelled) return;
-        if (result.modes?.available_modes?.length) {
-          setDraftModes(result.modes ?? null);
-          const nextModesCache = {
-            ...(readJsonStorage<Record<string, Types.AcpSessionModeState | null>>(MODE_CACHE_KEY) ?? {}),
-            [activeAgentProfileId]: result.modes ?? null,
-          };
-          writeJsonStorage(MODE_CACHE_KEY, nextModesCache);
-        }
-      })
-      .catch((error) => {
-        console.error("Failed to preview session config", error);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeConversationId, activeWorkspace, activeAgentProfileId]);
+  const {
+    activeModeState,
+    selectedValue: selectedModeValue,
+    selectedLabel: selectedModeLabel,
+    isSetting: isSettingMode,
+    handleModeChange,
+  } = useModeSelector({ onNotice: setComposerNotice });
 
   const permissionRequestMeta = useMemo(() => {
     const meta = new Map<
@@ -750,45 +696,6 @@ export default function App() {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       void handleSend();
-    }
-  };
-
-  const activeModeState = activeConversationId ? activeConversationState?.modes : draftModes;
-  const draftModeSelections =
-    readJsonStorage<Record<string, { value: string }>>(MODE_SELECTION_CACHE_KEY) ?? {};
-  const draftModeSelectedValue =
-    !activeConversationId && activeAgentProfileId ? draftModeSelections[activeAgentProfileId]?.value ?? null : null;
-  const selectedModeValue = pendingModeValue ?? (activeConversationId ? activeModeState?.current_mode_id : draftModeSelectedValue) ?? activeModeState?.current_mode_id ?? null;
-  const selectedMode =
-    activeModeState?.available_modes?.find((mode) => mode.id === selectedModeValue) ?? null;
-  const selectedModeLabel = selectedMode ? modeDisplayLabel(selectedMode) : selectedModeValue ?? null;
-
-  const handleModeChange = async (value: string) => {
-    if (isSettingMode || value === selectedModeValue || !activeModeState) return;
-    if (!activeConversationId) {
-      if (!activeAgentProfileId) return;
-      const nextSelections = {
-        ...(readJsonStorage<Record<string, { value: string }>>(MODE_SELECTION_CACHE_KEY) ?? {}),
-        [activeAgentProfileId]: { value },
-      };
-      writeJsonStorage(MODE_SELECTION_CACHE_KEY, nextSelections);
-      setPendingModeValue(value);
-      window.setTimeout(() => setPendingModeValue(null), 0);
-      return;
-    }
-    const previousValue = selectedModeValue ? String(selectedModeValue) : null;
-    setPendingModeValue(value);
-    setIsSettingMode(true);
-    setComposerNotice(null);
-    try {
-      await setMode(value);
-    } catch (error) {
-      console.error("Failed to set mode", error);
-      setPendingModeValue(previousValue);
-      setComposerNotice("Failed to switch mode.");
-    } finally {
-      setIsSettingMode(false);
-      setPendingModeValue(null);
     }
   };
 
@@ -1829,7 +1736,7 @@ function Composer({
                               : 'text-near-black hover:bg-snow'
                           }`}
                         >
-                          <span className="truncate">{modeDisplayLabel(choice)}</span>
+                          <span className="truncate">{choice.name?.trim() || choice.id?.trim() || "Mode"}</span>
                           {String(choice.id) === String(selectedModeValue) && (
                             <Check className="w-3.5 h-3.5 text-pure-black shrink-0" />
                           )}
