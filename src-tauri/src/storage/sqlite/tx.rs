@@ -2,7 +2,7 @@ use chrono::Utc;
 use rusqlite::{params, OptionalExtension, Transaction};
 
 use crate::domain::{
-    AgentSessionBinding, Conversation, PermissionDecision, TaskRun, TaskRunStatus,
+    AgentSessionBinding, Conversation, ConversationStatus, PermissionDecision, TaskRun, TaskRunStatus,
 };
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::mappers::{enum_text, task_run::read_task_run};
@@ -108,6 +108,87 @@ impl Database {
         })
     }
 
+    pub fn import_conversation_atomic(
+        &self,
+        conversation: &Conversation,
+        binding: &AgentSessionBinding,
+        messages: &[crate::domain::MessageProjection],
+        tool_calls: &[crate::domain::ToolCallProjection],
+        terminal_records: &[crate::domain::TerminalRecord],
+        events: &[crate::domain::RuntimeEvent],
+        snapshot_state: &serde_json::Value,
+    ) -> StorageResult<()> {
+        self.with_transaction(|tx| {
+            tx.execute(
+                r#"
+                INSERT INTO conversations (id, workspace_id, agent_profile_id, origin, status, title, created_at, updated_at, last_event_seq)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                "#,
+                params![
+                    conversation.id,
+                    conversation.workspace_id,
+                    conversation.agent_profile_id,
+                    enum_text(&conversation.origin),
+                    enum_text(&conversation.status),
+                    conversation.title,
+                    conversation.created_at.to_rfc3339(),
+                    conversation.updated_at.to_rfc3339(),
+                    conversation.last_event_seq
+                ],
+            )?;
+
+            tx.execute(
+                r#"
+                INSERT INTO agent_session_bindings (id, conversation_id, adapter_kind, remote_session_id, cwd, load_supported, source, last_synced_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                "#,
+                params![
+                    binding.id,
+                    binding.conversation_id,
+                    enum_text(&binding.adapter_kind),
+                    binding.remote_session_id,
+                    binding.cwd,
+                    binding.load_supported,
+                    enum_text(&binding.source),
+                    binding.last_synced_at.to_rfc3339()
+                ],
+            )?;
+
+            for msg in messages {
+                crate::storage::repositories::MessageRepository::new(tx).upsert(msg)?;
+            }
+            for tc in tool_calls {
+                crate::storage::repositories::ToolCallRepository::new(tx).upsert(tc)?;
+            }
+            for term in terminal_records {
+                crate::storage::repositories::TerminalRepository::new(tx).upsert(term)?;
+            }
+            for ev in events {
+                tx.execute(
+                    "INSERT INTO runtime_events (conversation_id, event_type, payload_json, created_at) VALUES (?1, ?2, ?3, ?4)",
+                    params![ev.conversation_id, ev.event_type, ev.payload_json.to_string(), ev.created_at.to_rfc3339()],
+                )?;
+            }
+
+            let event_seq = tx.last_insert_rowid();
+
+            tx.execute(
+                r#"
+                INSERT INTO conversation_snapshots (conversation_id, snapshot_version, state_json, event_seq, created_at)
+                VALUES (?1, ?2, ?3, ?4, ?5)
+                "#,
+                params![
+                    conversation.id,
+                    1_i64,
+                    snapshot_state.to_string(),
+                    event_seq,
+                    Utc::now().to_rfc3339()
+                ],
+            )?;
+
+            Ok(())
+        })
+    }
     pub fn create_task_run_atomic(
         &self,
         conversation: &Conversation,
@@ -258,7 +339,11 @@ impl Database {
         })
     }
 
-    pub fn cancel_turn_atomic(&self, conversation_id: &str) -> StorageResult<Option<TaskRun>> {
+    pub fn cancel_turn_atomic(
+        &self,
+        conversation_id: &str,
+        conversation_status: &ConversationStatus,
+    ) -> StorageResult<Option<TaskRun>> {
         self.with_transaction(|tx| {
             tx.execute(
                 "UPDATE pending_permission_requests SET status = 'cancelled', resolved_at = ?2 WHERE conversation_id = ?1 AND status = 'pending'",
@@ -284,8 +369,8 @@ impl Database {
             )?;
             let event_seq = tx.last_insert_rowid();
             let updated = tx.execute(
-                "UPDATE conversations SET last_event_seq = ?2, updated_at = ?3 WHERE id = ?1",
-                params![conversation_id, event_seq, Utc::now().to_rfc3339()],
+                "UPDATE conversations SET status = ?4, last_event_seq = ?2, updated_at = ?3 WHERE id = ?1",
+                params![conversation_id, event_seq, Utc::now().to_rfc3339(), enum_text(conversation_status)],
             )?;
             if updated == 0 {
                 return Err(StorageError::NotFound(format!(

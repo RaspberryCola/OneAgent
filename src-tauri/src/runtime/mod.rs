@@ -10,7 +10,7 @@ use crate::{
     agent_adapters::{
         acp::{AcpAdapter, AcpLiveSession},
         compat::CompatAdapter,
-        AgentAdapter, AgentSessionHandle, LoadedSession,
+        AgentAdapter, AgentSessionHandle, LoadedSession, RuntimeStreamEvent,
     },
     capability_services::{mcp::McpRegistry, policy::PolicyEngine, skills::SkillRegistry},
     domain::*,
@@ -392,7 +392,131 @@ impl Runtime {
                 ManagedSession::Passive(loaded.handle.clone()),
             );
         }
-        self.apply_replay_events(&conversation.id, &loaded).await?;
+        
+        let mut messages = Vec::new();
+        let mut tool_calls = Vec::new();
+        let mut terminals = Vec::new();
+        let mut events = Vec::new();
+        let mut replay_turn_id = uuid::Uuid::new_v4().to_string();
+        let mut replay_turn_index = 0_u64;
+
+        for event in &loaded.replay_events {
+            match event {
+                RuntimeStreamEvent::MessageChunk { role, .. }
+                | RuntimeStreamEvent::MessageComplete { role, .. }
+                    if role == "user" =>
+                {
+                    replay_turn_index += 1;
+                    replay_turn_id = format!("history-{replay_turn_index}");
+                }
+                RuntimeStreamEvent::TurnFinished { .. } => {}
+                _ if replay_turn_index == 0 => {
+                    replay_turn_index = 1;
+                    replay_turn_id = "history-1".to_string();
+                }
+                _ => {}
+            }
+            
+            match event {
+                RuntimeStreamEvent::MessageComplete { role, content, .. } => {
+                    messages.push(crate::domain::MessageProjection {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        conversation_id: conversation.id.clone(),
+                        turn_id: replay_turn_id.clone(),
+                        role: Self::role_from_stream(role),
+                        kind: crate::domain::MessageKind::Text,
+                        content_json: serde_json::json!({ "text": content, "stream": false }),
+                        created_at: Utc::now(),
+                    });
+                }
+                RuntimeStreamEvent::ToolCall { tool_call_id, title, kind, status, raw_input, raw_output, content, diffs, terminal_ids, locations, .. } => {
+                    let tool_call_status = match status.as_str() {
+                        "running" => crate::domain::ToolCallStatus::Running,
+                        "waiting_permission" => crate::domain::ToolCallStatus::WaitingPermission,
+                        "completed" => crate::domain::ToolCallStatus::Completed,
+                        "failed" => crate::domain::ToolCallStatus::Failed,
+                        "cancelled" => crate::domain::ToolCallStatus::Cancelled,
+                        _ => crate::domain::ToolCallStatus::Declared,
+                    };
+                    tool_calls.push(crate::domain::ToolCallProjection {
+                        id: tool_call_id.clone(),
+                        conversation_id: conversation.id.clone(),
+                        turn_id: replay_turn_id.clone(),
+                        tool_call_id: tool_call_id.clone(),
+                        title: title.clone(),
+                        kind: kind.clone(),
+                        status: tool_call_status,
+                        raw_input_json: raw_input.clone(),
+                        raw_output_json: raw_output.clone(),
+                        content_json: serde_json::json!({ "elements": content }),
+                        diffs_json: serde_json::json!(diffs),
+                        terminal_ids_json: serde_json::json!(terminal_ids),
+                        locations_json: serde_json::json!(locations),
+                        started_at: Some(Utc::now()),
+                        ended_at: matches!(status.as_str(), "completed" | "failed" | "cancelled").then_some(Utc::now()),
+                    });
+                }
+                RuntimeStreamEvent::TerminalEvent { terminal_id, event, cwd, command, args, stream: _, content: _, exit_code: _, .. } => {
+                    if event == "started" {
+                        terminals.push(crate::domain::TerminalRecord {
+                            id: terminal_id.clone(),
+                            conversation_id: conversation.id.clone(),
+                            turn_id: replay_turn_id.clone(),
+                            terminal_id: terminal_id.clone(),
+                            cwd: cwd.clone().unwrap_or_default(),
+                            command: command.clone().unwrap_or_default(),
+                            args_json: serde_json::json!(args),
+                            status: crate::domain::TerminalStatus::Running,
+                            stdout_buffer: String::new(),
+                            stderr_buffer: String::new(),
+                            started_at: Utc::now(),
+                            ended_at: None,
+                        });
+                    }
+                }
+                RuntimeStreamEvent::Error { message } => {
+                    messages.push(crate::domain::MessageProjection {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        conversation_id: conversation.id.clone(),
+                        turn_id: replay_turn_id.clone(),
+                        role: crate::domain::MessageRole::System,
+                        kind: crate::domain::MessageKind::Error,
+                        content_json: serde_json::json!({ "message": message }),
+                        created_at: Utc::now(),
+                    });
+                }
+                _ => {}
+            }
+        }
+        
+        events.push(crate::domain::RuntimeEvent {
+            seq: 0,
+            conversation_id: conversation.id.clone(),
+            event_type: "ConversationImported".to_string(),
+            payload_json: serde_json::json!({ "remote_session_id": remote_session_id }),
+            created_at: Utc::now(),
+        });
+        events.push(crate::domain::RuntimeEvent {
+            seq: 0,
+            conversation_id: conversation.id.clone(),
+            event_type: "ConversationReplayCompleted".to_string(),
+            payload_json: serde_json::json!({ "replayed_events": loaded.replay_events.len() }),
+            created_at: Utc::now(),
+        });
+
+        let snapshot_state = serde_json::to_value(RuntimeSnapshotState::from_conversation_state(&initial_state))
+            .unwrap_or_else(|_| serde_json::json!({}));
+            
+        self.db.import_conversation_atomic(
+            &conversation,
+            &binding,
+            &messages,
+            &tool_calls,
+            &terminals,
+            &events,
+            &snapshot_state,
+        )?;
+
         self.set_runtime_state(
             &conversation.id,
             ConversationRuntimeState {
@@ -677,13 +801,13 @@ impl Runtime {
                     tokio::select! {
                         maybe_event = event_rx.recv() => {
                             if let Some(event) = maybe_event {
-                                self.apply_stream_event(&conversation_id, &turn_id, event).await?;
+                                self.apply_stream_event(&conversation_id, &turn_id, event)?;
                             }
                         }
                         result = &mut completion_rx => {
                             result.map_err(|_| RuntimeError::InvalidState("prompt completion channel dropped".to_string()))??;
                             while let Ok(event) = event_rx.try_recv() {
-                                self.apply_stream_event(&conversation_id, &turn_id, event).await?;
+                                self.apply_stream_event(&conversation_id, &turn_id, event)?;
                             }
                             break;
                         }
@@ -696,8 +820,7 @@ impl Runtime {
                     .prompt(&profile, &handle, &text, &attachments)
                     .await?;
                 for event in stream {
-                    self.apply_stream_event(&conversation_id, &turn_id, event)
-                        .await?;
+                    self.apply_stream_event(&conversation_id, &turn_id, event)?;
                 }
             }
         }
@@ -787,22 +910,7 @@ impl Runtime {
             .db
             .get_binding(conversation_id)?
             .ok_or_else(|| RuntimeError::InvalidState("missing binding".to_string()))?;
-        let is_hot_before_cancel = self.is_session_in_memory(conversation_id);
-        self.update_runtime_state(conversation_id, |runtime| {
-            runtime.connection_phase = if is_hot_before_cancel {
-                ConnectionPhase::Ready
-            } else {
-                ConnectionPhase::Disconnected
-            };
-            runtime.session_phase = if is_hot_before_cancel {
-                SessionPhase::Hot
-            } else {
-                SessionPhase::Cold
-            };
-            runtime.turn_phase = TurnPhase::Cancelling;
-            runtime.last_error = None;
-        })?;
-        self.emit_conversation_state(conversation_id)?;
+        
         match self.session_runtime(conversation_id, binding.clone())? {
             ManagedSession::Acp(session) => session.cancel().await?,
             ManagedSession::Passive(handle) => {
@@ -813,27 +921,31 @@ impl Runtime {
         self.streaming_messages
             .lock()
             .retain(|key, _| !key.starts_with(&prefix));
-        if let Some(task_run) = self.db.cancel_turn_atomic(conversation_id)? {
+
+        let is_hot = self.is_session_in_memory(conversation_id);
+        let mut runtime = self.runtime_state(conversation_id);
+        runtime.connection_phase = if is_hot {
+            ConnectionPhase::Ready
+        } else {
+            ConnectionPhase::Disconnected
+        };
+        runtime.session_phase = if is_hot {
+            SessionPhase::Hot
+        } else {
+            SessionPhase::Cold
+        };
+        runtime.turn_phase = TurnPhase::Idle;
+        runtime.last_error = None;
+        let final_status = Self::derive_display_status(&runtime);
+
+        if let Some(task_run) = self.db.cancel_turn_atomic(conversation_id, &final_status)? {
             self.emit(
                 "task_run:state_changed",
                 &json!({ "conversation_id": conversation_id, "task_run": task_run }),
             );
         }
-        self.update_runtime_state(conversation_id, |runtime| {
-            let is_hot = self.is_session_in_memory(conversation_id);
-            runtime.connection_phase = if is_hot {
-                ConnectionPhase::Ready
-            } else {
-                ConnectionPhase::Disconnected
-            };
-            runtime.session_phase = if is_hot {
-                SessionPhase::Hot
-            } else {
-                SessionPhase::Cold
-            };
-            runtime.turn_phase = TurnPhase::Idle;
-            runtime.last_error = None;
-        })?;
+        
+        self.set_runtime_state(conversation_id, runtime)?;
         self.emit(
             "conversation:turn_finished",
             &json!({ "conversation_id": conversation_id, "turn_id": serde_json::Value::Null, "status": "cancelled" }),

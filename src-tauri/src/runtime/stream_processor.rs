@@ -98,7 +98,7 @@ impl Runtime {
         Ok(())
     }
 
-    async fn process_state_changed(
+    fn process_state_changed(
         &self,
         conversation_id: &str,
         turn_id: &str,
@@ -129,7 +129,7 @@ impl Runtime {
         Ok(())
     }
 
-    async fn process_turn_finished(&self, conversation_id: &str, turn_id: &str) -> RuntimeResult<()> {
+    fn process_turn_finished(&self, conversation_id: &str, turn_id: &str) -> RuntimeResult<()> {
         self.finalize_thinking_stream(conversation_id, turn_id)?;
         let prefix = format!("{conversation_id}:{turn_id}:");
         self.streaming_messages
@@ -147,7 +147,7 @@ impl Runtime {
         Ok(())
     }
 
-    async fn process_config_options_updated(
+    fn process_config_options_updated(
         &self,
         conversation_id: &str,
         config_options: Vec<SessionConfigOption>,
@@ -160,7 +160,7 @@ impl Runtime {
         Ok(())
     }
 
-    pub(crate) async fn apply_stream_event(
+    pub(crate) fn apply_stream_event(
         &self,
         conversation_id: &str,
         turn_id: &str,
@@ -168,8 +168,7 @@ impl Runtime {
     ) -> RuntimeResult<()> {
         match event {
             RuntimeStreamEvent::StateChanged { status } => {
-                self.process_state_changed(conversation_id, turn_id, status)
-                    .await?;
+                self.process_state_changed(conversation_id, turn_id, status)?;
             }
             RuntimeStreamEvent::ThinkingChunk { content, .. } => {
                 self.project_thinking_chunk(conversation_id, turn_id, content)?;
@@ -232,8 +231,7 @@ impl Runtime {
                     raw_input,
                     paths,
                     options,
-                )
-                .await?;
+                )?;
             }
             RuntimeStreamEvent::TerminalEvent {
                 terminal_id,
@@ -263,11 +261,10 @@ impl Runtime {
                 self.project_error(conversation_id, turn_id, message)?;
             }
             RuntimeStreamEvent::TurnFinished { .. } => {
-                self.process_turn_finished(conversation_id, turn_id).await?;
+                self.process_turn_finished(conversation_id, turn_id)?;
             }
             RuntimeStreamEvent::ConfigOptionsUpdated { config_options } => {
-                self.process_config_options_updated(conversation_id, config_options)
-                    .await?;
+                self.process_config_options_updated(conversation_id, config_options)?;
             }
         }
         Ok(())

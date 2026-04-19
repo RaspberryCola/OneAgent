@@ -8,7 +8,7 @@ use crate::capability_services::policy::PolicyEngine;
 
 impl Runtime {
     #[allow(clippy::too_many_arguments)]
-    pub(crate) async fn project_permission_request(
+    pub(crate) fn project_permission_request(
         &self,
         conversation_id: &str,
         turn_id: &str,
@@ -27,9 +27,11 @@ impl Runtime {
         {
             let managed_session = self.session_manager.get(conversation_id);
             if let Some(ManagedSession::Acp(session)) = managed_session {
-                session
-                    .resolve_permission(&tool_call_id, decision.decision.clone())
-                    .await?;
+                let decision_clone = decision.decision.clone();
+                let tool_call_id_clone = tool_call_id.clone();
+                tokio::spawn(async move {
+                    let _ = session.resolve_permission(&tool_call_id_clone, decision_clone).await;
+                });
             }
             self.emit(
                 "conversation:permission_resolved",

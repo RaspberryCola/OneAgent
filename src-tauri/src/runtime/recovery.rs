@@ -3,7 +3,7 @@ use std::borrow::ToOwned;
 use chrono::Utc;
 use serde_json::{json, Value};
 
-use crate::agent_adapters::{acp::AcpLiveSession, LoadedSession, RuntimeStreamEvent};
+use crate::agent_adapters::{acp::AcpLiveSession, RuntimeStreamEvent};
 use crate::domain::{
     AgentKind, AgentProfile, AgentSessionBinding, SessionConfigOption,
 };
@@ -151,37 +151,4 @@ impl Runtime {
         Ok(())
     }
 
-    pub(crate) async fn apply_replay_events(
-        &self,
-        conversation_id: &str,
-        loaded: &LoadedSession,
-    ) -> RuntimeResult<()> {
-        let mut replay_turn_id = uuid::Uuid::new_v4().to_string();
-        let mut replay_turn_index = 0_u64;
-        for event in &loaded.replay_events {
-            match event {
-                RuntimeStreamEvent::MessageChunk { role, .. }
-                | RuntimeStreamEvent::MessageComplete { role, .. }
-                    if role == "user" =>
-                {
-                    replay_turn_index += 1;
-                    replay_turn_id = format!("history-{replay_turn_index}");
-                }
-                RuntimeStreamEvent::TurnFinished { .. } => {}
-                _ if replay_turn_index == 0 => {
-                    replay_turn_index = 1;
-                    replay_turn_id = "history-1".to_string();
-                }
-                _ => {}
-            }
-            self.apply_stream_event(conversation_id, &replay_turn_id, event.clone())
-                .await?;
-        }
-        self.record_lifecycle_event(
-            conversation_id,
-            "ConversationReplayCompleted",
-            json!({ "replayed_events": loaded.replay_events.len() }),
-        )?;
-        Ok(())
-    }
 }
