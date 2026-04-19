@@ -41,29 +41,38 @@ import { TerminalDisplay } from "./components/chat/TerminalDisplay";
 import { PermissionDisplay } from "./components/chat/PermissionDisplay";
 import { WorkspaceDropdown } from "./components/ui/WorkspaceDropdown";
 import { ATTACHMENT_LIMITS } from "./lib/constants";
-import { useScrollManager, useAttachmentHandler } from "./hooks";
-import type { LocalAttachment as HookLocalAttachment, AttachmentResolution as HookAttachmentResolution } from "./hooks";
+import { useScrollManager, useAttachmentHandler, useModelSelector } from "./hooks";
+import type {
+  LocalAttachment as HookLocalAttachment,
+  AttachmentResolution as HookAttachmentResolution,
+  ModelSelectorState,
+} from "./hooks";
+import { STORAGE_KEYS } from "./lib/constants";
+
+const MODE_CACHE_KEY = STORAGE_KEYS.MODE_CACHE;
+const MODE_SELECTION_CACHE_KEY = STORAGE_KEYS.MODE_SELECTION_CACHE;
 
 type LocalAttachment = HookLocalAttachment;
 type AttachmentResolution = HookAttachmentResolution;
 
-type ModelChoice = {
-  value: string;
-  label: string;
-};
+function readJsonStorage<T>(key: string): T | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
 
-type ModelSelectorState = {
-  option: Types.SessionConfigOption;
-  choices: ModelChoice[];
-  selectedValue: string | null;
-  selectedLabel: string | null;
-};
-
-const MODEL_CONFIG_CACHE_KEY = "oneagent.model-config-cache.v1";
-const MODEL_MODELS_CACHE_KEY = "oneagent.model-metadata-cache.v1";
-const MODEL_SELECTION_CACHE_KEY = "oneagent.model-selection-cache.v1";
-const MODE_CACHE_KEY = "oneagent.mode-metadata-cache.v1";
-const MODE_SELECTION_CACHE_KEY = "oneagent.mode-selection-cache.v1";
+function writeJsonStorage<T>(key: string, value: T) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Ignore cache persistence failures.
+  }
+}
 
 const markdownComponents = {
   p: ({ children }: any) => <p className="mb-1 last:mb-0">{children}</p>,
@@ -179,155 +188,14 @@ function formatDiscoveryNotice(status: Types.AgentDiscoveryStatus | null | undef
   return "This agent is currently unavailable.";
 }
 
-function formatProbeError(error: unknown): string {
-  if (!error || typeof error !== "object") {
-    return "Failed to probe agent capabilities.";
-  }
-  const backendError = error as Types.BackendError;
-  switch (backendError.code) {
-    case "runtime_not_found":
-      return "Claude Code runtime not found. Bundled Bun is missing and no system bun/node fallback is available.";
-    case "adapter_not_found":
-      return "Claude Code adapter files are missing from the app bundle.";
-    case "adapter_spawn_failed":
-      return "Claude Code adapter failed to start.";
-    case "claude_auth_required":
-      return "Claude Code authentication is required. Configure Claude credentials and try again.";
-    case "acp_initialize_failed":
-      return backendError.message || "Claude Code ACP initialization failed.";
-    default:
-      return backendError.message || "Failed to probe agent capabilities.";
-  }
-}
-
 function humanFileSize(size: number) {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function optionChoices(option: Types.SessionConfigOption) {
-  if (Array.isArray(option.options)) {
-    return option.options.map((item: any) => {
-      if (typeof item === "object" && item !== null) {
-        return {
-          value: item.value ?? item.id ?? item.key ?? item.name ?? "",
-          label: item.label ?? item.name ?? String(item.value ?? item.id ?? item.key ?? ""),
-        };
-      }
-      return { value: item, label: String(item) };
-    });
-  }
-  return [];
-}
-
-function configOptionSelectedValue(option: Types.SessionConfigOption): string | null {
-  const raw = option.raw ?? {};
-  const selectedValueRaw =
-    option.current_value ??
-    raw.currentValue ??
-    raw.selectedValue ??
-    raw.value ??
-    null;
-  return selectedValueRaw === null || selectedValueRaw === undefined || selectedValueRaw === ""
-    ? null
-    : String(selectedValueRaw);
-}
-
-function modelChoiceId(model: Types.AcpAvailableModel): string {
-  return model.id ?? model.model_id ?? "";
-}
-
 function modeDisplayLabel(mode: Pick<Types.AcpSessionMode, "id" | "name">): string {
   return mode.name?.trim() || mode.id?.trim() || "Mode";
-}
-
-function buildModelSelectorState(
-  configOptions: Types.SessionConfigOption[],
-  models?: Types.AcpSessionModels | null
-): ModelSelectorState | null {
-  // Prefer configOptions (stable API)
-  const modelOption = configOptions.find((option) => {
-    const category = option.category?.toLowerCase() ?? "";
-    return category === "model" || option.id.toLowerCase().includes("model");
-  });
-
-  if (modelOption && modelOption.options && Array.isArray(modelOption.options) && modelOption.options.length > 0) {
-    const choices = optionChoices(modelOption)
-      .map((choice) => ({
-        value: String(choice.value),
-        label: String(choice.label || choice.value),
-      }))
-      .filter((choice, index, array) => array.findIndex((item) => item.value === choice.value) === index);
-
-    const configSelectedValue = configOptionSelectedValue(modelOption);
-    const modelSelectedValue = models?.current_model_id ? String(models.current_model_id) : null;
-    const selectedValue =
-      modelSelectedValue && choices.some((choice) => choice.value === modelSelectedValue)
-        ? modelSelectedValue
-        : configSelectedValue;
-    const selectedLabel =
-      choices.find((choice) => choice.value === selectedValue)?.label ??
-      (selectedValue
-        ? models?.available_models?.find((model) => modelChoiceId(model) === selectedValue)?.name ??
-          String((modelOption.raw ?? {}).currentLabel ?? (modelOption.raw ?? {}).selectedLabel ?? selectedValue)
-        : null);
-
-    return {
-      option: modelOption,
-      choices,
-      selectedValue,
-      selectedLabel,
-    };
-  }
-
-  // Fall back to models (unstable API)
-  if (models && models.available_models && models.available_models.length > 0) {
-    const choices = models.available_models
-      .map((model) => ({
-        value: model.id ?? model.model_id ?? "",
-        label: model.name ?? model.id ?? model.model_id ?? "",
-      }))
-      .filter((choice) => choice.value !== "");
-
-    const currentModelId = models.current_model_id ?? null;
-    const selectedLabel = choices.find((c) => c.value === currentModelId)?.label ?? currentModelId;
-
-    return {
-      option: {
-        id: "model",
-        name: "Model",
-        option_type: "select",
-        current_value: currentModelId,
-        options: [],
-        raw: {},
-      },
-      choices,
-      selectedValue: currentModelId,
-      selectedLabel,
-    };
-  }
-
-  return null;
-}
-
-function readJsonStorage<T>(key: string): T | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeJsonStorage<T>(key: string, value: T) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // Ignore cache persistence failures.
-  }
 }
 
 function statusMeta(
@@ -429,10 +297,6 @@ export default function App() {
   const [input, setInput] = useState("");
   const [composerNotice, setComposerNotice] = useState<string | null>(null);
   const [pendingDeleteConversationId, setPendingDeleteConversationId] = useState<string | null>(null);
-  const [pendingModelValue, setPendingModelValue] = useState<string | null>(null);
-  const [isSettingModel, setIsSettingModel] = useState(false);
-  const [draftConfigOptions, setDraftConfigOptions] = useState<Types.SessionConfigOption[]>([]);
-  const [draftModels, setDraftModels] = useState<Types.AcpSessionModels | null>(null);
   const [draftModes, setDraftModes] = useState<Types.AcpSessionModeState | null>(null);
   const [pendingModeValue, setPendingModeValue] = useState<string | null>(null);
   const [isSettingMode, setIsSettingMode] = useState(false);
@@ -511,6 +375,16 @@ export default function App() {
     capabilities: activeCapabilities,
     onNotice: setComposerNotice,
   });
+
+  const {
+    modelSelector,
+    selectedValue: selectedModelValue,
+    selectedLabel: selectedModelLabel,
+    pendingValue: pendingModelValue,
+    isSetting: isSettingModel,
+    handleModelChange,
+    clearPendingValue,
+  } = useModelSelector({ enabled: true, onNotice: setComposerNotice });
 
   useEffect(() => {
     init();
@@ -670,18 +544,6 @@ export default function App() {
     agentDiscoveryStatus.find((status) => status.profile_id === activeAgentProfileId)
     ?? agentDiscoveryStatus.find((status) => status.command === activeAgent?.command);
   const availableAgents = agentDiscoveryStatus.filter((agent) => agent.installed);
-  const conversationModelSelector = useMemo(
-    () => buildModelSelectorState(
-      activeConversationState?.config_options ?? [],
-      activeConversationState?.models
-    ),
-    [activeConversationState?.config_options, activeConversationState?.models],
-  );
-  const draftModelSelector = useMemo(
-    () => buildModelSelectorState(draftConfigOptions, draftModels),
-    [draftConfigOptions, draftModels]
-  );
-  const modelSelector = activeConversationId ? conversationModelSelector : draftModelSelector;
   const canSend = input.trim().length > 0 && !!activeAgentProfileId && !blockedAttachment && !isAddingAttachment && canSendAttachments;
   const isWorkspaceLocked = activeConversationId !== null;
   const currentConversation =
@@ -777,17 +639,12 @@ export default function App() {
     setComposerNotice(formatDiscoveryNotice(activeDiscoveryStatus));
   }, [activeConversationId, activeAgentProfileId, activeDiscoveryStatus]);
 
+  // Load modes config for new conversations (model config is loaded by useModelSelector)
   useEffect(() => {
     if (activeConversationId || !activeWorkspace || !activeAgentProfileId) return;
 
-    const cachedConfig =
-      readJsonStorage<Record<string, Types.SessionConfigOption[]>>(MODEL_CONFIG_CACHE_KEY)?.[activeAgentProfileId] ?? [];
-    const cachedModels =
-      readJsonStorage<Record<string, Types.AcpSessionModels | null>>(MODEL_MODELS_CACHE_KEY)?.[activeAgentProfileId] ?? null;
     const cachedModes =
       readJsonStorage<Record<string, Types.AcpSessionModeState | null>>(MODE_CACHE_KEY)?.[activeAgentProfileId] ?? null;
-    setDraftConfigOptions(cachedConfig);
-    setDraftModels(cachedModels);
     setDraftModes(cachedModes);
 
     let cancelled = false;
@@ -797,33 +654,17 @@ export default function App() {
     })
       .then((result) => {
         if (cancelled) return;
-        // Only update if we got actual data, otherwise keep cached values
-        if (result.config_options.length > 0 || result.models?.available_models?.length || result.modes?.available_modes?.length) {
-          setDraftConfigOptions(result.config_options);
-          setDraftModels(result.models ?? null);
+        if (result.modes?.available_modes?.length) {
           setDraftModes(result.modes ?? null);
-          const nextConfigCache = {
-            ...(readJsonStorage<Record<string, Types.SessionConfigOption[]>>(MODEL_CONFIG_CACHE_KEY) ?? {}),
-            [activeAgentProfileId]: result.config_options,
-          };
-          const nextModelsCache = {
-            ...(readJsonStorage<Record<string, Types.AcpSessionModels | null>>(MODEL_MODELS_CACHE_KEY) ?? {}),
-            [activeAgentProfileId]: result.models ?? null,
-          };
           const nextModesCache = {
             ...(readJsonStorage<Record<string, Types.AcpSessionModeState | null>>(MODE_CACHE_KEY) ?? {}),
             [activeAgentProfileId]: result.modes ?? null,
           };
-          writeJsonStorage(MODEL_CONFIG_CACHE_KEY, nextConfigCache);
-          writeJsonStorage(MODEL_MODELS_CACHE_KEY, nextModelsCache);
           writeJsonStorage(MODE_CACHE_KEY, nextModesCache);
         }
       })
       .catch((error) => {
         console.error("Failed to preview session config", error);
-        if (!cancelled) {
-          setComposerNotice(formatProbeError(error));
-        }
       });
 
     return () => {
@@ -909,56 +750,6 @@ export default function App() {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       void handleSend();
-    }
-  };
-
-  const draftSelections =
-    readJsonStorage<Record<string, { configId: string; value: string }>>(MODEL_SELECTION_CACHE_KEY) ?? {};
-  const draftSelectedValue =
-    !activeConversationId && activeAgentProfileId ? draftSelections[activeAgentProfileId]?.value ?? null : null;
-  const normalizedDraftSelectedValue =
-    draftSelectedValue && modelSelector?.choices.some((choice) => choice.value === draftSelectedValue)
-      ? draftSelectedValue
-      : null;
-  const selectedModelValue =
-    pendingModelValue ??
-    (activeConversationId
-      ? modelSelector?.selectedValue ?? ""
-      : normalizedDraftSelectedValue ?? modelSelector?.selectedValue ?? "");
-  const selectedModelLabel =
-    modelSelector?.choices.find((choice) => choice.value === selectedModelValue)?.label ??
-    modelSelector?.selectedLabel ??
-    null;
-
-  const handleModelChange = async (value: string) => {
-    if (!modelSelector || isSettingModel || value === selectedModelValue) return;
-    if (!activeConversationId) {
-      if (!activeAgentProfileId) return;
-      const nextSelections = {
-        ...(readJsonStorage<Record<string, { configId: string; value: string }>>(MODEL_SELECTION_CACHE_KEY) ?? {}),
-        [activeAgentProfileId]: {
-          configId: modelSelector.option.id,
-          value,
-        },
-      };
-      writeJsonStorage(MODEL_SELECTION_CACHE_KEY, nextSelections);
-      setPendingModelValue(value);
-      window.setTimeout(() => setPendingModelValue(null), 0);
-      return;
-    }
-    const previousValue = selectedModelValue ? String(selectedModelValue) : null;
-    setPendingModelValue(value);
-    setIsSettingModel(true);
-    setComposerNotice(null);
-    try {
-      await setSessionConfig(modelSelector.option.id, value);
-    } catch (error) {
-      console.error("Failed to set model", error);
-      setPendingModelValue(previousValue);
-      setComposerNotice("Failed to switch model.");
-    } finally {
-      setIsSettingModel(false);
-      setPendingModelValue(null);
     }
   };
 

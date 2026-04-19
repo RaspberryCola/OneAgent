@@ -12,3 +12,11 @@ export type {
   AttachmentResolution,
   AttachmentState,
 } from './useAttachmentHandler';
+
+export { useModelSelector } from './useModelSelector';
+export type {
+  UseModelSelectorOptions,
+  UseModelSelectorReturn,
+  ModelChoice,
+  ModelSelectorState,
+} from './useModelSelector';
