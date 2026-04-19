@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Check, ChevronDown, Loader2 } from 'lucide-react';
+import { Check, ChevronDown, Eye, Loader2 } from 'lucide-react';
 import type { ModelSelectorState } from '../../hooks';
 
 interface ModelSelectorMenuProps {
@@ -63,6 +63,11 @@ export function ModelSelectorMenu({
         <span className="truncate max-w-[150px] font-medium">
           {selectedChoice?.label || selectedModelLabel || 'Select Model'}
         </span>
+        {selectedChoice?.supportsVision === true && (
+          <span title="Supports vision input">
+            <Eye className={`${isCompact ? 'w-2.5 h-2.5' : 'w-3 h-3'} text-stone`} />
+          </span>
+        )}
         <ChevronDown className={`${isCompact ? 'w-2.5 h-2.5' : 'w-3 h-3'} transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
@@ -96,9 +101,16 @@ export function ModelSelectorMenu({
                   }`}
                 >
                   <span className="truncate">{choice.label}</span>
-                  {String(choice.value) === String(selectedModelValue) && (
-                    <Check className="w-3.5 h-3.5 text-pure-black shrink-0" />
-                  )}
+                  <div className="flex items-center gap-2 shrink-0">
+                    {choice.supportsVision === true && (
+                      <span title="Supports vision input">
+                        <Eye className="w-3.5 h-3.5 text-stone" />
+                      </span>
+                    )}
+                    {String(choice.value) === String(selectedModelValue) && (
+                      <Check className="w-3.5 h-3.5 text-pure-black shrink-0" />
+                    )}
+                  </div>
                 </button>
               ))}
             </motion.div>

@@ -1014,7 +1014,7 @@ impl Runtime {
                             .conversation_prompt_capabilities(conversation_id)
                             .unwrap_or(AgentPromptCapabilities {
                                 text: true,
-                                resource_link: true,
+                                resource_link: false,
                                 embedded_context: false,
                                 image: false,
                                 audio: false,

@@ -111,18 +111,19 @@ describe('useAttachmentHandler', () => {
       expect(result.current.attachments).toEqual([]);
     });
 
-    it('should show notice when capabilities not available', async () => {
+    it('should allow adding attachments when capabilities are not available yet', async () => {
       const onNotice = vi.fn();
+      vi.mocked(API.persistAttachmentBlob).mockResolvedValue({ path: '/path/test.png' });
       const { result } = renderHook(() =>
         useAttachmentHandler({ agentProfileId: 'agent-1', capabilities: null, onNotice })
       );
 
       await act(async () => {
-        result.current.addFiles([mockImageFile], 'picker');
+        await result.current.addFiles([mockImageFile], 'picker');
       });
 
-      expect(onNotice).toHaveBeenCalledWith('This agent has not returned ACP prompt capabilities yet.');
-      expect(result.current.attachments).toEqual([]);
+      expect(result.current.attachments.length).toBe(1);
+      expect(result.current.attachmentStates[0]?.resolution.mode).toBe('probing');
     });
 
     it('should add image file successfully', async () => {

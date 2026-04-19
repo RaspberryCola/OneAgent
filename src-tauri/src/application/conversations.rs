@@ -80,9 +80,9 @@ impl ConversationAppService {
         text: &str,
         attachments: Vec<AttachmentInput>,
     ) -> ApplicationResult<TimelineResponse> {
-        if text.trim().is_empty() {
+        if text.trim().is_empty() && attachments.is_empty() {
             return Err(ApplicationError::Validation(
-                "message cannot be empty".to_string(),
+                "message and attachments cannot both be empty".to_string(),
             ));
         }
         Ok(self

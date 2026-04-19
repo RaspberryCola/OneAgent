@@ -104,6 +104,7 @@ export interface AcpAvailableModel {
   id?: string;
   model_id?: string;  // OpenCode uses modelId instead of id
   name?: string;
+  raw?: any;
 }
 
 export interface AcpSessionModels {
@@ -379,6 +380,7 @@ export interface AttachmentInput {
   path: string;
   mime_type?: string | null;
   kind: 'image' | 'audio' | 'file';
+  usage_intent: 'auto' | 'vision_input' | 'file_resource';
   delivery_preference: 'auto' | 'resource_link' | 'embedded';
 }
 

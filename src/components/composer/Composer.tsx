@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ArrowUp, Paperclip, Square } from 'lucide-react';
 import type * as Types from '../../lib/backend/types';
 import type {
@@ -26,9 +26,12 @@ type ComposerProps = {
   onModeChange?: (value: any) => void;
   isSettingMode?: boolean;
   onAttachClick: () => void;
-  onDrop: (event: React.DragEvent<HTMLDivElement>) => void;
+  onDrop: (event: React.DragEvent<HTMLElement>) => void;
+  onDragEnter?: (event: React.DragEvent<HTMLElement>) => void;
+  onDragLeave?: (event: React.DragEvent<HTMLElement>) => void;
   onPaste: (event: React.ClipboardEvent<HTMLTextAreaElement>) => void;
   onRemoveAttachment: (id: string) => void;
+  onSetAttachmentUsageIntent: (id: string, usageIntent: 'vision_input' | 'file_resource') => void;
   onSend: () => void;
   onKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   canSend: boolean;
@@ -54,8 +57,11 @@ export function Composer({
   isSettingMode,
   onAttachClick,
   onDrop,
+  onDragEnter,
+  onDragLeave,
   onPaste,
   onRemoveAttachment,
+  onSetAttachmentUsageIntent,
   onSend,
   onKeyDown,
   canSend,
@@ -65,21 +71,73 @@ export function Composer({
 }: ComposerProps) {
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragDepthRef = useRef(0);
+
+  const handleDropEvent = (event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current = 0;
+    setIsDragging(false);
+    onDrop(event);
+  };
+
+  const handleDragEnterEvent = (event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current += 1;
+    setIsDragging(true);
+    onDragEnter?.(event);
+  };
+
+  const handleDragLeaveEvent = (event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) {
+      setIsDragging(false);
+    }
+    onDragLeave?.(event);
+  };
+
+  const handleDragOverEvent = (event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = 'copy';
+    setIsDragging(true);
+  };
 
   return (
     <div
-      onDrop={onDrop}
-      onDragOver={(event) => event.preventDefault()}
-      className="w-full relative bg-pure-white border border-light-gray rounded-container transition-all flex flex-col group"
+      onDrop={handleDropEvent}
+      onDragEnter={handleDragEnterEvent}
+      onDragLeave={handleDragLeaveEvent}
+      onDragOver={handleDragOverEvent}
+      onDragEnd={() => {
+        dragDepthRef.current = 0;
+        setIsDragging(false);
+      }}
+      className={`w-full relative bg-pure-white border rounded-container transition-all flex flex-col group ${isDragging ? 'border-pure-black shadow-[0_0_0_2px_rgba(0,0,0,0.08)]' : 'border-light-gray'}`}
       data-active-agent={activeAgent?.id ?? ''}
     >
-      <AttachmentPreviewList attachments={attachments} onRemoveAttachment={onRemoveAttachment} />
+      <AttachmentPreviewList
+        attachments={attachments}
+        onRemoveAttachment={onRemoveAttachment}
+        onSetUsageIntent={onSetAttachmentUsageIntent}
+      />
+      {isDragging && (
+        <div className="px-3 pt-2 text-[11px] text-stone">Drop files to attach</div>
+      )}
 
       <textarea
         value={input}
         onChange={(event) => setInput(event.target.value)}
         onKeyDown={onKeyDown}
         onPaste={onPaste}
+        onDrop={handleDropEvent}
+        onDragEnter={handleDragEnterEvent}
+        onDragLeave={handleDragLeaveEvent}
+        onDragOver={handleDragOverEvent}
         placeholder={isCompact ? 'Message...' : 'Message Agent...'}
         className={`w-full bg-transparent ${isCompact ? 'px-4 py-3 min-h-[72px] max-h-[200px]' : 'p-5 min-h-[90px] max-h-[400px]'} text-caption resize-none focus:outline-none placeholder:text-silver leading-relaxed`}
         rows={isCompact ? 2 : 3}

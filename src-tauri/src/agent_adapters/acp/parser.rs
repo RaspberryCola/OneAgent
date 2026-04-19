@@ -85,7 +85,7 @@ pub fn parse_prompt_capabilities(result: &Value) -> AgentPromptCapabilities {
         resource_link: prompt_capabilities
             .get("resourceLink")
             .and_then(Value::as_bool)
-            .unwrap_or(true),
+            .unwrap_or(false),
         embedded_context: prompt_capabilities
             .get("embeddedContext")
             .and_then(Value::as_bool)
@@ -257,6 +257,7 @@ pub fn parse_models(result: Option<&Value>) -> Option<AcpSessionModels> {
                                 .get("name")
                                 .and_then(Value::as_str)
                                 .map(ToOwned::to_owned),
+                            raw: item.clone(),
                         })
                         .collect()
                 }),

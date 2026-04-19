@@ -11,6 +11,7 @@ import { STORAGE_KEYS } from '../lib/constants';
 export type ModelChoice = {
   value: string;
   label: string;
+  supportsVision?: boolean | null;
 };
 
 export type ModelSelectorState = {
@@ -48,12 +49,60 @@ function optionChoices(option: Types.SessionConfigOption): ModelChoice[] {
         return {
           value: item.value ?? item.id ?? item.key ?? item.name ?? '',
           label: item.label ?? item.name ?? String(item.value ?? item.id ?? item.key ?? ''),
+          supportsVision: inferVisionSupport(item),
         };
       }
       return { value: item, label: String(item) };
     });
   }
   return [];
+}
+
+function isImageCapableModality(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  const normalized = value.toLowerCase();
+  return normalized.includes('image')
+    || normalized.includes('vision')
+    || normalized.includes('multimodal')
+    || normalized.includes('multi-modal');
+}
+
+function inferVisionSupport(raw: any): boolean | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const directFlags = [
+    raw.supportsVision,
+    raw.vision,
+    raw.isVision,
+    raw.multimodal,
+    raw.supports_image_input,
+    raw.supportsImageInput,
+  ];
+  for (const flag of directFlags) {
+    if (typeof flag === 'boolean') return flag;
+  }
+
+  const modalityKeys = [
+    raw.modalities,
+    raw.inputModalities,
+    raw.input_modalities,
+    raw.supportedModalities,
+    raw.supported_modalities,
+  ];
+  for (const modalities of modalityKeys) {
+    if (Array.isArray(modalities)) {
+      if (modalities.some(isImageCapableModality)) return true;
+      if (modalities.every((item) => typeof item === 'string')) return false;
+    }
+  }
+
+  if (raw.capabilities && typeof raw.capabilities === 'object') {
+    const caps = raw.capabilities;
+    if (typeof caps.vision === 'boolean') return caps.vision;
+    if (typeof caps.image === 'boolean') return caps.image;
+    if (typeof caps.multimodal === 'boolean') return caps.multimodal;
+  }
+
+  return null;
 }
 
 function configOptionSelectedValue(option: Types.SessionConfigOption): string | null {
@@ -116,6 +165,7 @@ function buildModelSelectorState(
       .map((model) => ({
         value: model.id ?? model.model_id ?? '',
         label: model.name ?? model.id ?? model.model_id ?? '',
+        supportsVision: inferVisionSupport(model.raw ?? model),
       }))
       .filter((choice) => choice.value !== '');
 

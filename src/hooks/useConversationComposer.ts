@@ -60,12 +60,14 @@ export function useConversationComposer(options: UseConversationComposerOptions)
   const [isSending, setIsSending] = useState(false);
 
   const canSend = useMemo(() => {
-    return input.trim().length > 0
+    const hasText = input.trim().length > 0;
+    const hasAttachments = attachmentStates.length > 0;
+    return (hasText || hasAttachments)
       && !!activeAgentProfileId
       && !blockedAttachment
       && !isAddingAttachment
       && canSendAttachments;
-  }, [activeAgentProfileId, blockedAttachment, canSendAttachments, input, isAddingAttachment]);
+  }, [activeAgentProfileId, attachmentStates.length, blockedAttachment, canSendAttachments, input, isAddingAttachment]);
 
   const isBusy = isSending || isConversationBusy;
 
@@ -85,6 +87,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
       path: attachment.path,
       mime_type: attachment.mimeType,
       kind: attachment.kind,
+      usage_intent: attachment.usageIntent,
       delivery_preference: resolution.deliveryPreference,
     }));
 

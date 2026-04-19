@@ -9,6 +9,7 @@ export type LocalAttachment = {
   path: string;
   mimeType: string;
   kind: Types.AttachmentInput['kind'];
+  usageIntent: Types.AttachmentInput['usage_intent'];
   size: number;
   source: 'picker' | 'drag' | 'paste';
   previewUrl?: string;
@@ -16,7 +17,7 @@ export type LocalAttachment = {
 
 export type AttachmentResolution = {
   canSend: boolean;
-  mode: 'image' | 'audio' | 'resource' | 'resource_link' | 'blocked' | 'probing';
+  mode: 'image' | 'audio' | 'resource' | 'resource_link' | 'fallback_text_path' | 'blocked' | 'probing';
   label: string;
   reason?: string;
   deliveryPreference: Types.AttachmentInput['delivery_preference'];
@@ -25,6 +26,7 @@ export type AttachmentResolution = {
 export interface UseAttachmentHandlerOptions {
   agentProfileId: string | null;
   capabilities: Types.AgentCapabilities | null | undefined;
+  adapterKind?: 'acp' | 'compat' | null;
   onError?: (message: string) => void;
   onNotice?: (message: string | null) => void;
 }
@@ -45,8 +47,9 @@ export interface UseAttachmentHandlerReturn {
   // Methods
   addFiles: (files: FileList | File[], source: LocalAttachment['source']) => Promise<void>;
   removeAttachment: (id: string) => void;
+  setAttachmentUsageIntent: (id: string, usageIntent: Types.AttachmentInput['usage_intent']) => void;
   handleFileInput: (event: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
-  handleDrop: (event: React.DragEvent<HTMLDivElement>) => Promise<void>;
+  handleDrop: (event: React.DragEvent<HTMLElement>) => Promise<void>;
   handlePaste: (event: React.ClipboardEvent) => Promise<void>;
   resetAttachments: () => void;
 
@@ -78,6 +81,7 @@ function isTextLikeMime(mimeType: string) {
 function resolveAttachment(
   attachment: LocalAttachment,
   capabilities: Types.AgentCapabilities | null | undefined,
+  adapterKind?: 'acp' | 'compat' | null,
 ): AttachmentResolution {
   if (!capabilities?.prompt_capabilities) {
     return {
@@ -90,22 +94,113 @@ function resolveAttachment(
   }
 
   const prompt = capabilities.prompt_capabilities;
-  if (attachment.kind === 'image' && prompt.image && attachment.size <= ATTACHMENT_LIMITS.MAX_EMBEDDED_MEDIA_BYTES) {
-    return { canSend: true, mode: 'image', label: 'Will send as image', deliveryPreference: 'embedded' };
+  if (attachment.kind === 'image') {
+    if (attachment.usageIntent === 'file_resource') {
+      if (prompt.resource_link) {
+        return { canSend: true, mode: 'resource_link', label: 'Will send as file reference', deliveryPreference: 'resource_link' };
+      }
+      if (prompt.text) {
+        return {
+          canSend: true,
+          mode: 'fallback_text_path',
+          label: 'Will send as text path hint',
+          reason: 'Agent does not support structured file references; using text path fallback.',
+          deliveryPreference: 'auto',
+        };
+      }
+      return {
+        canSend: false,
+        mode: 'blocked',
+        label: 'Unsupported by agent',
+        reason: 'This agent cannot accept image attachments as file references.',
+        deliveryPreference: 'auto',
+      };
+    }
+
+    if (prompt.image && attachment.size <= ATTACHMENT_LIMITS.MAX_EMBEDDED_MEDIA_BYTES) {
+      return { canSend: true, mode: 'image', label: 'Will send as image input', deliveryPreference: 'embedded' };
+    }
+    if (prompt.resource_link) {
+      return {
+        canSend: true,
+        mode: 'resource_link',
+        label: 'Will send as file reference',
+        reason: 'Agent does not support image input in this context.',
+        deliveryPreference: 'resource_link',
+      };
+    }
+    return {
+      canSend: false,
+      mode: 'blocked',
+      label: 'Unsupported by agent',
+      reason: 'This agent does not support image input or file references.',
+      deliveryPreference: 'auto',
+    };
   }
-  if (attachment.kind === 'audio' && prompt.audio && attachment.size <= ATTACHMENT_LIMITS.MAX_EMBEDDED_MEDIA_BYTES) {
-    return { canSend: true, mode: 'audio', label: 'Will send as audio', deliveryPreference: 'embedded' };
+
+  if (attachment.kind === 'audio') {
+    if (attachment.usageIntent === 'file_resource') {
+      if (prompt.resource_link) {
+        return { canSend: true, mode: 'resource_link', label: 'Will send as file reference', deliveryPreference: 'resource_link' };
+      }
+      if (prompt.text) {
+        return {
+          canSend: true,
+          mode: 'fallback_text_path',
+          label: 'Will send as text path hint',
+          reason: 'Agent does not support structured file references; using text path fallback.',
+          deliveryPreference: 'auto',
+        };
+      }
+      return {
+        canSend: false,
+        mode: 'blocked',
+        label: 'Unsupported by agent',
+        reason: 'This agent cannot accept audio attachments as file references.',
+        deliveryPreference: 'auto',
+      };
+    }
+
+    if (prompt.audio && attachment.size <= ATTACHMENT_LIMITS.MAX_EMBEDDED_MEDIA_BYTES) {
+      return { canSend: true, mode: 'audio', label: 'Will send as audio input', deliveryPreference: 'embedded' };
+    }
+    if (prompt.resource_link) {
+      return {
+        canSend: true,
+        mode: 'resource_link',
+        label: 'Will send as file reference',
+        reason: 'Agent does not support audio input in this context.',
+        deliveryPreference: 'resource_link',
+      };
+    }
+    return {
+      canSend: false,
+      mode: 'blocked',
+      label: 'Unsupported by agent',
+      reason: 'This agent does not support audio input or file references.',
+      deliveryPreference: 'auto',
+    };
   }
-  if (
-    attachment.kind === 'file' &&
-    prompt.embedded_context &&
-    isTextLikeMime(attachment.mimeType) &&
-    attachment.size <= ATTACHMENT_LIMITS.MAX_EMBEDDED_TEXT_BYTES
-  ) {
+
+  if (attachment.usageIntent !== 'file_resource'
+    && prompt.embedded_context
+    && isTextLikeMime(attachment.mimeType)
+    && attachment.size <= ATTACHMENT_LIMITS.MAX_EMBEDDED_TEXT_BYTES) {
     return { canSend: true, mode: 'resource', label: 'Will embed file contents', deliveryPreference: 'embedded' };
   }
   if (prompt.resource_link) {
     return { canSend: true, mode: 'resource_link', label: 'Will send as file reference', deliveryPreference: 'resource_link' };
+  }
+  if (prompt.text) {
+    return {
+      canSend: true,
+      mode: 'fallback_text_path',
+      label: 'Will send as text path hint',
+      reason: adapterKind === 'compat'
+        ? 'Adapter does not support structured attachments; using compatibility fallback.'
+        : 'Agent does not support structured file references; using text path fallback.',
+      deliveryPreference: 'auto',
+    };
   }
   return {
     canSend: false,
@@ -146,6 +241,7 @@ async function materializeAttachment(file: File, source: LocalAttachment['source
     path,
     mimeType,
     kind: inferAttachmentKind(mimeType),
+    usageIntent: 'auto',
     size: file.size,
     source,
     previewUrl: mimeType.startsWith('image/') ? URL.createObjectURL(file) : undefined,
@@ -156,7 +252,7 @@ async function materializeAttachment(file: File, source: LocalAttachment['source
  * 自定义 Hook 用于处理附件添加、移除和解析
  */
 export function useAttachmentHandler(options: UseAttachmentHandlerOptions): UseAttachmentHandlerReturn {
-  const { agentProfileId, capabilities, onError, onNotice } = options;
+  const { agentProfileId, capabilities, adapterKind, onError, onNotice } = options;
   const [attachments, setAttachments] = useState<LocalAttachment[]>([]);
   const [isAddingAttachment, setIsAddingAttachment] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -168,22 +264,62 @@ export function useAttachmentHandler(options: UseAttachmentHandlerOptions): UseA
     }
     setIsAddingAttachment(true);
     try {
-      // Note: ensureAgentCapabilities should be passed from outside
-      // For now, we use the capabilities directly from options
-      if (!capabilities?.prompt_capabilities) {
-        onNotice?.('This agent has not returned ACP prompt capabilities yet.');
-        return;
+      const incoming = Array.from(files);
+      const existingKeys = new Set(attachments.map((attachment) => `${attachment.path}|${attachment.name}|${attachment.size}|${attachment.mimeType}`));
+      const next: LocalAttachment[] = [];
+      const failures: string[] = [];
+      let skippedAsDuplicate = 0;
+
+      for (const file of incoming) {
+        if (file.size > ATTACHMENT_LIMITS.MAX_UPLOAD_BYTES) {
+          failures.push(`${file.name}: file is larger than ${Math.round(ATTACHMENT_LIMITS.MAX_UPLOAD_BYTES / (1024 * 1024))} MB`);
+          continue;
+        }
+        const rawPath = ((file as any).path as string | undefined) ?? '';
+        const mimeType = file.type || 'application/octet-stream';
+        const dedupeKey = `${rawPath}|${file.name}|${file.size}|${mimeType}`;
+        if (existingKeys.has(dedupeKey)) {
+          skippedAsDuplicate += 1;
+          continue;
+        }
+
+        try {
+          const attachment = await materializeAttachment(file, source);
+          const persistedKey = `${attachment.path}|${attachment.name}|${attachment.size}|${attachment.mimeType}`;
+          if (existingKeys.has(persistedKey)) {
+            if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+            skippedAsDuplicate += 1;
+            continue;
+          }
+          existingKeys.add(persistedKey);
+          next.push(attachment);
+        } catch (error) {
+          console.error('Failed to materialize attachment', file.name, error);
+          failures.push(`${file.name}: failed to persist attachment`);
+        }
       }
-      const next = await Promise.all(Array.from(files).map((file) => materializeAttachment(file, source)));
-      setAttachments((current) => [...current, ...next]);
-      onNotice?.(null);
+
+      if (next.length > 0) {
+        setAttachments((current) => [...current, ...next]);
+      }
+
+      if (failures.length > 0) {
+        onNotice?.(`Some files were skipped: ${failures.slice(0, 2).join('; ')}${failures.length > 2 ? ` (+${failures.length - 2} more)` : ''}`);
+      } else if (skippedAsDuplicate > 0) {
+        onNotice?.(`${skippedAsDuplicate} duplicate attachment${skippedAsDuplicate > 1 ? 's were' : ' was'} skipped.`);
+      } else if (!capabilities?.prompt_capabilities && next.length > 0) {
+        onNotice?.('Attachments added. Waiting for capability probe before send.');
+      } else {
+        onNotice?.(null);
+      }
     } catch (error) {
       console.error('Failed to add attachments', error);
+      onError?.('Failed to process one or more attachments.');
       onNotice?.('Failed to process one or more attachments.');
     } finally {
       setIsAddingAttachment(false);
     }
-  }, [agentProfileId, capabilities, onNotice]);
+  }, [agentProfileId, attachments, capabilities?.prompt_capabilities, onError, onNotice]);
 
   const removeAttachment = useCallback((id: string) => {
     setAttachments((current) => {
@@ -202,7 +338,7 @@ export function useAttachmentHandler(options: UseAttachmentHandlerOptions): UseA
     event.target.value = '';
   }, [addFiles]);
 
-  const handleDrop = useCallback(async (event: React.DragEvent<HTMLDivElement>) => {
+  const handleDrop = useCallback(async (event: React.DragEvent<HTMLElement>) => {
     event.preventDefault();
     if (event.dataTransfer.files?.length) {
       await addFiles(event.dataTransfer.files, 'drag');
@@ -226,12 +362,20 @@ export function useAttachmentHandler(options: UseAttachmentHandlerOptions): UseA
     setAttachments([]);
   }, [attachments]);
 
+  const setAttachmentUsageIntent = useCallback((id: string, usageIntent: Types.AttachmentInput['usage_intent']) => {
+    setAttachments((current) => current.map((attachment) => {
+      if (attachment.id !== id) return attachment;
+      if (attachment.kind !== 'image' && usageIntent === 'vision_input') return attachment;
+      return { ...attachment, usageIntent };
+    }));
+  }, []);
+
   const attachmentStates: AttachmentState[] = useMemo(() => {
     return attachments.map((attachment) => ({
       attachment,
-      resolution: resolveAttachment(attachment, capabilities),
+      resolution: resolveAttachment(attachment, capabilities, adapterKind),
     }));
-  }, [attachments, capabilities]);
+  }, [attachments, capabilities, adapterKind]);
 
   const blockedAttachment = useMemo(() => {
     return attachmentStates.find((entry) => !entry.resolution.canSend);
@@ -245,6 +389,7 @@ export function useAttachmentHandler(options: UseAttachmentHandlerOptions): UseA
     canSend: !blockedAttachment && !isAddingAttachment,
     addFiles,
     removeAttachment,
+    setAttachmentUsageIntent,
     handleFileInput,
     handleDrop,
     handlePaste,

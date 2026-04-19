@@ -463,6 +463,8 @@ pub struct AcpAvailableModel {
     #[serde(alias = "modelId")]
     pub model_id: Option<String>,
     pub name: Option<String>,
+    #[serde(default)]
+    pub raw: serde_json::Value,
 }
 
 /// Models info returned by session/new (unstable API)
@@ -530,6 +532,18 @@ pub enum AttachmentDeliveryPreference {
     Embedded,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AttachmentUsageIntent {
+    Auto,
+    VisionInput,
+    FileResource,
+}
+
+fn default_attachment_usage_intent() -> AttachmentUsageIntent {
+    AttachmentUsageIntent::Auto
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AttachmentInput {
     pub id: String,
@@ -537,6 +551,8 @@ pub struct AttachmentInput {
     pub path: String,
     pub mime_type: Option<String>,
     pub kind: AttachmentKind,
+    #[serde(default = "default_attachment_usage_intent")]
+    pub usage_intent: AttachmentUsageIntent,
     pub delivery_preference: AttachmentDeliveryPreference,
 }
 

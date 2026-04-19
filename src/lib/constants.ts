@@ -17,6 +17,7 @@ export const SYNC_CONFIG = {
 
 // Attachment Limits
 export const ATTACHMENT_LIMITS = {
+  MAX_UPLOAD_BYTES: 25 * 1024 * 1024,
   MAX_EMBEDDED_TEXT_BYTES: 128 * 1024,
   MAX_EMBEDDED_MEDIA_BYTES: 10 * 1024 * 1024,
 } as const;

@@ -32,9 +32,10 @@ interface HomeScreenProps {
   onSelectAgentProfile: (profileId: string) => void;
   onModelChange: (value: string) => void;
   onModeChange: (value: string) => void;
-  onDrop: (event: DragEvent<HTMLDivElement>) => void;
+  onDrop: (event: DragEvent<HTMLElement>) => void;
   onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
   onRemoveAttachment: (id: string) => void;
+  onSetAttachmentUsageIntent: (id: string, usageIntent: 'vision_input' | 'file_resource') => void;
   onSend: () => void;
   onStop: () => void;
   onAttachClick: () => void;
@@ -71,6 +72,7 @@ export function HomeScreen({
   onDrop,
   onPaste,
   onRemoveAttachment,
+  onSetAttachmentUsageIntent,
   onSend,
   onStop,
   onAttachClick,
@@ -156,6 +158,7 @@ export function HomeScreen({
               onDrop={onDrop}
               onPaste={onPaste}
               onRemoveAttachment={onRemoveAttachment}
+              onSetAttachmentUsageIntent={onSetAttachmentUsageIntent}
               onSend={onSend}
               onKeyDown={onKeyDown}
               canSend={canSend}

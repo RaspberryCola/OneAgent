@@ -51,7 +51,7 @@ pub struct AgentSessionHandle {
 fn default_prompt_capabilities() -> AgentPromptCapabilities {
     AgentPromptCapabilities {
         text: true,
-        resource_link: true,
+        resource_link: false,
         embedded_context: false,
         image: false,
         audio: false,

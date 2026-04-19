@@ -207,6 +207,7 @@ export default function App() {
     unreadCompletedConversations,
     selectConversation,
     setActiveAgentProfile,
+    ensureAgentCapabilities,
     sendMessage,
     deleteConversation,
     cancelTurn,
@@ -219,6 +220,18 @@ export default function App() {
   const activeAgent = agentProfiles.find((agent) => agent.id === activeAgentProfileId) ?? null;
   const activeCapabilities = activeAgent?.capabilities_cache ?? null;
 
+  useEffect(() => {
+    if (!activeAgentProfileId || activeCapabilities?.prompt_capabilities) return;
+    let cancelled = false;
+    void ensureAgentCapabilities(activeAgentProfileId).catch((error) => {
+      if (cancelled) return;
+      console.error('Failed to auto-probe agent capabilities', error);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeAgentProfileId, activeCapabilities?.prompt_capabilities, ensureAgentCapabilities]);
+
   const {
     attachments,
     isAddingAttachment,
@@ -226,6 +239,7 @@ export default function App() {
     blockedAttachment,
     canSend: canSendAttachments,
     removeAttachment,
+    setAttachmentUsageIntent,
     handleFileInput,
     handleDrop,
     handlePaste,
@@ -234,6 +248,7 @@ export default function App() {
   } = useAttachmentHandler({
     agentProfileId: activeAgentProfileId ?? null,
     capabilities: activeCapabilities,
+    adapterKind: activeAgent?.kind ?? null,
     onNotice: setComposerNotice,
   });
 
@@ -512,7 +527,14 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-full bg-pure-white font-body text-pure-black selection:bg-light-gray overflow-hidden">
-      <input ref={fileInputRef as RefObject<HTMLInputElement>} type="file" multiple className="hidden" onChange={handleFileInput} />
+      <input
+        ref={fileInputRef as RefObject<HTMLInputElement>}
+        type="file"
+        multiple
+        accept="image/*,audio/*,text/*,.json,.yaml,.yml,.xml,.js,.ts,.jsx,.tsx,.sh,.md,.csv,.pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.zip"
+        className="hidden"
+        onChange={handleFileInput}
+      />
 
       <WorkspaceSidebar
         isMobileSidebarOpen={isMobileSidebarOpen}
@@ -623,6 +645,7 @@ export default function App() {
             onDrop={handleDrop}
             onPaste={handlePaste}
             onRemoveAttachment={removeAttachment}
+            onSetAttachmentUsageIntent={setAttachmentUsageIntent}
             onSend={() => void handleSend()}
             onStop={() => void handleStop()}
             onAttachClick={() => fileInputRef.current?.click()}
@@ -661,6 +684,7 @@ export default function App() {
             onDrop={handleDrop}
             onPaste={handlePaste}
             onRemoveAttachment={removeAttachment}
+            onSetAttachmentUsageIntent={setAttachmentUsageIntent}
             onSend={() => void handleSend()}
             onStop={() => void handleStop()}
             onKeyDown={handleKeyDown}

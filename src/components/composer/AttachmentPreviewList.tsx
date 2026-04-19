@@ -10,9 +10,10 @@ function humanFileSize(size: number) {
 interface AttachmentPreviewListProps {
   attachments: Array<{ attachment: LocalAttachment; resolution: AttachmentResolution }>;
   onRemoveAttachment: (id: string) => void;
+  onSetUsageIntent: (id: string, usageIntent: 'vision_input' | 'file_resource') => void;
 }
 
-export function AttachmentPreviewList({ attachments, onRemoveAttachment }: AttachmentPreviewListProps) {
+export function AttachmentPreviewList({ attachments, onRemoveAttachment, onSetUsageIntent }: AttachmentPreviewListProps) {
   if (attachments.length === 0) return null;
 
   return (
@@ -32,6 +33,24 @@ export function AttachmentPreviewList({ attachments, onRemoveAttachment }: Attac
               <span>{humanFileSize(attachment.size)}</span>
               <span>{resolution.label}</span>
             </div>
+            {attachment.kind === 'image' && (
+              <div className="mt-1 inline-flex rounded-md border border-light-gray overflow-hidden text-[11px]">
+                <button
+                  type="button"
+                  className={`px-2 py-0.5 transition-colors ${attachment.usageIntent !== 'file_resource' ? 'bg-pure-black text-pure-white' : 'bg-pure-white text-stone hover:text-pure-black'}`}
+                  onClick={() => onSetUsageIntent(attachment.id, 'vision_input')}
+                >
+                  Read image
+                </button>
+                <button
+                  type="button"
+                  className={`px-2 py-0.5 border-l border-light-gray transition-colors ${attachment.usageIntent === 'file_resource' ? 'bg-pure-black text-pure-white' : 'bg-pure-white text-stone hover:text-pure-black'}`}
+                  onClick={() => onSetUsageIntent(attachment.id, 'file_resource')}
+                >
+                  As file
+                </button>
+              </div>
+            )}
             {resolution.reason && <div className="text-[11px] text-stone truncate">{resolution.reason}</div>}
           </div>
           <button

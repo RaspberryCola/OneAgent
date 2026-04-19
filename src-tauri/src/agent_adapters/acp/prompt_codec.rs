@@ -12,6 +12,7 @@ use crate::{
     agent_adapters::{AdapterError, AdapterResult},
     domain::{
         AgentPromptCapabilities, AttachmentDeliveryPreference, AttachmentInput, AttachmentKind,
+        AttachmentUsageIntent,
     },
 };
 
@@ -54,24 +55,25 @@ async fn build_attachment_block(
                 .to_string()
         });
     let uri = format!("file://{}", path.display());
+    let prefer_resource_link = matches!(
+        attachment.delivery_preference,
+        AttachmentDeliveryPreference::ResourceLink
+    ) || matches!(attachment.usage_intent, AttachmentUsageIntent::FileResource);
 
     // If resource_link is preferred and supported, use it
-    if capabilities.resource_link
-        && matches!(
-            attachment.delivery_preference,
-            AttachmentDeliveryPreference::ResourceLink
-        )
-    {
+    if capabilities.resource_link && prefer_resource_link {
         return Ok(resource_link_block(&attachment.name, &uri, &inferred_mime));
+    }
+    // If caller explicitly prefers file-resource semantics but agent has no
+    // structured resource_link support, degrade to a controlled text hint.
+    if prefer_resource_link && capabilities.text {
+        return Ok(fallback_text_path_block(&attachment.name, &uri, &inferred_mime));
     }
 
     match attachment.kind {
         AttachmentKind::Image if capabilities.image => {
             if metadata.len() <= MAX_EMBEDDED_IMAGE_BYTES
-                && !matches!(
-                    attachment.delivery_preference,
-                    AttachmentDeliveryPreference::ResourceLink
-                )
+                && !prefer_resource_link
             {
                 let bytes = tokio::fs::read(&path).await?;
                 return Ok(json!({
@@ -84,10 +86,7 @@ async fn build_attachment_block(
         }
         AttachmentKind::Audio if capabilities.audio => {
             if metadata.len() <= MAX_EMBEDDED_AUDIO_BYTES
-                && !matches!(
-                    attachment.delivery_preference,
-                    AttachmentDeliveryPreference::ResourceLink
-                )
+                && !prefer_resource_link
             {
                 let bytes = tokio::fs::read(&path).await?;
                 return Ok(json!({
@@ -100,10 +99,7 @@ async fn build_attachment_block(
         }
         AttachmentKind::File if capabilities.embedded_context => {
             if metadata.len() <= MAX_EMBEDDED_TEXT_BYTES
-                && !matches!(
-                    attachment.delivery_preference,
-                    AttachmentDeliveryPreference::ResourceLink
-                )
+                && !prefer_resource_link
                 && is_text_like_mime(&inferred_mime)
             {
                 let text = tokio::fs::read_to_string(&path).await?;
@@ -124,6 +120,13 @@ async fn build_attachment_block(
     if capabilities.resource_link {
         return Ok(resource_link_block(&attachment.name, &uri, &inferred_mime));
     }
+    if capabilities.text {
+        return Ok(fallback_text_path_block(
+            &attachment.name,
+            &uri,
+            &inferred_mime,
+        ));
+    }
 
     Err(AdapterError::Protocol(format!(
         "agent does not support a compatible delivery mode for attachment {}",
@@ -135,11 +138,18 @@ async fn build_attachment_block(
 fn resource_link_block(name: &str, uri: &str, mime_type: &str) -> Value {
     json!({
         "type": "resource_link",
-        "resourceLink": {
-            "name": name,
-            "uri": uri,
-            "mimeType": mime_type
-        }
+        "name": name,
+        "uri": uri,
+        "mimeType": mime_type
+    })
+}
+
+fn fallback_text_path_block(name: &str, uri: &str, mime_type: &str) -> Value {
+    json!({
+        "type": "text",
+        "text": format!(
+            "[Attached file]\nname: {name}\nuri: {uri}\nmime_type: {mime_type}"
+        )
     })
 }
 
