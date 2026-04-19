@@ -77,15 +77,29 @@ pub fn parse_prompt_capabilities(result: &Value) -> AgentPromptCapabilities {
         .and_then(|value| value.get("promptCapabilities"))
         .cloned()
         .unwrap_or_else(|| json!({}));
+    let agent_name = result
+        .get("agentInfo")
+        .and_then(|value| value.get("name"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    // ClaudeCode ACP currently has schema/runtime differences around
+    // resource_link prompt blocks. Force-disable resource_link to keep
+    // compatibility and rely on text/resource fallbacks.
+    let force_disable_resource_link = agent_name.contains("claude-code-acp");
     AgentPromptCapabilities {
         text: prompt_capabilities
             .get("text")
             .and_then(Value::as_bool)
             .unwrap_or(true),
-        resource_link: prompt_capabilities
-            .get("resourceLink")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
+        resource_link: if force_disable_resource_link {
+            false
+        } else {
+            prompt_capabilities
+                .get("resourceLink")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        },
         embedded_context: prompt_capabilities
             .get("embeddedContext")
             .and_then(Value::as_bool)

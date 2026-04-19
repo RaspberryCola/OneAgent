@@ -29,7 +29,7 @@ export function WorkspacePanel({
 }: WorkspacePanelProps) {
   return (
     <aside
-      className={`bg-pure-white transition-all duration-200 ${
+      className={`bg-snow transition-all duration-200 ${
         isOpen ? 'w-[320px]' : 'w-0 overflow-hidden'
       }`}
     >

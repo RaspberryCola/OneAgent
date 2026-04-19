@@ -90,7 +90,8 @@ export function PermissionDisplay({ request, toolCall, requestMeta, decision }: 
   return (
     <div className="flex w-full justify-start mt-0.5 mb-1">
       <div className="w-full max-w-[95%] md:max-w-[85%] border border-light-gray rounded-container bg-pure-white px-3 py-2">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="flex flex-col gap-2">
+          {/* 第一行：权限信息 */}
           <div className="flex items-center gap-2 min-w-0">
             <AlertCircle className="w-3.5 h-3.5 text-pure-black shrink-0" />
             <div className="text-[12px] font-mono whitespace-nowrap text-pure-black shrink-0">
@@ -100,9 +101,10 @@ export function PermissionDisplay({ request, toolCall, requestMeta, decision }: 
               {toolTitle} {toolSummary ? `· ${toolSummary}` : ""}
             </div>
           </div>
-          
+
+          {/* 第二行：操作按钮 */}
           {options.length > 0 && (
-            <div className="flex shrink-0 gap-2 overflow-x-auto no-scrollbar pb-1 md:pb-0">
+            <div className="flex gap-2 overflow-x-auto no-scrollbar">
               {options.map((option: any, index: number) => {
                 const meta = optionMeta(option);
                 const isActive = isSubmitting === meta.decision;
