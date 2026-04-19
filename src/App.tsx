@@ -1,28 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
-import {
-  AlertCircle,
-  ArrowDown,
-  Bot,
-  Loader2,
-  Menu,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Settings,
-  X,
-} from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useEffect, useMemo, useState, type RefObject } from "react";
+import { Bot, Loader2 } from "lucide-react";
+import { AnimatePresence } from "framer-motion";
 import { useAppStore } from "./lib/store";
 import * as API from "./lib/backend/commands";
 import type * as Types from "./lib/backend/types";
-import { ThoughtDisplay } from "./components/chat/ThoughtDisplay";
-import { ToolCallDisplay } from "./components/chat/ToolCallDisplay";
-import { PermissionDisplay } from "./components/chat/PermissionDisplay";
-import { Composer } from "./components/composer/Composer";
+import { SettingsDialog } from "./components/settings/SettingsDialog";
 import { SearchOverlay } from "./components/search/SearchOverlay";
 import { WorkspaceSidebar } from "./components/sidebar/WorkspaceSidebar";
-import { TimelineMessage } from "./components/timeline/TimelineMessage";
-import { WorkspaceDropdown } from "./components/ui/WorkspaceDropdown";
 import { WorkspacePanel } from "./components/workspace/WorkspacePanel";
+import { AppShell } from "./screens/app/AppShell";
+import { ConversationScreen } from "./screens/conversation/ConversationScreen";
+import { HomeScreen } from "./screens/home/HomeScreen";
 import { useScrollManager, useAttachmentHandler, useModelSelector, useModeSelector, useWorkspaceFileTree, useSearch, useConversationComposer } from "./hooks";
 
 const AGENT_LOGOS: Record<string, string> = {
@@ -524,7 +512,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-full bg-pure-white font-body text-pure-black selection:bg-light-gray overflow-hidden">
-      <input ref={fileInputRef as React.Ref<HTMLInputElement>} type="file" multiple className="hidden" onChange={handleFileInput} />
+      <input ref={fileInputRef as RefObject<HTMLInputElement>} type="file" multiple className="hidden" onChange={handleFileInput} />
 
       <WorkspaceSidebar
         isMobileSidebarOpen={isMobileSidebarOpen}
@@ -585,498 +573,128 @@ export default function App() {
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
-      <main className="flex-1 flex flex-col min-w-0 h-screen bg-pure-white relative">
-        <header className="h-14 flex items-center justify-between px-4 shrink-0 bg-pure-white z-10 w-full">
-          <div className="flex items-center gap-3 min-w-0">
-            <button className="md:hidden p-2 shrink-0 text-stone hover:text-pure-black rounded-md hover:bg-snow transition-colors" onClick={() => setMobileSidebarOpen(true)}>
-              <Menu className="w-5 h-5" />
-            </button>
-            {!isDesktopSidebarOpen && (
-              <button
-                className="hidden md:flex p-2 shrink-0 text-stone hover:text-pure-black rounded-md hover:bg-snow transition-colors"
-                onClick={() => setDesktopSidebarOpen(true)}
-                title="Open Sidebar"
-              >
-                <PanelLeftOpen className="w-5 h-5" />
-              </button>
-            )}
-            {activeConversationId && activeAgent && (
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="w-8 h-8 flex items-center justify-center shrink-0">
-                    <AgentLogo agent={activeAgent} className="w-5 h-5 object-contain" />
-                  </div>
-                  <span className="font-display font-medium text-bodyLarge truncate">{activeAgent.name}</span>
-                </div>
-                {conversationStatus && (
-                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-pill bg-snow border border-light-gray animate-in fade-in slide-in-from-left-1 duration-300">
-                    <div className={`w-1.5 h-1.5 rounded-full ${conversationStatus.dot} ${conversationStatus.pulse ? 'animate-pulse' : ''}`} />
-                    <span className="text-[11px] font-medium text-stone uppercase tracking-tight">{conversationStatus.label}</span>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {activeConversationId && (
-            <button
-              type="button"
-              onClick={() => setIsWorkspacePanelOpen(!isWorkspacePanelOpen)}
-              className={`p-1 shrink-0 rounded-md transition-colors hover:bg-light-gray/50 ${
-                isWorkspacePanelOpen ? "text-pure-black" : "text-stone hover:text-pure-black"
-              }`}
-              title="Toggle workspace panel"
-              aria-label="Toggle workspace panel"
-            >
-              {isWorkspacePanelOpen ? (
-                <PanelLeftClose className="w-[18px] h-[18px] -scale-x-100" />
-              ) : (
-                <PanelLeftOpen className="w-[18px] h-[18px] -scale-x-100" />
-              )}
-            </button>
-          )}
-        </header>
-
-        {/* Floating Notice Toast - 悬浮在右侧内容区顶部居中 */}
-        {composerNotice && (
-          <div className="absolute top-4 left-0 right-0 z-50 flex justify-center pointer-events-none">
-            <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-light-gray bg-pure-white shadow-lg px-4 py-3 text-[13px] text-near-black max-w-[768px] mx-4">
-              <AlertCircle className="w-4 h-4 shrink-0 text-stone" />
-              <span className="truncate">{composerNotice}</span>
-              <button
-                onClick={() => setComposerNotice(null)}
-                className="ml-1 p-1 text-stone hover:text-pure-black rounded-md hover:bg-light-gray/50 transition-colors shrink-0"
-                title="Dismiss"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
+      <AppShell
+        activeConversationId={activeConversationId}
+        activeAgent={activeAgent}
+        conversationStatus={conversationStatus}
+        isDesktopSidebarOpen={isDesktopSidebarOpen}
+        isWorkspacePanelOpen={isWorkspacePanelOpen}
+        composerNotice={composerNotice}
+        onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
+        onOpenDesktopSidebar={() => setDesktopSidebarOpen(true)}
+        onToggleWorkspacePanel={() => setIsWorkspacePanelOpen(!isWorkspacePanelOpen)}
+        onDismissComposerNotice={() => setComposerNotice(null)}
+        renderAgentLogo={(agent, className) => (
+          <AgentLogo agent={agent} className={className} />
         )}
-        {activeConversationId === null ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-4 pb-32 w-full max-w-3xl mx-auto overflow-y-auto overflow-x-hidden">
-            <div className="flex flex-col items-center mb-10 gap-8 w-full">
-              <WorkspaceDropdown
-                workspaces={workspaces}
-                activeWorkspace={activeWorkspace}
-                onSelectWorkspace={(workspace) => void switchWorkspace(workspace)}
-                onAddWorkspace={() => void pickWorkspace()}
-                disabled={isWorkspaceLocked}
-              />
-              <div className="flex flex-wrap items-center justify-center gap-2.5 w-full max-w-[768px]">
-                {agentProfiles.map((profile) => {
-                  const isActive = activeAgentProfileId === profile.id;
-                  return (
-                    <motion.button
-                      layout
-                      initial={false}
-                      key={profile.id}
-                      onClick={() => {
-                        setActiveAgentProfile(profile.id);
-                        setComposerNotice(null);
-                      }}
-                      className={`relative flex items-center justify-center rounded-pill transition-colors border ${
-                        isActive
-                          ? "border-pure-black text-pure-white px-4 h-[42px]"
-                          : "border-light-gray bg-pure-white text-near-black hover:bg-snow hover:border-border-light w-[42px] h-[42px]"
-                      }`}
-                      style={{ WebkitTapHighlightColor: "transparent" }}
-                      transition={{ type: "spring", stiffness: 500, damping: 35 }}
-                    >
-                      {isActive && (
-                        <motion.div
-                          layoutId="activeAgentPill"
-                          className="absolute inset-0 bg-pure-black rounded-pill"
-                          initial={false}
-                          transition={{ type: "spring", stiffness: 500, damping: 35 }}
-                        />
-                      )}
-                      <motion.div layout className="relative z-10 flex items-center gap-2.5">
-                        <AgentLogo
-                          agent={profile}
-                          className={`w-5 h-5 object-contain shrink-0 transition-all duration-200 ${
-                            isActive ? "brightness-0 invert" : "grayscale opacity-60 hover:opacity-100"
-                          }`}
-                        />
-                        {isActive && (
-                          <motion.span layout className="font-medium text-[15px] whitespace-nowrap">
-                            {profile.name}
-                          </motion.span>
-                        )}
-                      </motion.div>
-                    </motion.button>
-                  );
-                })}
-              </div>
-              {availableAgents.length === 0 && (
-                <div className="text-small text-stone text-center max-w-xl">
-                  No available agent is ready yet. Claude Code can run from the bundled bridge when resources are present, or native ACP agents can be detected from your PATH.
-                </div>
-              )}
-            </div>
-            <div className="w-full flex">
-              <div className="flex-1 min-w-0">
-                <div className="max-w-[768px] mx-auto px-4 md:px-6">
-                  <Composer
-                    input={input}
-                    setInput={setInput}
-                    attachments={attachmentStates}
-                    activeAgent={activeAgent}
-                    modelSelector={modelSelector}
-                    selectedModelValue={selectedModelValue}
-                    selectedModelLabel={selectedModelLabel}
-                    onModelChange={(value) => void handleModelChange(String(value))}
-                    isSettingModel={isSettingModel}
-                    activeModeState={activeModeState}
-                    selectedModeValue={selectedModeValue}
-                    selectedModeLabel={selectedModeLabel}
-                    onModeChange={(value) => void handleModeChange(String(value))}
-                    isSettingMode={isSettingMode}
-                    onAttachClick={() => fileInputRef.current?.click()}
-                    onDrop={handleDrop}
-                    onPaste={handlePaste}
-                    onRemoveAttachment={removeAttachment}
-                    onSend={() => void handleSend()}
-                    onKeyDown={handleKeyDown}
-                    canSend={canSend}
-                    isCompact={false}
-                    isBusy={isBusy}
-                    onStop={() => void handleStop()}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div 
-            ref={setScrollAreaRef}
-            className="relative flex-1 overflow-y-auto min-w-0 w-full flex flex-col scroll-smooth scrollbar-chat"
-          >
-            <div ref={scrollContentRef} className="max-w-[768px] mx-auto w-full flex-1 flex flex-col min-h-full">
-              <div className="flex-1 space-y-4 px-4 md:px-6 pt-4 pb-4">
-                {activeTimelineItems.map((item) => {
-                  if (item.type === 'message') {
-                    const message = item.data;
-                    if (message.kind === "thinking") {
-                      return (
-                        <ThoughtDisplay
-                          key={message.id}
-                          content={message.content_json?.text || ""}
-                          status={message.content_json?.status || "done"}
-                          duration_ms={message.content_json?.duration_ms}
-                        />
-                      );
-                    }
-                    return (
-                      <TimelineMessage
-                        key={message.id}
-                        message={message}
-                        terminals={activeTimeline?.terminals ?? []}
-                        lastAgentMessageIdsPerTurn={lastAgentMessageIdsPerTurn}
-                      />
-                    );
-                  } else if (item.type === 'tool_call') {
-                    return (
-                      <ToolCallDisplay
-                        key={item.key}
-                        toolCall={item.data}
-                        terminals={(activeTimeline?.terminals ?? []).filter((terminal) =>
-                          Array.isArray(item.data.terminal_ids_json) && item.data.terminal_ids_json.includes(terminal.terminal_id),
-                        )}
-                        permissionDecision={getLatestPermissionDecision(item.data.tool_call_id, permissionDecisions)}
-                      />
-                    );
-                  }
-
-                  // Permission items are only shown in the bottom sticky area, not in timeline
-                  return null;
-                })}
-              </div>
-              <div className="sticky bottom-0 bg-pure-white z-10 pb-4 md:pb-6 px-4 md:px-6">
-                {activeTimelineItems
-                  .filter((item) => item.type !== 'message' && item.type !== 'tool_call' && item.data.status === "pending")
-                  .map((item) => {
-                    const permReq = item.data as import('./lib/backend/types').PendingPermissionRequest;
-                    return (
-                    <div key={item.key} className="mb-4 flex w-full justify-center">
-                      <div className="w-full">
-                        <PermissionDisplay
-                          request={permReq}
-                          toolCall={
-                            (activeTimeline?.tool_calls ?? []).find(
-                              (toolCall) => toolCall.tool_call_id === permReq.tool_call_id,
-                            ) ?? null
-                          }
-                          requestMeta={
-                            permissionRequestMeta.get(permReq.id)
-                            ?? permissionRequestMeta.get(permReq.tool_call_id)
-                            ?? null
-                          }
-                          decision={getLatestPermissionDecision(permReq.tool_call_id, permissionDecisions)}
-                        />
-                      </div>
-                    </div>
-                    );
-                  })}
-                <div className="relative">
-                  {showScrollButton && (
-                    <div className="pointer-events-none absolute left-1/2 bottom-full z-20 mb-3 -translate-x-1/2">
-                      <button
-                        type="button"
-                        onClick={scrollToBottom}
-                        className="pointer-events-auto p-2 rounded-full bg-pure-white border border-light-gray text-stone hover:text-pure-black hover:bg-light-gray shadow-sm transition-colors cursor-pointer"
-                        title="Scroll to bottom"
-                        aria-label="Scroll to bottom"
-                      >
-                        <ArrowDown className="w-4 h-4" />
-                      </button>
-                    </div>
-                  )}
-                  <Composer
-                    input={input}
-                    setInput={setInput}
-                    attachments={attachmentStates}
-                    activeAgent={activeAgent}
-                    modelSelector={modelSelector}
-                    selectedModelValue={selectedModelValue}
-                    selectedModelLabel={selectedModelLabel}
-                    onModelChange={(value) => void handleModelChange(String(value))}
-                    isSettingModel={isSettingModel}
-                    activeModeState={activeModeState}
-                    selectedModeValue={selectedModeValue}
-                    selectedModeLabel={selectedModeLabel}
-                    onModeChange={(value) => void handleModeChange(String(value))}
-                    isSettingMode={isSettingMode}
-                    onAttachClick={() => fileInputRef.current?.click()}
-                    onDrop={handleDrop}
-                    onPaste={handlePaste}
-                    onRemoveAttachment={removeAttachment}
-                    onSend={() => void handleSend()}
-                    onKeyDown={handleKeyDown}
-                    canSend={canSend}
-                    isCompact
-                    isBusy={isBusy}
-                    onStop={() => void handleStop()}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </main>
-
-      {activeConversationId !== null && (
-        <WorkspacePanel
-          isOpen={isWorkspacePanelOpen}
-          cwd={activeWorkspace?.cwd}
-          isRootLoading={isWorkspaceRootLoading}
-          rootError={workspaceRootError}
-          rootFiles={workspaceRootFiles}
-          expandedDirs={expandedWorkspaceDirs}
-          dirChildren={workspaceDirChildren}
-          loadingDirs={workspaceLoadingDirs}
-          dirErrors={workspaceDirErrors}
-          onToggleDirectory={toggleWorkspaceDirectory}
-        />
-      )}
-
-      {isSettingsOpen && (
-        <div className="fixed inset-0 bg-pure-black/10 z-[100] flex items-center justify-center p-4">
-          <div className="absolute inset-0" onClick={() => setIsSettingsOpen(false)} />
-          <div className="w-full max-w-4xl h-[640px] bg-pure-white rounded-container border border-light-gray z-10 flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="flex-1 flex overflow-hidden">
-              <aside className="w-[200px] bg-snow flex flex-col p-4 border-r border-light-gray/50">
-                <div className="mb-4 px-2 font-display text-[14px] font-medium tracking-tight flex items-center gap-2">
-                  <Settings className="w-3.5 h-3.5" />
-                  <span>Settings</span>
-                </div>
-                <nav className="space-y-0.5 flex-1">
-                    <button
-                      onClick={() => setSettingsTab('general')}
-                      className={`w-full text-left px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${
-                        settingsTab === 'general' ? 'bg-light-gray/60 text-pure-black' : 'text-stone hover:bg-light-gray/30'
-                      }`}
-                    >
-                      General
-                    </button>
-                    <button
-                      onClick={() => setSettingsTab('agents')}
-                      className={`w-full text-left px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${
-                        settingsTab === 'agents' ? 'bg-light-gray/60 text-pure-black' : 'text-stone hover:bg-light-gray/30'
-                      }`}
-                    >
-                      Agents
-                    </button>
-                    <button
-                      onClick={() => setSettingsTab('mcp')}
-                      className={`w-full text-left px-3 py-1.5 rounded-md text-[12px] transition-colors ${
-                        settingsTab === 'mcp' ? 'bg-light-gray/60 text-pure-black' : 'text-stone hover:bg-light-gray/30'
-                      }`}
-                    >
-                      MCP
-                    </button>
-                  </nav>
-                <div className="mt-4 pt-4 border-t border-light-gray/50">
-                  <button
-                    onClick={() => setIsSettingsOpen(false)}
-                    className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-[12px] font-medium text-stone hover:bg-light-gray/30 transition-colors"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                    <span>关闭</span>
-                  </button>
-                </div>
-              </aside>
-
-              <div className="flex-1 flex flex-col min-w-0 bg-pure-white relative">
-                <div className="flex-1 overflow-y-auto p-6">
-                  {settingsTab === 'general' && (
-                    <div className="space-y-6">
-                      <section>
-                        <div className="flex items-center justify-between mb-3 px-1">
-                          <div className="text-[10px] text-silver font-medium uppercase tracking-wider">Display</div>
-                        </div>
-
-                        <div className="border border-light-gray/60 rounded-container overflow-hidden bg-pure-white">
-                          <div className="flex items-center justify-between py-3 px-4">
-                            <div className="flex flex-col gap-0.5">
-                              <span className="font-display font-medium text-[13px] text-pure-black">
-                                始终展示模型思考内容
-                              </span>
-                              <span className="text-[11px] text-stone">
-                                开启后，所有思考块默认展开显示，包括已完成的对话
-                              </span>
-                            </div>
-                            <button
-                              onClick={() => setAlwaysExpandThinking(!alwaysExpandThinking)}
-                              className={`relative w-12 h-7 rounded-full transition-colors border ${
-                                alwaysExpandThinking
-                                  ? 'bg-pure-black border-pure-black'
-                                  : 'bg-pure-white border-light-gray'
-                              }`}
-                            >
-                              <div
-                                className={`absolute top-[1px] w-6 h-6 rounded-full transition-transform ${
-                                  alwaysExpandThinking ? 'left-[22px] bg-pure-white' : 'left-[2px] bg-light-gray'
-                                }`}
-                              />
-                            </button>
-                          </div>
-                        </div>
-                      </section>
-                    </div>
-                  )}
-
-                  {settingsTab === 'agents' && (
-                    <div className="space-y-8">
-                      <section>
-                      <div className="flex items-center justify-between mb-3 px-1">
-                        <div className="text-[10px] text-silver font-medium uppercase tracking-wider">Agents</div>
-                      </div>
-                      
-                      <div className="border border-light-gray/60 rounded-container overflow-hidden bg-pure-white">
-                        {sortedDiscoveryStatus.map((agent, index) => (
-                          <div 
-                            key={agent.command} 
-                            className={`group relative flex items-center justify-between py-3 px-4 transition-colors hover:bg-snow ${
-                              index !== sortedDiscoveryStatus.length - 1 ? 'border-b border-light-gray/30' : ''
-                            }`}
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className={`w-8 h-8 rounded-md flex items-center justify-center border border-light-gray/50 transition-colors p-1.5 ${
-                                agent.availability !== "unavailable" ? 'bg-pure-white' : 'bg-snow opacity-50'
-                              }`}>
-                                <AgentLogo agent={agent} className="w-full h-full object-contain" />
-                              </div>
-                              <div className="flex items-baseline gap-2 min-w-0">
-                                <span className="font-display font-medium text-[13px] text-pure-black leading-tight shrink-0">
-                                  {agent.name}
-                                </span>
-                                <span className="font-mono text-[10px] text-silver truncate">
-                                  {agent.command}
-                                </span>
-                              </div>
-                            </div>
-                            
-                            <div className="flex items-center gap-3">
-                              <span className={`flex items-center gap-1 px-2 py-0.5 rounded-pill text-[9px] font-medium uppercase tracking-wide ${
-                                agent.availability === 'ready'
-                                  ? 'bg-light-gray/40 text-near-black'
-                                  : agent.availability === 'degraded'
-                                    ? 'border border-light-gray/40 text-stone'
-                                    : 'border border-light-gray/40 text-silver'
-                              }`}>
-                                <div className={`w-1.5 h-1.5 rounded-full ${
-                                  agent.availability === 'ready'
-                                    ? 'bg-[#10b981]'
-                                    : agent.availability === 'degraded'
-                                      ? 'bg-[#f59e0b]'
-                                      : 'bg-[#9ca3af]'
-                                }`} />
-                                {agent.availability}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </section>
-
-                    <section className="px-1 space-y-2">
-                      {sortedDiscoveryStatus
-                        .filter((agent) => agent.detail && agent.availability !== 'degraded')
-                        .map((agent) => (
-                          <div key={`${agent.command}-detail`} className="flex gap-3 p-3 rounded-container bg-snow border border-light-gray/20">
-                            <AlertCircle className="w-3.5 h-3.5 text-stone shrink-0 mt-0.5" />
-                            <p className="text-[11px] text-stone leading-relaxed">
-                              <span className="font-medium text-pure-black">{agent.name}:</span> {agent.detail}
-                            </p>
-                          </div>
-                        ))}
-                    </section>
-
-                    {availableAgents.length > 0 && (
-                      <section className="px-1">
-                        <div className="flex gap-3 p-3 rounded-container bg-snow border border-light-gray/20">
-                          <AlertCircle className="w-3.5 h-3.5 text-stone shrink-0 mt-0.5" />
-                          <p className="text-[11px] text-stone leading-relaxed">
-                            Native ACP agents are detected from your system <code className="text-pure-black font-medium">PATH</code>. Claude Code is exposed through a bundled or system bridge runtime.
-                          </p>
-                        </div>
-                      </section>
-                    )}
-                    </div>
-                  )}
-
-                  {settingsTab === 'mcp' && (
-                    <div className="space-y-6">
-                      <section>
-                        <div className="flex gap-3 p-3 rounded-container bg-snow border border-light-gray/20">
-                          <AlertCircle className="w-3.5 h-3.5 text-stone shrink-0 mt-0.5" />
-                          <p className="text-[11px] text-stone leading-relaxed">
-                            MCP server configuration will be available in a future update.
-                          </p>
-                        </div>
-                      </section>
-                    </div>
-                  )}
-                </div>
-                {showScrollButton && (
-              <div className="pointer-events-none absolute inset-x-0 bottom-6 z-20 flex justify-center px-4 md:px-6">
-                <button
-                  type="button"
-                  onClick={scrollToBottom}
-                  className="pointer-events-auto p-2 rounded-full bg-pure-white border border-light-gray text-stone hover:text-pure-black hover:bg-light-gray shadow-sm transition-colors cursor-pointer"
-                  title="Scroll to bottom"
-                  aria-label="Scroll to bottom"
-                >
-                  <ArrowDown className="w-4 h-4" />
-                </button>
-              </div>
+        homeContent={
+          <HomeScreen
+            workspaces={workspaces}
+            activeWorkspace={activeWorkspace}
+            activeAgent={activeAgent}
+            activeAgentProfileId={activeAgentProfileId}
+            agentProfiles={agentProfiles}
+            availableAgentsCount={availableAgents.length}
+            isWorkspaceLocked={isWorkspaceLocked}
+            input={input}
+            setInput={setInput}
+            attachmentStates={attachmentStates}
+            modelSelector={modelSelector}
+            selectedModelValue={selectedModelValue}
+            selectedModelLabel={selectedModelLabel}
+            isSettingModel={isSettingModel}
+            activeModeState={activeModeState}
+            selectedModeValue={selectedModeValue}
+            selectedModeLabel={selectedModeLabel}
+            isSettingMode={isSettingMode}
+            canSend={canSend}
+            isBusy={isBusy}
+            renderAgentLogo={(agent, className) => (
+              <AgentLogo agent={agent} className={className} />
             )}
-          </div>
-        </div>
-      </div>
-    </div>
-  )}
+            onSelectWorkspace={(workspace) => void switchWorkspace(workspace)}
+            onAddWorkspace={() => void pickWorkspace()}
+            onSelectAgentProfile={(profileId) => {
+              setActiveAgentProfile(profileId);
+              setComposerNotice(null);
+            }}
+            onModelChange={(value) => void handleModelChange(value)}
+            onModeChange={(value) => void handleModeChange(value)}
+            onDrop={handleDrop}
+            onPaste={handlePaste}
+            onRemoveAttachment={removeAttachment}
+            onSend={() => void handleSend()}
+            onStop={() => void handleStop()}
+            onAttachClick={() => fileInputRef.current?.click()}
+            onKeyDown={handleKeyDown}
+          />
+        }
+        conversationContent={
+          <ConversationScreen
+            setScrollAreaRef={setScrollAreaRef}
+            scrollContentRef={scrollContentRef}
+            activeTimeline={activeTimeline}
+            activeTimelineItems={activeTimelineItems}
+            lastAgentMessageIdsPerTurn={lastAgentMessageIdsPerTurn}
+            permissionDecisions={permissionDecisions}
+            permissionRequestMeta={permissionRequestMeta}
+            showScrollButton={showScrollButton}
+            scrollToBottom={scrollToBottom}
+            getLatestPermissionDecision={getLatestPermissionDecision}
+            input={input}
+            setInput={setInput}
+            attachmentStates={attachmentStates}
+            activeAgent={activeAgent}
+            modelSelector={modelSelector}
+            selectedModelValue={selectedModelValue}
+            selectedModelLabel={selectedModelLabel}
+            isSettingModel={isSettingModel}
+            activeModeState={activeModeState}
+            selectedModeValue={selectedModeValue}
+            selectedModeLabel={selectedModeLabel}
+            isSettingMode={isSettingMode}
+            canSend={canSend}
+            isBusy={isBusy}
+            onModelChange={(value) => void handleModelChange(value)}
+            onModeChange={(value) => void handleModeChange(value)}
+            onAttachClick={() => fileInputRef.current?.click()}
+            onDrop={handleDrop}
+            onPaste={handlePaste}
+            onRemoveAttachment={removeAttachment}
+            onSend={() => void handleSend()}
+            onStop={() => void handleStop()}
+            onKeyDown={handleKeyDown}
+          />
+        }
+        workspacePanel={activeConversationId !== null ? (
+          <WorkspacePanel
+            isOpen={isWorkspacePanelOpen}
+            cwd={activeWorkspace?.cwd}
+            isRootLoading={isWorkspaceRootLoading}
+            rootError={workspaceRootError}
+            rootFiles={workspaceRootFiles}
+            expandedDirs={expandedWorkspaceDirs}
+            dirChildren={workspaceDirChildren}
+            loadingDirs={workspaceLoadingDirs}
+            dirErrors={workspaceDirErrors}
+            onToggleDirectory={toggleWorkspaceDirectory}
+          />
+        ) : null}
+      />
+
+      <SettingsDialog
+        isOpen={isSettingsOpen}
+        settingsTab={settingsTab}
+        alwaysExpandThinking={alwaysExpandThinking}
+        sortedDiscoveryStatus={sortedDiscoveryStatus}
+        availableAgentsCount={availableAgents.length}
+        onClose={() => setIsSettingsOpen(false)}
+        onSelectTab={setSettingsTab}
+        onToggleAlwaysExpandThinking={() => setAlwaysExpandThinking(!alwaysExpandThinking)}
+        renderAgentLogo={(agent, className) => (
+          <AgentLogo agent={agent} className={className} />
+        )}
+      />
 
       <AnimatePresence>
         {isSearchOpen && (
