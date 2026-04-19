@@ -14,17 +14,36 @@
 - 允许多个 agent / 多个开发者并行演进
 - 兼容当前产品需求，并为后续协议、能力和运行时扩展留接口
 
-相关文档：
-
-- [docs/backend-refactor-next.md](/Users/smkl/mydevelop/OneAgent/docs/backend-refactor-next.md)
-
 ## 1.1 实施现状快照（2026-04-19）
 
 - `storage` 已完成 `sqlite/repositories/mappers` 物理拆分，并已引入 `sqlite/tx.rs`。
 - `runtime` 已完成 `session_manager/recovery/stream_processor/projector/snapshot_model` 拆分并接线。
 - `application` 已接入 `Gateway` 主流程，不再是纯占位目录。
-- ACP 已目录化拆分，类型化（C2）仍在持续推进。
-- 当前主要缺口是：`application` 用例骨架深化、事务覆盖面补齐、以及 D2 回归测试矩阵。
+- ACP 已目录化拆分，关键消息族已完成类型化解析。
+- 事务覆盖关键多写流程（`import/cancel/delete/permission resolve`）已完成原子化。
+- 回归测试矩阵已覆盖事务关键路径与 runtime 投影关键行为。
+- 当前主要缺口为 D3：异步路径中的同步 SQLite 访问边界仍需继续硬化。
+
+## 1.2 Refactor 追踪（合并自 `docs/backend-refactor-next.md`）
+
+### 稳定契约（禁止破坏）
+
+- 现有 Tauri command 名称与 request/response JSON 字段
+- 现有 runtime 事件名：
+  - `conversation:state_changed`
+  - `conversation:message_appended`
+  - `conversation:message_updated`
+  - `conversation:tool_call_changed`
+  - `conversation:permission_requested`
+  - `conversation:permission_resolved`
+  - `conversation:terminal_output`
+  - `conversation:turn_finished`
+  - `task_run:state_changed`
+- SQLite 存储位置与 identity 语义
+
+### 当前焦点（P0）
+
+- D3 边界/性能硬化：降低高频流路径的同步 DB 压力，持续为后续 `spawn_blocking`/连接池迁移保留明确 seam。
 
 ## 2. 设计目标
 
