@@ -2,29 +2,21 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   ArrowDown,
-  ArrowUp,
   Bot,
-  Check,
   ChevronDown,
 
   ChevronRight,
   Code,
-  Cpu,
   Folder,
   FolderOpen,
   Loader2,
   Menu,
-  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
-  Paperclip,
   Plus,
-  Square,
   SquarePen,
   Search,
   Settings,
-  Terminal,
-  ToggleLeft,
   X,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -34,20 +26,12 @@ import type * as Types from "./lib/backend/types";
 import { ThoughtDisplay } from "./components/chat/ThoughtDisplay";
 import { ToolCallDisplay } from "./components/chat/ToolCallDisplay";
 import { PermissionDisplay } from "./components/chat/PermissionDisplay";
+import { Composer } from "./components/composer/Composer";
 import { SearchOverlay } from "./components/search/SearchOverlay";
 import { SidebarItem } from "./components/sidebar/SidebarItem";
 import { TimelineMessage } from "./components/timeline/TimelineMessage";
 import { WorkspaceDropdown } from "./components/ui/WorkspaceDropdown";
-import { ATTACHMENT_LIMITS } from "./lib/constants";
-import { useScrollManager, useAttachmentHandler, useModelSelector, useModeSelector, useWorkspaceFileTree, useSearch } from "./hooks";
-import type {
-  LocalAttachment as HookLocalAttachment,
-  AttachmentResolution as HookAttachmentResolution,
-  ModelSelectorState,
-} from "./hooks";
-
-type LocalAttachment = HookLocalAttachment;
-type AttachmentResolution = HookAttachmentResolution;
+import { useScrollManager, useAttachmentHandler, useModelSelector, useModeSelector, useWorkspaceFileTree, useSearch, useConversationComposer } from "./hooks";
 
 const AGENT_LOGOS: Record<string, string> = {
   claude: "/logos/ai-major/claude.svg",
@@ -125,12 +109,6 @@ function formatDiscoveryNotice(status: Types.AgentDiscoveryStatus | null | undef
   if (status.availability === "ready" || status.availability === "degraded") return null;
   if (status.detail?.trim()) return status.detail;
   return "This agent is currently unavailable.";
-}
-
-function humanFileSize(size: number) {
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function statusMeta(
@@ -229,12 +207,10 @@ export default function App() {
   const [isDesktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'general' | 'agents' | 'mcp'>('general');
-  const [input, setInput] = useState("");
   const [composerNotice, setComposerNotice] = useState<string | null>(null);
   const [pendingDeleteConversationId, setPendingDeleteConversationId] = useState<string | null>(null);
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(new Set());
   const [permissionDecisions, setPermissionDecisions] = useState<Types.PermissionDecision[]>([]);
-  const [isSending, setIsSending] = useState(false);
 
   const {
     scrollAreaRef,
@@ -263,10 +239,8 @@ export default function App() {
     unreadCompletedConversations,
     selectConversation,
     setActiveAgentProfile,
-    ensureAgentCapabilities,
     sendMessage,
     deleteConversation,
-    setSessionConfig,
     cancelTurn,
     switchWorkspace,
     pickWorkspace,
@@ -299,10 +273,8 @@ export default function App() {
     modelSelector,
     selectedValue: selectedModelValue,
     selectedLabel: selectedModelLabel,
-    pendingValue: pendingModelValue,
     isSetting: isSettingModel,
     handleModelChange,
-    clearPendingValue,
   } = useModelSelector({ enabled: true, onNotice: setComposerNotice });
 
   const {
@@ -406,14 +378,53 @@ export default function App() {
     agentDiscoveryStatus.find((status) => status.profile_id === activeAgentProfileId)
     ?? agentDiscoveryStatus.find((status) => status.command === activeAgent?.command);
   const availableAgents = agentDiscoveryStatus.filter((agent) => agent.installed);
-  const canSend = input.trim().length > 0 && !!activeAgentProfileId && !blockedAttachment && !isAddingAttachment && canSendAttachments;
   const isWorkspaceLocked = activeConversationId !== null;
   const currentConversation =
     activeConversationState?.conversation ??  // 优先使用实时轮询的状态
     conversations.find((conversation) => conversation.id === activeConversationId) ??  // 其次使用列表缓存
     null;
   const conversationStatus = statusMeta(activeConversationState?.runtime, currentConversation?.status);
-  const isBusy = isSending || (conversationStatus?.pulse ?? false);
+  const isConversationBusy = conversationStatus?.pulse ?? false;
+
+  useEffect(() => {
+    if (activeConversationId || !activeAgentProfileId) return;
+    setComposerNotice(formatDiscoveryNotice(activeDiscoveryStatus));
+  }, [activeConversationId, activeAgentProfileId, activeDiscoveryStatus]);
+
+  const {
+    activeModeState,
+    selectedValue: selectedModeValue,
+    selectedLabel: selectedModeLabel,
+    isSetting: isSettingMode,
+    handleModeChange,
+  } = useModeSelector({ onNotice: setComposerNotice });
+
+  const {
+    input,
+    setInput,
+    canSend,
+    isBusy,
+    resetComposer,
+    handleSend,
+    handleStop,
+    handleKeyDown,
+  } = useConversationComposer({
+    activeConversationId,
+    activeAgentProfileId,
+    isConversationBusy,
+    canSendAttachments,
+    blockedAttachment,
+    isAddingAttachment,
+    attachmentStates,
+    resetAttachments,
+    modelSelector,
+    selectedModelValue,
+    activeModeState,
+    selectedModeValue,
+    sendMessage,
+    cancelTurn,
+    setComposerNotice,
+  });
 
   // Calculate the last agent text message ID for each turn (for copy functionality)
   // Exclude the currently running turn (if any) from showing copy button
@@ -496,21 +507,6 @@ export default function App() {
     scrollToBottom();
   }, [activeConversationId, scrollToBottom]);
 
-  useEffect(() => {
-    if (activeConversationId || !activeAgentProfileId) return;
-    setComposerNotice(formatDiscoveryNotice(activeDiscoveryStatus));
-  }, [activeConversationId, activeAgentProfileId, activeDiscoveryStatus]);
-
-  // Load modes config for new conversations (model config is loaded by useModelSelector)
-
-  const {
-    activeModeState,
-    selectedValue: selectedModeValue,
-    selectedLabel: selectedModeLabel,
-    isSetting: isSettingMode,
-    handleModeChange,
-  } = useModeSelector({ onNotice: setComposerNotice });
-
   const permissionRequestMeta = useMemo(() => {
     const meta = new Map<
       string,
@@ -540,57 +536,6 @@ export default function App() {
 
     return meta;
   }, [activeTimeline?.events]);
-
-  const resetComposer = () => {
-    resetAttachments();
-    setInput("");
-    setComposerNotice(null);
-  };
-
-  const handleSend = async () => {
-    if (!canSend || !activeAgentProfileId || isBusy) return;
-    setIsSending(true);
-    const payload: Types.AttachmentInput[] = attachmentStates.map(({ attachment, resolution }) => ({
-      id: attachment.id,
-      name: attachment.name,
-      path: attachment.path,
-      mime_type: attachment.mimeType,
-      kind: attachment.kind,
-      delivery_preference: resolution.deliveryPreference,
-    }));
-    const text = input.trim();
-    const sessionConfigOverrides: Array<{ config_id: string; value: any }> = [];
-    if (!activeConversationId) {
-      if (modelSelector && selectedModelValue && selectedModelValue !== modelSelector.selectedValue) {
-        sessionConfigOverrides.push({ config_id: modelSelector.option.id, value: selectedModelValue });
-      }
-      if (activeModeState && selectedModeValue && selectedModeValue !== activeModeState.current_mode_id) {
-        sessionConfigOverrides.push({ config_id: "__mode_override__", value: selectedModeValue });
-      }
-    }
-    resetAttachments();
-    setInput("");
-    setComposerNotice(null);
-    try {
-      await sendMessage(text, payload, sessionConfigOverrides);
-    } catch (error) {
-      console.error("Failed to send message", error);
-      setComposerNotice("Failed to send message.");
-    } finally {
-      setIsSending(false);
-    }
-  };
-
-  const handleStop = async () => {
-    await cancelTurn();
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      void handleSend();
-    }
-  };
 
   const renderWorkspaceEntries = (entries: Types.WorkspaceFileEntry[], depth = 0) =>
     entries.map((entry) => {
@@ -1392,272 +1337,6 @@ export default function App() {
           />
         )}
       </AnimatePresence>
-    </div>
-  );
-}
-
-function Composer({
-  input,
-  setInput,
-  attachments,
-  activeAgent,
-  modelSelector,
-  selectedModelValue,
-  selectedModelLabel,
-  onModelChange,
-  isSettingModel,
-  activeModeState,
-  selectedModeValue,
-  selectedModeLabel,
-  onModeChange,
-  isSettingMode,
-  onAttachClick,
-  onDrop,
-  onPaste,
-  onRemoveAttachment,
-  onSend,
-  onKeyDown,
-  canSend,
-  isCompact,
-  isBusy,
-  onStop,
-}: {
-  input: string;
-  setInput: (value: string) => void;
-  attachments: Array<{ attachment: LocalAttachment; resolution: AttachmentResolution }>;
-  activeAgent: Types.AgentProfile | null;
-  modelSelector: ModelSelectorState | null;
-  selectedModelValue: any;
-  selectedModelLabel: string | null;
-  onModelChange: (value: any) => void;
-  isSettingModel: boolean;
-  activeModeState?: Types.AcpSessionModeState | null;
-  selectedModeValue?: any;
-  selectedModeLabel?: string | null;
-  onModeChange?: (value: any) => void;
-  isSettingMode?: boolean;
-  onAttachClick: () => void;
-  onDrop: (event: React.DragEvent<HTMLDivElement>) => void;
-  onPaste: (event: React.ClipboardEvent<HTMLTextAreaElement>) => void;
-  onRemoveAttachment: (id: string) => void;
-  onSend: () => void;
-  onKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
-  canSend: boolean;
-  isCompact: boolean;
-  isBusy: boolean;
-  onStop: () => void;
-}) {
-  const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
-  const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
-  const choices = modelSelector?.choices ?? [];
-  const selectedChoice = choices.find(c => String(c.value) === String(selectedModelValue));
-  const modeChoices = activeModeState?.available_modes ?? [];
-
-  return (
-    <div
-      onDrop={onDrop}
-      onDragOver={(event) => event.preventDefault()}
-      className="w-full relative bg-pure-white border border-light-gray rounded-container transition-all flex flex-col group"
-    >
-      {attachments.length > 0 && (
-        <div className="px-3 pt-3 space-y-2">
-          {attachments.map(({ attachment, resolution }) => (
-            <div key={attachment.id} className="flex items-center gap-3 rounded-xl border border-light-gray bg-snow px-3 py-2">
-              {attachment.previewUrl ? (
-                <img src={attachment.previewUrl} alt={attachment.name} className="w-12 h-12 rounded-lg object-cover shrink-0" />
-              ) : (
-                <div className="w-12 h-12 rounded-lg bg-pure-white border border-light-gray shrink-0 flex items-center justify-center">
-                  <Paperclip className="w-4 h-4 text-stone" />
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="text-[13px] font-medium truncate">{attachment.name}</div>
-                <div className="text-[11px] text-stone flex flex-wrap gap-2">
-                  <span>{humanFileSize(attachment.size)}</span>
-                  <span>{resolution.label}</span>
-                </div>
-                {resolution.reason && <div className="text-[11px] text-stone truncate">{resolution.reason}</div>}
-              </div>
-              <button className="p-1.5 rounded-md hover:bg-light-gray/60 text-stone hover:text-pure-black" onClick={() => onRemoveAttachment(attachment.id)}>
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <textarea
-        value={input}
-        onChange={(event) => setInput(event.target.value)}
-        onKeyDown={onKeyDown}
-        onPaste={onPaste}
-        placeholder={isCompact ? "Message..." : "Message Agent..."}
-        className={`w-full bg-transparent ${isCompact ? "px-4 py-3 min-h-[72px] max-h-[200px]" : "p-5 min-h-[90px] max-h-[400px]"} text-caption resize-none focus:outline-none placeholder:text-silver leading-relaxed`}
-        rows={isCompact ? 2 : 3}
-      />
-
-      <div className={`flex items-center justify-between ${isCompact ? "px-3 py-2" : "px-4 py-3"} rounded-b-container relative`}>
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            className={`${isCompact ? "p-1.5" : "p-2"} text-stone hover:text-pure-black rounded-pill hover:bg-light-gray/50 transition-colors shrink-0`}
-            title="Add Attachment"
-            onClick={onAttachClick}
-          >
-            <Paperclip className={isCompact ? "w-3.5 h-3.5" : "w-4 h-4"} />
-          </button>
-
-          <div className="relative">
-            {modelSelector && modelSelector.choices.length > 0 ? (
-              <>
-                <button
-                  onClick={() => !isSettingModel && setIsModelMenuOpen(!isModelMenuOpen)}
-                  disabled={isSettingModel}
-                  className={`flex items-center gap-1.25 ${isCompact ? "px-2 py-1 text-[11px]" : "px-2.5 py-1.5 text-small"} text-stone bg-transparent rounded-pill transition-colors select-none ${
-                    !isSettingModel ? "hover:text-pure-black hover:bg-snow" : "opacity-60 cursor-not-allowed"
-                  }`}
-                >
-                  {isSettingModel && <Loader2 className={isCompact ? "w-3 h-3 animate-spin" : "w-3.5 h-3.5 animate-spin"} />}
-                  <span className="truncate max-w-[150px] font-medium">
-                    {selectedChoice?.label || selectedModelLabel || "Select Model"}
-                  </span>
-                  <ChevronDown className={`${isCompact ? "w-2.5 h-2.5" : "w-3 h-3"} transition-transform ${isModelMenuOpen ? 'rotate-180' : ''}`} />
-                </button>
-
-                <AnimatePresence>
-                  {isModelMenuOpen && (
-                    <>
-                      <div className="fixed inset-0 z-[60]" onClick={() => setIsModelMenuOpen(false)} />
-                      <motion.div
-                        initial={{ opacity: 0, scale: 0.95, y: 5 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, y: 5 }}
-                        transition={{ duration: 0.15, ease: "easeOut" }}
-                        className="absolute bottom-full left-0 mb-2 w-max min-w-[220px] max-w-[320px] max-h-[300px] overflow-y-auto bg-pure-white border border-light-gray rounded-container z-[70] py-1.5 flex flex-col scrollbar-thin shadow-none"
-                      >
-                        <div className="px-3 py-1">
-                          <span className="text-[10px] font-medium text-silver tracking-wider">Models</span>
-                        </div>
-                        {modelSelector.choices.map((choice) => (
-                          <button
-                            key={String(choice.value)}
-                            onClick={() => {
-                              onModelChange(choice.value);
-                              setIsModelMenuOpen(false);
-                            }}
-                            title={choice.label}
-                            className={`w-full text-left px-3 py-2 text-[13px] transition-colors flex items-center justify-between gap-4 ${
-                              String(choice.value) === String(selectedModelValue)
-                                ? 'bg-light-gray/60 text-pure-black font-medium'
-                                : 'text-near-black hover:bg-snow'
-                            }`}
-                          >
-                            <span className="truncate">{choice.label}</span>
-                            {String(choice.value) === String(selectedModelValue) && (
-                              <Check className="w-3.5 h-3.5 text-pure-black shrink-0" />
-                            )}
-                          </button>
-                        ))}
-                      </motion.div>
-                    </>
-                  )}
-                </AnimatePresence>
-              </>
-            ) : modelSelector ? (
-              // State 2: Has model info but no choices (read-only)
-              <span
-                title="Model switching not available"
-                className={`flex items-center ${isCompact ? "px-2 py-1 text-[11px]" : "px-2.5 py-1.5 text-small"} text-stone bg-transparent rounded-pill select-none`}
-              >
-                <span className="truncate max-w-[150px] font-medium">
-                  {selectedModelLabel || "Default Model"}
-                </span>
-              </span>
-            ) : (
-              // State 3: No model info (disabled placeholder)
-              <span
-                title="Model info not available"
-                className={`flex items-center ${isCompact ? "px-2 py-1 text-[11px]" : "px-2.5 py-1.5 text-small"} text-stone bg-transparent rounded-pill select-none`}
-              >
-                <span className="truncate max-w-[120px] font-medium">Default Model</span>
-              </span>
-            )}
-          </div>
-
-          {activeModeState && activeModeState.available_modes?.length > 0 && onModeChange && (
-            <div className="relative">
-              <button
-                onClick={() => !isSettingMode && setIsModeMenuOpen(!isModeMenuOpen)}
-                disabled={isSettingMode}
-                className={`flex items-center gap-1.25 ${isCompact ? "px-2 py-1 text-[11px]" : "px-2.5 py-1.5 text-small"} text-stone bg-transparent rounded-pill transition-colors select-none ${
-                  !isSettingMode ? "hover:text-pure-black hover:bg-snow" : "opacity-60 cursor-not-allowed"
-                }`}
-              >
-                {isSettingMode && <Loader2 className={isCompact ? "w-3 h-3 animate-spin" : "w-3.5 h-3.5 animate-spin"} />}
-                <span className="truncate max-w-[150px] font-medium">
-                  {selectedModeLabel ?? selectedModeValue ?? "Select Mode"}
-                </span>
-                <ChevronDown className={`${isCompact ? "w-2.5 h-2.5" : "w-3 h-3"} transition-transform ${isModeMenuOpen ? 'rotate-180' : ''}`} />
-              </button>
-
-              <AnimatePresence>
-                {isModeMenuOpen && (
-                  <>
-                    <div className="fixed inset-0 z-[60]" onClick={() => setIsModeMenuOpen(false)} />
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.95, y: 5 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.95, y: 5 }}
-                      transition={{ duration: 0.15, ease: "easeOut" }}
-                      className="absolute bottom-full left-0 mb-2 w-max min-w-[220px] max-w-[320px] max-h-[300px] overflow-y-auto bg-pure-white border border-light-gray rounded-container z-[70] py-1.5 flex flex-col scrollbar-thin shadow-none"
-                    >
-                      <div className="px-3 py-1">
-                        <span className="text-[10px] font-medium text-silver tracking-wider">Modes</span>
-                      </div>
-                      {modeChoices.map((choice: any) => (
-                        <button
-                          key={choice.id}
-                          onClick={() => {
-                            onModeChange?.(choice.id);
-                            setIsModeMenuOpen(false);
-                          }}
-                          title={choice.description ?? choice.name}
-                          className={`w-full text-left px-3 py-2 text-[13px] transition-colors flex items-center justify-between gap-4 ${
-                            String(choice.id) === String(selectedModeValue)
-                              ? 'bg-light-gray/60 text-pure-black font-medium'
-                              : 'text-near-black hover:bg-snow'
-                          }`}
-                        >
-                          <span className="truncate">{choice.name?.trim() || choice.id?.trim() || "Mode"}</span>
-                          {String(choice.id) === String(selectedModeValue) && (
-                            <Check className="w-3.5 h-3.5 text-pure-black shrink-0" />
-                          )}
-                        </button>
-                      ))}
-                    </motion.div>
-                  </>
-                )}
-              </AnimatePresence>
-            </div>
-          )}
-        </div>
-
-        {isBusy ? (
-          <button
-            className={`${isCompact ? "p-1.5" : "p-2.5"} rounded-pill shrink-0 flex items-center justify-center bg-light-gray text-pure-black hover:bg-mid-gray transition-colors`}
-            onClick={onStop}
-          >
-            <Square className={isCompact ? "w-3.5 h-3.5" : "w-4 h-4"} />
-          </button>
-        ) : (
-          <button
-            className={`${isCompact ? "p-1.5" : "p-2.5"} rounded-pill transition-colors shrink-0 flex items-center justify-center ${canSend ? "bg-pure-black text-pure-white" : "bg-light-gray text-silver"}`}
-            disabled={!canSend}
-            onClick={onSend}
-          >
-            <ArrowUp className={isCompact ? "w-3.5 h-3.5" : "w-4 h-4"} />
-          </button>
-        )}
-      </div>
     </div>
   );
 }

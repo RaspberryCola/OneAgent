@@ -32,3 +32,9 @@ export type {
 
 export { useSearch } from './useSearch';
 export type { UseSearchOptions, UseSearchReturn } from './useSearch';
+
+export { useConversationComposer } from './useConversationComposer';
+export type {
+  UseConversationComposerOptions,
+  UseConversationComposerReturn,
+} from './useConversationComposer';
