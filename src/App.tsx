@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   ArrowDown,
@@ -26,7 +26,6 @@ import {
   Settings,
   Terminal,
   ToggleLeft,
-  Trash2,
   X,
 } from "lucide-react";
 import { Streamdown } from "streamdown";
@@ -39,6 +38,11 @@ import { ThoughtDisplay } from "./components/chat/ThoughtDisplay";
 import { ToolCallDisplay } from "./components/chat/ToolCallDisplay";
 import { TerminalDisplay } from "./components/chat/TerminalDisplay";
 import { PermissionDisplay } from "./components/chat/PermissionDisplay";
+import { SearchOverlay } from "./components/search/SearchOverlay";
+import { SidebarItem } from "./components/sidebar/SidebarItem";
+import { ErrorMessage } from "./components/timeline/ErrorMessage";
+import { PlanMessage } from "./components/timeline/PlanMessage";
+import { StatusMessage } from "./components/timeline/StatusMessage";
 import { WorkspaceDropdown } from "./components/ui/WorkspaceDropdown";
 import { ATTACHMENT_LIMITS } from "./lib/constants";
 import { useScrollManager, useAttachmentHandler, useModelSelector, useModeSelector, useWorkspaceFileTree, useSearch } from "./hooks";
@@ -845,6 +849,9 @@ export default function App() {
                                 title={conversation.title || "Untitled Chat"}
                                 agentCommand={agent?.command ?? conversation.agent_profile_id}
                                 status={conversation.status}
+                                renderAgentLogo={(agentCommand, className) => (
+                                  <AgentLogo agent={agentCommand} className={className} />
+                                )}
                                 unread={unreadCompletedConversations.has(conversation.id)}
                                 active={activeConversationId === conversation.id}
                                 onClick={() => {
@@ -1415,6 +1422,10 @@ export default function App() {
             setQuery={setSearchQuery}
             results={searchResults}
             isSearching={isSearching}
+            agentProfiles={agentProfiles}
+            renderAgentLogo={(agent, className) => (
+              <AgentLogo agent={agent} className={className} />
+            )}
             onClose={closeSearch}
             onSelect={(id) => {
               void selectConversation(id);
@@ -1693,99 +1704,6 @@ function Composer({
   );
 }
 
-function SidebarItem({
-  title,
-  agentCommand,
-  status,
-  unread = false,
-  active = false,
-  onClick,
-  deletePending = false,
-  onDelete,
-  onCancelDelete,
-}: {
-  title: string;
-  agentCommand?: string;
-  status?: Types.Conversation["status"];
-  unread?: boolean;
-  active?: boolean;
-  onClick?: () => void;
-  deletePending?: boolean;
-  onDelete?: () => void;
-  onCancelDelete?: () => void;
-}) {
-  const isRunning = status === "running";
-  const isCancelling = status === "cancelling";
-  const showCompletedDot = unread && !active && !isRunning && !isCancelling;
-  return (
-    <div
-      className={`group w-full rounded-container flex items-center gap-1 min-w-0 border border-transparent transition-colors ${active ? "bg-light-gray" : "hover:bg-light-gray/50"}`}
-    >
-      <button
-        type="button"
-        onClick={onClick}
-        className="flex-1 text-left px-3 py-1 flex items-center gap-2.5 min-w-0 rounded-container"
-      >
-        <div className={`relative w-4 h-4 flex items-center justify-center shrink-0 ${active ? 'opacity-100' : 'opacity-40'}`}>
-          {agentCommand ? <AgentLogo agent={agentCommand} className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5" />}
-          {(isRunning || isCancelling) && (
-            <div className={`absolute left-0 top-1/2 -translate-y-1/2 -translate-x-[calc(100%+3px)] w-1.5 h-1.5 rounded-full ${isRunning ? "bg-blue-500" : "bg-amber-500"} animate-pulse`} />
-          )}
-          {showCompletedDot && (
-            <div className={`absolute left-0 top-1/2 -translate-y-1/2 -translate-x-[calc(100%+3px)] w-1.5 h-1.5 rounded-full bg-emerald-500`} />
-          )}
-        </div>
-        <span className={`text-small truncate flex-1 ${active ? "text-pure-black font-medium" : "text-near-black"}`}>{title}</span>
-      </button>
-      {onDelete && (
-        deletePending ? (
-          <div className="flex items-center gap-1 pr-1.5 shrink-0">
-            <button
-              type="button"
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onDelete();
-              }}
-              className="px-2.5 py-1 rounded-container bg-pure-black text-pure-white text-[11px] font-medium hover:opacity-90 transition-opacity"
-              title="Confirm delete conversation"
-              aria-label={`Confirm delete conversation ${title}`}
-            >
-              Delete
-            </button>
-            <button
-              type="button"
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onCancelDelete?.();
-              }}
-              className="p-1 rounded-container text-stone hover:text-pure-black hover:bg-light-gray transition-colors"
-              title="Cancel delete"
-              aria-label={`Cancel delete conversation ${title}`}
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onDelete();
-            }}
-            className="opacity-0 group-hover:opacity-100 p-1.5 rounded-container text-stone hover:text-pure-black hover:bg-light-gray transition-all shrink-0 cursor-pointer mr-1"
-            title="Delete conversation"
-            aria-label={`Delete conversation ${title}`}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        )
-      )}
-    </div>
-  );
-}
 
 function TimelineMessage({
   message,
@@ -1948,198 +1866,5 @@ function Message({
         )}
       </div>
     </div>
-  );
-}
-
-function PlanMessage({
-  entries,
-}: {
-  entries: Array<{ content?: string; text?: string; status?: string }>;
-}) {
-  return (
-    <div className="flex w-full justify-start mt-1 mb-2">
-      <div className="w-full max-w-[95%] md:max-w-[85%] border border-light-gray rounded-container bg-snow px-4 py-3">
-        <div className="text-[11px] font-medium text-stone uppercase tracking-wider mb-2">Plan</div>
-        <div className="space-y-2">
-          {entries.length === 0 && <div className="text-[13px] text-stone">No plan details yet.</div>}
-          {entries.map((entry, index) => (
-            <div key={index} className="flex items-start gap-3">
-              <div className="mt-1 w-1.5 h-1.5 rounded-full bg-stone shrink-0" />
-              <div className="min-w-0">
-                <div className="text-[14px] leading-relaxed text-pure-black whitespace-pre-wrap">
-                  {entry.content || entry.text || `Step ${index + 1}`}
-                </div>
-                {entry.status && <div className="text-[11px] text-silver uppercase tracking-wider mt-1">{entry.status}</div>}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StatusMessage({ content }: { content: string }) {
-  return (
-    <div className="flex w-full justify-center mt-1 mb-2">
-      <div className="rounded-pill border border-light-gray bg-snow px-3 py-1.5 text-[12px] text-stone">
-        {content || "Status updated"}
-      </div>
-    </div>
-  );
-}
-
-function ErrorMessage({ content }: { content: string }) {
-  return (
-    <div className="flex w-full justify-start mt-1 mb-2">
-      <div className="w-full max-w-[95%] md:max-w-[85%] border border-light-gray bg-snow rounded-container px-4 py-3 text-near-black">
-        <div className="flex items-center gap-2 mb-1 text-stone">
-          <AlertCircle className="w-4 h-4 shrink-0" />
-          <span className="text-[11px] font-medium uppercase tracking-wider">Error</span>
-        </div>
-        <div className="text-[14px] leading-relaxed whitespace-pre-wrap">{content || "Unknown error"}</div>
-      </div>
-    </div>
-  );
-}
-
-function SearchOverlay({
-  query,
-  setQuery,
-  results,
-  isSearching,
-  onClose,
-  onSelect,
-}: {
-  query: string;
-  setQuery: (q: string) => void;
-  results: Types.Conversation[];
-  isSearching: boolean;
-  onClose: () => void;
-  onSelect: (id: string) => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const { agentProfiles } = useAppStore();
-
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh] px-4 bg-pure-white/80 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <motion.div
-        initial={{ y: -20, opacity: 0, scale: 0.98 }}
-        animate={{ y: 0, opacity: 1, scale: 1 }}
-        exit={{ y: -20, opacity: 0, scale: 0.98 }}
-        transition={{ type: "spring", stiffness: 400, damping: 30 }}
-        className="w-full max-w-2xl bg-pure-white rounded-container border border-light-gray flex flex-col overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="p-4 border-b border-light-gray flex items-center gap-3">
-          <Search className="w-5 h-5 text-stone" />
-          <input
-            ref={inputRef}
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search conversations..."
-            className="flex-1 bg-transparent text-bodyLarge focus:outline-none placeholder:text-silver"
-          />
-          {isSearching && <Loader2 className="w-4 h-4 animate-spin text-stone" />}
-          <button
-            onClick={onClose}
-            className="p-1 rounded-pill hover:bg-snow text-stone transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="max-h-[60vh] overflow-y-auto p-2 no-scrollbar">
-          {query.trim() === "" ? (
-            <div className="py-12 text-center text-stone text-caption">
-              Type to search your conversations
-            </div>
-          ) : results.length === 0 && !isSearching ? (
-            <div className="py-12 text-center text-stone text-caption">
-              No conversations found for "{query}"
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {results.map((result) => {
-                const agent = agentProfiles.find(p => p.id === result.agent_profile_id);
-                return (
-                  <button
-                    key={result.id}
-                    onClick={() => onSelect(result.id)}
-                    className="w-full group text-left px-3 py-2.5 rounded-container hover:bg-snow transition-all flex items-center gap-4"
-                  >
-                    <div className="w-10 h-10 rounded-container border border-light-gray bg-pure-white flex items-center justify-center shrink-0">
-                      <AgentLogo agent={agent ?? result.agent_profile_id} className="w-6 h-6 object-contain" />
-                    </div>
-                    
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-[15px] text-pure-black truncate">
-                          {result.title || "Untitled Chat"}
-                        </span>
-                        {result.origin === 'worker_task' && (
-                          <span className="px-2 py-0.5 rounded-pill bg-light-gray/60 text-[9px] font-medium uppercase tracking-tight text-near-black">
-                            Task
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-[12px] text-stone mt-0.5 flex items-center gap-2">
-                        <span className="truncate max-w-[120px]">{agent?.name || "Agent"}</span>
-                        <span className="text-silver opacity-50">•</span>
-                        <span>
-                          {new Date(result.updated_at).toLocaleString([], {
-                            year: 'numeric',
-                            month: 'numeric',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            hour12: false
-                          })}
-                        </span>
-                      </div>
-                    </div>
-
-                    <ChevronRight className="w-4 h-4 text-silver opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        <div className="p-3 bg-snow border-t border-light-gray flex items-center justify-between text-[11px] text-silver">
-          <div className="flex items-center gap-4">
-            <span className="flex items-center gap-1">
-              <span className="px-1.5 py-0.5 bg-pure-white border border-light-gray rounded-md text-stone">ESC</span>
-              to close
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="px-1.5 py-0.5 bg-pure-white border border-light-gray rounded-md text-stone">ENTER</span>
-              to select
-            </span>
-          </div>
-          <div>{results.length} results</div>
-        </div>
-      </motion.div>
-    </motion.div>
   );
 }
