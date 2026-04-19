@@ -8,6 +8,7 @@ import { PermissionDisplay } from '../../components/chat/PermissionDisplay';
 import { ThoughtDisplay } from '../../components/chat/ThoughtDisplay';
 import { ToolCallDisplay } from '../../components/chat/ToolCallDisplay';
 import { TimelineMessage } from '../../components/timeline/TimelineMessage';
+import { PlanMessage } from '../../components/timeline/PlanMessage';
 
 interface PermissionRequestMeta {
   toolKind?: string;
@@ -92,6 +93,11 @@ export function ConversationScreen({
   onStop,
   onKeyDown,
 }: ConversationScreenProps) {
+  const planItems = activeTimelineItems.filter(
+    (item) => item.type === 'message' && item.data.kind === 'plan'
+  );
+  const latestPlanMessage = planItems.length > 0 ? planItems[planItems.length - 1].data as any : null;
+
   return (
     <div
       ref={setScrollAreaRef}
@@ -167,6 +173,11 @@ export function ConversationScreen({
               </div>
             ))}
           <div className="relative">
+            {latestPlanMessage && (
+              <div className="mb-2">
+                <PlanMessage entries={Array.isArray(latestPlanMessage.content_json?.entries) ? latestPlanMessage.content_json.entries : []} />
+              </div>
+            )}
             {showScrollButton && (
               <div className="pointer-events-none absolute left-1/2 bottom-full z-20 mb-3 -translate-x-1/2">
                 <button

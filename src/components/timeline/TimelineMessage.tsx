@@ -17,7 +17,7 @@ export function TimelineMessage({
   lastAgentMessageIdsPerTurn,
 }: TimelineMessageProps) {
   if (message.kind === "plan") {
-    return <PlanMessage entries={Array.isArray(message.content_json?.entries) ? message.content_json.entries : []} />;
+    return null;
   }
 
   if (message.kind === "terminal") {
