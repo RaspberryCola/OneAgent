@@ -18,8 +18,7 @@ pub fn read_tool_call(row: &Row<'_>) -> rusqlite::Result<ToolCallProjection> {
             .unwrap_or_else(|_| serde_json::json!({})),
         content_json: from_json(&row.get::<_, String>(9)?)
             .unwrap_or_else(|_| serde_json::json!({})),
-        diffs_json: from_json(&row.get::<_, String>(10)?)
-            .unwrap_or_else(|_| serde_json::json!([])),
+        diffs_json: from_json(&row.get::<_, String>(10)?).unwrap_or_else(|_| serde_json::json!([])),
         terminal_ids_json: from_json(&row.get::<_, String>(11)?)
             .unwrap_or_else(|_| serde_json::json!([])),
         locations_json: from_json(&row.get::<_, String>(12)?)

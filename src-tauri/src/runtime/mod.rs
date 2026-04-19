@@ -18,16 +18,16 @@ use crate::{
 };
 
 // Re-export types from the types module
-pub mod types;
-pub mod session_manager;
-pub mod stream_processor;
 pub mod projector;
 pub mod recovery;
+pub mod session_manager;
 pub mod snapshot_model;
+pub mod stream_processor;
+pub mod types;
 
-pub use types::{EventEmitter, RuntimeError, RuntimeResult, ActiveStreamMessage, ManagedSession};
-use session_manager::{SessionManager, default_prompt_capabilities};
+use session_manager::{default_prompt_capabilities, SessionManager};
 use snapshot_model::RuntimeSnapshotState;
+pub use types::{ActiveStreamMessage, EventEmitter, ManagedSession, RuntimeError, RuntimeResult};
 
 #[derive(Clone)]
 pub struct Runtime {
@@ -39,6 +39,7 @@ pub struct Runtime {
     session_manager: SessionManager,
     runtime_states: Arc<Mutex<HashMap<String, ConversationRuntimeState>>>,
     streaming_messages: Arc<Mutex<HashMap<String, ActiveStreamMessage>>>,
+    terminal_records_cache: Arc<Mutex<HashMap<String, TerminalRecord>>>,
 }
 
 impl Runtime {
@@ -52,6 +53,7 @@ impl Runtime {
             session_manager: SessionManager::new(),
             runtime_states: Arc::new(Mutex::new(HashMap::new())),
             streaming_messages: Arc::new(Mutex::new(HashMap::new())),
+            terminal_records_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -101,7 +103,9 @@ impl Runtime {
                 SessionPhase::Hot => ConversationStatus::Connected,
                 SessionPhase::Cold => match runtime.connection_phase {
                     ConnectionPhase::Initializing => ConversationStatus::Initializing,
-                    ConnectionPhase::Disconnected | ConnectionPhase::Ready => ConversationStatus::Sleep,
+                    ConnectionPhase::Disconnected | ConnectionPhase::Ready => {
+                        ConversationStatus::Sleep
+                    }
                 },
             },
         }
@@ -116,10 +120,8 @@ impl Runtime {
         self.runtime_states
             .lock()
             .insert(conversation_id.to_string(), runtime.clone());
-        self.db.update_conversation_status(
-            conversation_id,
-            Self::derive_display_status(&runtime),
-        )?;
+        self.db
+            .update_conversation_status(conversation_id, Self::derive_display_status(&runtime))?;
         Ok(())
     }
 
@@ -235,15 +237,14 @@ impl Runtime {
             &binding,
             "ConversationCreated",
             &json!({ "origin": "oneagent_managed" }),
-            &serde_json::to_value(RuntimeSnapshotState::from_conversation_state(&initial_state))
-                .unwrap_or_else(|_| json!({})),
+            &serde_json::to_value(RuntimeSnapshotState::from_conversation_state(
+                &initial_state,
+            ))
+            .unwrap_or_else(|_| json!({})),
         )?;
         self.session_manager
             .insert(conversation.id.clone(), managed_session);
-        self.set_runtime_state(
-            &conversation.id,
-            initial_runtime,
-        )?;
+        self.set_runtime_state(&conversation.id, initial_runtime)?;
         let state = ConversationState {
             conversation: self.db.get_conversation(&conversation.id)?,
             runtime: self.runtime_state(&conversation.id),
@@ -292,7 +293,7 @@ impl Runtime {
                 let result = PreviewSessionConfigResult {
                     config_options: handle.config_options.clone(),
                     models: handle.models.clone(),
-            modes: handle.modes.clone(),
+                    modes: handle.modes.clone(),
                 };
                 self.adapter_for(&profile).close(&profile, &handle).await?;
                 Ok(result)
@@ -338,14 +339,12 @@ impl Runtime {
                     Some(ManagedSession::Acp(session)),
                 )
             }
-            AgentKind::Compat => {
-                (
-                    self.adapter_for(&profile)
-                        .load_session(&profile, remote_session_id, &workspace.cwd, &mcp_servers)
-                        .await?,
-                    None,
-                )
-            }
+            AgentKind::Compat => (
+                self.adapter_for(&profile)
+                    .load_session(&profile, remote_session_id, &workspace.cwd, &mcp_servers)
+                    .await?,
+                None,
+            ),
         };
         let binding = AgentSessionBinding {
             id: Uuid::new_v4().to_string(),
@@ -379,8 +378,10 @@ impl Runtime {
             &binding,
             "ConversationImported",
             &json!({ "remote_session_id": remote_session_id }),
-            &serde_json::to_value(RuntimeSnapshotState::from_conversation_state(&initial_state))
-                .unwrap_or_else(|_| json!({})),
+            &serde_json::to_value(RuntimeSnapshotState::from_conversation_state(
+                &initial_state,
+            ))
+            .unwrap_or_else(|_| json!({})),
         )?;
         if let Some(session) = managed_session {
             self.session_manager
@@ -392,7 +393,7 @@ impl Runtime {
                 ManagedSession::Passive(loaded.handle.clone()),
             );
         }
-        
+
         let mut messages = Vec::new();
         let mut tool_calls = Vec::new();
         let mut terminals = Vec::new();
@@ -416,7 +417,7 @@ impl Runtime {
                 }
                 _ => {}
             }
-            
+
             match event {
                 RuntimeStreamEvent::MessageComplete { role, content, .. } => {
                     messages.push(crate::domain::MessageProjection {
@@ -429,7 +430,19 @@ impl Runtime {
                         created_at: Utc::now(),
                     });
                 }
-                RuntimeStreamEvent::ToolCall { tool_call_id, title, kind, status, raw_input, raw_output, content, diffs, terminal_ids, locations, .. } => {
+                RuntimeStreamEvent::ToolCall {
+                    tool_call_id,
+                    title,
+                    kind,
+                    status,
+                    raw_input,
+                    raw_output,
+                    content,
+                    diffs,
+                    terminal_ids,
+                    locations,
+                    ..
+                } => {
                     let tool_call_status = match status.as_str() {
                         "running" => crate::domain::ToolCallStatus::Running,
                         "waiting_permission" => crate::domain::ToolCallStatus::WaitingPermission,
@@ -453,10 +466,21 @@ impl Runtime {
                         terminal_ids_json: serde_json::json!(terminal_ids),
                         locations_json: serde_json::json!(locations),
                         started_at: Some(Utc::now()),
-                        ended_at: matches!(status.as_str(), "completed" | "failed" | "cancelled").then_some(Utc::now()),
+                        ended_at: matches!(status.as_str(), "completed" | "failed" | "cancelled")
+                            .then_some(Utc::now()),
                     });
                 }
-                RuntimeStreamEvent::TerminalEvent { terminal_id, event, cwd, command, args, stream: _, content: _, exit_code: _, .. } => {
+                RuntimeStreamEvent::TerminalEvent {
+                    terminal_id,
+                    event,
+                    cwd,
+                    command,
+                    args,
+                    stream: _,
+                    content: _,
+                    exit_code: _,
+                    ..
+                } => {
                     if event == "started" {
                         terminals.push(crate::domain::TerminalRecord {
                             id: terminal_id.clone(),
@@ -488,7 +512,7 @@ impl Runtime {
                 _ => {}
             }
         }
-        
+
         events.push(crate::domain::RuntimeEvent {
             seq: 0,
             conversation_id: conversation.id.clone(),
@@ -504,9 +528,11 @@ impl Runtime {
             created_at: Utc::now(),
         });
 
-        let snapshot_state = serde_json::to_value(RuntimeSnapshotState::from_conversation_state(&initial_state))
-            .unwrap_or_else(|_| serde_json::json!({}));
-            
+        let snapshot_state = serde_json::to_value(RuntimeSnapshotState::from_conversation_state(
+            &initial_state,
+        ))
+        .unwrap_or_else(|_| serde_json::json!({}));
+
         self.db.import_conversation_atomic(
             &conversation,
             &binding,
@@ -627,8 +653,10 @@ impl Runtime {
             &binding,
             "TaskRunCreated",
             &json!({ "goal": input.goal }),
-            &serde_json::to_value(RuntimeSnapshotState::from_conversation_state(&initial_state))
-                .unwrap_or_else(|_| json!({})),
+            &serde_json::to_value(RuntimeSnapshotState::from_conversation_state(
+                &initial_state,
+            ))
+            .unwrap_or_else(|_| json!({})),
         )?;
         self.session_manager
             .insert(conversation.id.clone(), managed_session);
@@ -662,7 +690,10 @@ impl Runtime {
     ) -> RuntimeResult<TimelineResponse> {
         let conversation = self.db.get_conversation(conversation_id)?;
         let current_runtime = self.runtime_state(conversation_id);
-        if matches!(current_runtime.turn_phase, TurnPhase::Running | TurnPhase::Cancelling) {
+        if matches!(
+            current_runtime.turn_phase,
+            TurnPhase::Running | TurnPhase::Cancelling
+        ) {
             return Err(RuntimeError::InvalidState(
                 "conversation already has an active turn".to_string(),
             ));
@@ -839,7 +870,6 @@ impl Runtime {
             };
             runtime.turn_phase = TurnPhase::Idle;
         })?;
-        let timeline = self.timeline(&conversation_id)?;
         let state = self.conversation_state(&conversation_id)?;
         self.db.replace_snapshot(
             &conversation_id,
@@ -850,7 +880,7 @@ impl Runtime {
         )?;
         if let Some(task_run) = self.db.get_task_run(&conversation_id)? {
             let status = self.db.get_conversation(&conversation_id)?.status;
-            let summary = summarize_task_timeline(&timeline, &status);
+            let summary = self.summarize_task_from_storage(&conversation_id, &status)?;
             self.db.update_task_run(
                 &task_run.conversation_id,
                 TaskRunStatus::Completed,
@@ -910,7 +940,7 @@ impl Runtime {
             .db
             .get_binding(conversation_id)?
             .ok_or_else(|| RuntimeError::InvalidState("missing binding".to_string()))?;
-        
+
         match self.session_runtime(conversation_id, binding.clone())? {
             ManagedSession::Acp(session) => session.cancel().await?,
             ManagedSession::Passive(handle) => {
@@ -919,6 +949,9 @@ impl Runtime {
         }
         let prefix = format!("{conversation_id}:");
         self.streaming_messages
+            .lock()
+            .retain(|key, _| !key.starts_with(&prefix));
+        self.terminal_records_cache
             .lock()
             .retain(|key, _| !key.starts_with(&prefix));
 
@@ -944,7 +977,7 @@ impl Runtime {
                 &json!({ "conversation_id": conversation_id, "task_run": task_run }),
             );
         }
-        
+
         self.set_runtime_state(conversation_id, runtime)?;
         self.emit(
             "conversation:turn_finished",
@@ -958,6 +991,10 @@ impl Runtime {
         let conversation = self.db.get_conversation(conversation_id)?;
         let managed_session = self.session_manager.remove(conversation_id);
         self.runtime_states.lock().remove(conversation_id);
+        let prefix = format!("{conversation_id}:");
+        self.terminal_records_cache
+            .lock()
+            .retain(|key, _| !key.starts_with(&prefix));
         if let Some(binding) = self.db.get_binding(conversation_id)? {
             let profile = self.db.get_agent_profile(&conversation.agent_profile_id)?;
             match managed_session {
@@ -1136,12 +1173,8 @@ impl Runtime {
                 "permission fingerprint does not match latest pending request".to_string(),
             ));
         }
-        let record = PolicyEngine::build_decision(
-            conversation_id,
-            tool_call_id,
-            fingerprint,
-            decision,
-        );
+        let record =
+            PolicyEngine::build_decision(conversation_id, tool_call_id, fingerprint, decision);
         let managed_session = self.session_manager.get(conversation_id);
         if let Some(ManagedSession::Acp(session)) = managed_session {
             session
@@ -1183,10 +1216,8 @@ impl Runtime {
         // Capture by reference — the closure is only called on the cold path
         let runtime = self;
         let conv_id = conversation_id.to_string();
-        self.session_manager.session_runtime(
-            conversation_id,
-            fallback,
-            move || {
+        self.session_manager
+            .session_runtime(conversation_id, fallback, move || {
                 let prompt_capabilities = runtime
                     .conversation_prompt_capabilities(&conv_id)
                     .unwrap_or_else(default_prompt_capabilities);
@@ -1198,8 +1229,7 @@ impl Runtime {
                 let models = runtime.conversation_models(&conv_id);
                 let modes = runtime.conversation_modes(&conv_id);
                 (prompt_capabilities, config_options, models, modes)
-            },
-        )
+            })
     }
 
     fn emit<S: serde::Serialize>(&self, event: &str, payload: &S) {
@@ -1282,6 +1312,41 @@ impl Runtime {
             &json!({ "conversation_id": conversation_id, "task_run": self.db.get_task_run(conversation_id)? }),
         );
         Ok(())
+    }
+
+    // Centralized storage summary seam for end-of-turn task status updates.
+    // This avoids fetching full timeline projections on async hot paths.
+    fn summarize_task_from_storage(
+        &self,
+        conversation_id: &str,
+        status: &ConversationStatus,
+    ) -> RuntimeResult<Option<String>> {
+        match status {
+            ConversationStatus::Cancelled => return Ok(Some("cancelled".to_string())),
+            ConversationStatus::Failed => return Ok(Some("failed".to_string())),
+            _ => {}
+        }
+
+        if let Some(text) = self.db.latest_agent_text(conversation_id)? {
+            return Ok(Some(text));
+        }
+
+        if let Some(diff_payload) = self.db.latest_diff_payload(conversation_id)? {
+            let summary = diff_payload
+                .get("diffs")
+                .map(|diffs| format!("completed with diff output: {}", diffs))
+                .unwrap_or_else(|| "completed with diff output".to_string());
+            return Ok(Some(summary));
+        }
+
+        let tool_call_count = self.db.count_tool_calls(conversation_id)?;
+        if tool_call_count > 0 {
+            return Ok(Some(format!(
+                "completed with {} tool call(s)",
+                tool_call_count
+            )));
+        }
+        Ok(Some("completed".to_string()))
     }
 
     fn conversation_prompt_capabilities(
@@ -1436,6 +1501,7 @@ pub fn summarize_task_timeline(
 }
 
 #[cfg(not(test))]
+#[allow(dead_code)]
 fn summarize_task_timeline(
     timeline: &TimelineResponse,
     status: &ConversationStatus,
@@ -1487,10 +1553,10 @@ fn summarize_task_timeline(
 mod tests {
     use super::*;
     use crate::domain::{
-        AgentDisplaySource, AgentKind, AgentLaunchMode, AgentSessionBinding,
-        AgentSessionSource, Conversation, ConversationOrigin, ConversationRuntimeState,
-        ConversationStatus, ConnectionPhase, MessageKind, MessageProjection, MessageRole,
-        SessionPhase, TimelineResponse, ToolCallProjection, TurnPhase,
+        AgentDisplaySource, AgentKind, AgentLaunchMode, AgentSessionBinding, AgentSessionSource,
+        ConnectionPhase, Conversation, ConversationOrigin, ConversationRuntimeState,
+        ConversationStatus, MessageKind, MessageProjection, MessageRole, SessionPhase,
+        TimelineResponse, ToolCallProjection, TurnPhase,
     };
     use crate::runtime::snapshot_model::RuntimeSnapshotState;
     use crate::storage::Database;
@@ -1664,9 +1730,7 @@ mod tests {
     fn summarize_task_falls_back_to_diff_message() {
         let timeline = TimelineResponse {
             events: vec![],
-            messages: vec![
-                create_diff_message(vec![json!({"path": "file.rs"})]),
-            ],
+            messages: vec![create_diff_message(vec![json!({"path": "file.rs"})])],
             tool_calls: vec![],
             pending_permissions: vec![],
             terminals: vec![],

@@ -1,12 +1,12 @@
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::domain::{RuntimeEvent, MessageProjection, ToolCallProjection};
+use crate::domain::{MessageProjection, RuntimeEvent, ToolCallProjection};
 use crate::storage::error::StorageResult;
+use crate::storage::mappers::enum_text;
 use crate::storage::mappers::message::read_message;
 use crate::storage::mappers::runtime_event::read_runtime_event;
 use crate::storage::mappers::tool_call::read_tool_call;
-use crate::storage::mappers::enum_text;
 
 pub struct EventRepository<'a> {
     conn: &'a Connection,
@@ -92,6 +92,56 @@ impl<'a> MessageRepository<'a> {
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(crate::storage::error::StorageError::from)
     }
+
+    pub fn latest_agent_text(&self, conversation_id: &str) -> StorageResult<Option<String>> {
+        let raw: Option<String> = self
+            .conn
+            .query_row(
+                r#"
+                SELECT content_json
+                FROM message_projections
+                WHERE conversation_id = ?1
+                  AND role = 'agent'
+                  AND kind = 'text'
+                  AND COALESCE(json_extract(content_json, '$.stream'), 0) = 0
+                ORDER BY datetime(created_at) DESC, rowid DESC
+                LIMIT 1
+                "#,
+                params![conversation_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let text = raw
+            .and_then(|payload| serde_json::from_str::<serde_json::Value>(&payload).ok())
+            .and_then(|json| {
+                json.get("text")
+                    .and_then(serde_json::Value::as_str)
+                    .map(ToOwned::to_owned)
+            });
+        Ok(text)
+    }
+
+    pub fn latest_diff_payload(
+        &self,
+        conversation_id: &str,
+    ) -> StorageResult<Option<serde_json::Value>> {
+        let raw: Option<String> = self
+            .conn
+            .query_row(
+                r#"
+                SELECT content_json
+                FROM message_projections
+                WHERE conversation_id = ?1
+                  AND kind = 'diff'
+                ORDER BY datetime(created_at) DESC, rowid DESC
+                LIMIT 1
+                "#,
+                params![conversation_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(raw.and_then(|payload| serde_json::from_str::<serde_json::Value>(&payload).ok()))
+    }
 }
 
 pub struct ToolCallRepository<'a> {
@@ -146,5 +196,14 @@ impl<'a> ToolCallRepository<'a> {
         let rows = stmt.query_map(params![conversation_id], read_tool_call)?;
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(crate::storage::error::StorageError::from)
+    }
+
+    pub fn count(&self, conversation_id: &str) -> StorageResult<usize> {
+        let total: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM tool_call_projections WHERE conversation_id = ?1",
+            params![conversation_id],
+            |row| row.get(0),
+        )?;
+        Ok(total.max(0) as usize)
     }
 }

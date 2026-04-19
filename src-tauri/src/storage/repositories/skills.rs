@@ -1,9 +1,9 @@
 use rusqlite::{params, Connection};
 
-use crate::domain::{Workspace, SkillRecord, SkillScope};
+use crate::domain::{SkillRecord, SkillScope, Workspace};
 use crate::storage::error::StorageResult;
-use crate::storage::mappers::skill::read_skill;
 use crate::storage::mappers::enum_text;
+use crate::storage::mappers::skill::read_skill;
 
 pub struct SkillRepository<'a> {
     conn: &'a Connection,

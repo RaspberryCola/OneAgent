@@ -27,8 +27,8 @@ use super::parser::{
     parse_session_capabilities, parse_session_update,
 };
 use super::permission::parse_permission_request;
-use super::prompt_codec::build_prompt_blocks_from_message;
 use super::process::JsonRpcProcess;
+use super::prompt_codec::build_prompt_blocks_from_message;
 
 /// ACP adapter for Agent Client Protocol agents.
 #[derive(Default)]
@@ -65,7 +65,9 @@ impl AgentAdapter for AcpAdapter {
         if let Some(cwd) = cwd {
             params.insert("cwd".to_string(), json!(cwd));
         }
-        let response = process.request("session/list", Value::Object(params)).await?;
+        let response = process
+            .request("session/list", Value::Object(params))
+            .await?;
         process.close().await?;
         Ok(response
             .get("result")

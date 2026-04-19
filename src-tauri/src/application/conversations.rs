@@ -103,7 +103,10 @@ impl ConversationAppService {
         Ok(self.runtime.timeline(conversation_id)?)
     }
 
-    pub fn conversation_state(&self, conversation_id: &str) -> ApplicationResult<ConversationState> {
+    pub fn conversation_state(
+        &self,
+        conversation_id: &str,
+    ) -> ApplicationResult<ConversationState> {
         Ok(self.runtime.conversation_state(conversation_id)?)
     }
 

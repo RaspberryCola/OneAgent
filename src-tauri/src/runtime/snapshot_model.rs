@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::domain::{AcpSessionModeState, AcpSessionModels, ConversationState, SessionConfigOption};
+use crate::domain::{
+    AcpSessionModeState, AcpSessionModels, ConversationState, SessionConfigOption,
+};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RuntimeSnapshotState {
@@ -49,9 +51,9 @@ mod tests {
 
     use super::RuntimeSnapshotState;
     use crate::domain::{
-        AgentKind, AgentSessionBinding, AgentSessionSource, Conversation, ConversationOrigin,
-        ConversationRuntimeState, ConversationState, ConversationStatus, ConnectionPhase,
-        SessionPhase, SessionConfigOption, TurnPhase,
+        AgentKind, AgentSessionBinding, AgentSessionSource, ConnectionPhase, Conversation,
+        ConversationOrigin, ConversationRuntimeState, ConversationState, ConversationStatus,
+        SessionConfigOption, SessionPhase, TurnPhase,
     };
 
     fn sample_state() -> ConversationState {

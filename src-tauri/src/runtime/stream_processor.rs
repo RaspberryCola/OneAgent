@@ -1,6 +1,6 @@
+use super::enum_text;
 use chrono::Utc;
 use serde_json::json;
-use super::enum_text;
 
 use crate::agent_adapters::RuntimeStreamEvent;
 use crate::domain::{
@@ -73,7 +73,11 @@ impl Runtime {
         Ok(())
     }
 
-    pub(crate) fn finalize_text_stream(&self, conversation_id: &str, turn_id: &str) -> RuntimeResult<()> {
+    pub(crate) fn finalize_text_stream(
+        &self,
+        conversation_id: &str,
+        turn_id: &str,
+    ) -> RuntimeResult<()> {
         for role in [MessageRole::Agent, MessageRole::User] {
             let stream_key =
                 Self::stream_message_key(conversation_id, turn_id, &role, &MessageKind::Text);
@@ -276,7 +280,8 @@ impl Runtime {
         event_type: &str,
         payload: serde_json::Value,
     ) -> StorageResult<()> {
-        self.db.append_event(conversation_id, event_type, &payload)?;
+        self.db
+            .append_event(conversation_id, event_type, &payload)?;
         Ok(())
     }
 }

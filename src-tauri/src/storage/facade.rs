@@ -2,9 +2,8 @@ use crate::domain::*;
 use crate::storage::error::StorageResult;
 use crate::storage::repositories::{
     AgentProfileRepository, BindingRepository, ConversationRepository, EventRepository,
-    McpRepository, MessageRepository, PermissionRepository, SkillRepository,
-    SnapshotRepository, TaskRunRepository, TerminalRepository, ToolCallRepository,
-    WorkspaceRepository,
+    McpRepository, MessageRepository, PermissionRepository, SkillRepository, SnapshotRepository,
+    TaskRunRepository, TerminalRepository, ToolCallRepository, WorkspaceRepository,
 };
 use crate::storage::Database;
 
@@ -63,7 +62,12 @@ impl Database {
         origin: ConversationOrigin,
         title: String,
     ) -> StorageResult<Conversation> {
-        ConversationRepository::new(&self.conn.lock()).create(workspace_id, agent_profile_id, origin, title)
+        ConversationRepository::new(&self.conn.lock()).create(
+            workspace_id,
+            agent_profile_id,
+            origin,
+            title,
+        )
     }
 
     pub fn update_conversation_status(
@@ -114,7 +118,12 @@ impl Database {
         agent_profile_id: &str,
         goal: &str,
     ) -> StorageResult<TaskRun> {
-        TaskRunRepository::new(&self.conn.lock()).create(conversation_id, workspace_id, agent_profile_id, goal)
+        TaskRunRepository::new(&self.conn.lock()).create(
+            conversation_id,
+            workspace_id,
+            agent_profile_id,
+            goal,
+        )
     }
 
     pub fn get_task_run(&self, conversation_id: &str) -> StorageResult<Option<TaskRun>> {
@@ -154,10 +163,18 @@ impl Database {
         state: &serde_json::Value,
         event_seq: i64,
     ) -> StorageResult<()> {
-        SnapshotRepository::new(&self.conn.lock()).replace(conversation_id, snapshot_version, state, event_seq)
+        SnapshotRepository::new(&self.conn.lock()).replace(
+            conversation_id,
+            snapshot_version,
+            state,
+            event_seq,
+        )
     }
 
-    pub fn get_snapshot(&self, conversation_id: &str) -> StorageResult<Option<ConversationSnapshot>> {
+    pub fn get_snapshot(
+        &self,
+        conversation_id: &str,
+    ) -> StorageResult<Option<ConversationSnapshot>> {
         SnapshotRepository::new(&self.conn.lock()).get(conversation_id)
     }
 
@@ -169,6 +186,17 @@ impl Database {
         MessageRepository::new(&self.conn.lock()).list(conversation_id)
     }
 
+    pub fn latest_agent_text(&self, conversation_id: &str) -> StorageResult<Option<String>> {
+        MessageRepository::new(&self.conn.lock()).latest_agent_text(conversation_id)
+    }
+
+    pub fn latest_diff_payload(
+        &self,
+        conversation_id: &str,
+    ) -> StorageResult<Option<serde_json::Value>> {
+        MessageRepository::new(&self.conn.lock()).latest_diff_payload(conversation_id)
+    }
+
     pub fn upsert_tool_call(&self, call: &ToolCallProjection) -> StorageResult<()> {
         ToolCallRepository::new(&self.conn.lock()).upsert(call)
     }
@@ -177,15 +205,25 @@ impl Database {
         ToolCallRepository::new(&self.conn.lock()).list(conversation_id)
     }
 
+    pub fn count_tool_calls(&self, conversation_id: &str) -> StorageResult<usize> {
+        ToolCallRepository::new(&self.conn.lock()).count(conversation_id)
+    }
+
     pub fn record_permission_decision(&self, decision: &PermissionDecision) -> StorageResult<()> {
         PermissionRepository::new(&self.conn.lock()).record_decision(decision)
     }
 
-    pub fn list_permissions(&self, conversation_id: &str) -> StorageResult<Vec<PermissionDecision>> {
+    pub fn list_permissions(
+        &self,
+        conversation_id: &str,
+    ) -> StorageResult<Vec<PermissionDecision>> {
         PermissionRepository::new(&self.conn.lock()).list_decisions(conversation_id)
     }
 
-    pub fn upsert_pending_permission(&self, request: &PendingPermissionRequest) -> StorageResult<()> {
+    pub fn upsert_pending_permission(
+        &self,
+        request: &PendingPermissionRequest,
+    ) -> StorageResult<()> {
         PermissionRepository::new(&self.conn.lock()).upsert_pending(request)
     }
 
@@ -194,10 +232,14 @@ impl Database {
         conversation_id: &str,
         tool_call_id: &str,
     ) -> StorageResult<Option<PendingPermissionRequest>> {
-        PermissionRepository::new(&self.conn.lock()).get_pending_by_tool_call(conversation_id, tool_call_id)
+        PermissionRepository::new(&self.conn.lock())
+            .get_pending_by_tool_call(conversation_id, tool_call_id)
     }
 
-    pub fn list_pending_permissions(&self, conversation_id: &str) -> StorageResult<Vec<PendingPermissionRequest>> {
+    pub fn list_pending_permissions(
+        &self,
+        conversation_id: &str,
+    ) -> StorageResult<Vec<PendingPermissionRequest>> {
         PermissionRepository::new(&self.conn.lock()).list_pending(conversation_id)
     }
 

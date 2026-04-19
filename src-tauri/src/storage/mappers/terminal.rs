@@ -11,8 +11,7 @@ pub fn read_terminal(row: &Row<'_>) -> rusqlite::Result<TerminalRecord> {
         terminal_id: row.get(3)?,
         cwd: row.get(4)?,
         command: row.get(5)?,
-        args_json: from_json(&row.get::<_, String>(6)?)
-            .unwrap_or_else(|_| serde_json::json!([])),
+        args_json: from_json(&row.get::<_, String>(6)?).unwrap_or_else(|_| serde_json::json!([])),
         status: parse_enum(&row.get::<_, String>(7)?)?,
         stdout_buffer: row.get(8)?,
         stderr_buffer: row.get(9)?,

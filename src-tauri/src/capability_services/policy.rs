@@ -139,24 +139,23 @@ mod tests {
             conversation_id: "conv_1".to_string(),
             tool_call_id: "call_1".to_string(),
             scope: "session".to_string(),
-            fingerprint: PolicyEngine::fingerprint(
-                "write_file",
-                "Write file",
-                &json!({}),
-                &[],
-            ),
+            fingerprint: PolicyEngine::fingerprint("write_file", "Write file", &json!({}), &[]),
             decision: PermissionDecisionKind::AllowAlways,
             created_at: Utc::now(),
         };
 
-        policy.record_decision(
-            &decision.conversation_id,
-            &decision.tool_call_id,
-            &decision.fingerprint,
-            decision.decision.clone(),
-        ).unwrap();
+        policy
+            .record_decision(
+                &decision.conversation_id,
+                &decision.tool_call_id,
+                &decision.fingerprint,
+                decision.decision.clone(),
+            )
+            .unwrap();
 
-        let found = policy.find_session_policy("conv_1", &decision.fingerprint).unwrap();
+        let found = policy
+            .find_session_policy("conv_1", &decision.fingerprint)
+            .unwrap();
         assert!(found.is_some());
         assert_eq!(found.unwrap().decision, PermissionDecisionKind::AllowAlways);
     }
@@ -166,18 +165,24 @@ mod tests {
         let db = Database::new_in_memory().unwrap();
         let policy = PolicyEngine::new(db);
 
-        let fingerprint = PolicyEngine::fingerprint(
-            "execute_command",
-            "Run command",
-            &json!({}),
-            &[],
-        );
+        let fingerprint =
+            PolicyEngine::fingerprint("execute_command", "Run command", &json!({}), &[]);
 
-        policy.record_decision("conv_1", "call_1", &fingerprint, PermissionDecisionKind::RejectAlways).unwrap();
+        policy
+            .record_decision(
+                "conv_1",
+                "call_1",
+                &fingerprint,
+                PermissionDecisionKind::RejectAlways,
+            )
+            .unwrap();
 
         let found = policy.find_session_policy("conv_1", &fingerprint).unwrap();
         assert!(found.is_some());
-        assert_eq!(found.unwrap().decision, PermissionDecisionKind::RejectAlways);
+        assert_eq!(
+            found.unwrap().decision,
+            PermissionDecisionKind::RejectAlways
+        );
     }
 
     #[test]
@@ -185,21 +190,30 @@ mod tests {
         let db = Database::new_in_memory().unwrap();
         let policy = PolicyEngine::new(db);
 
-        let fingerprint = PolicyEngine::fingerprint(
-            "write_file",
-            "Write file",
-            &json!({}),
-            &[],
-        );
+        let fingerprint = PolicyEngine::fingerprint("write_file", "Write file", &json!({}), &[]);
 
         // Record AllowOnce - should NOT match for auto-hit
-        policy.record_decision("conv_1", "call_1", &fingerprint, PermissionDecisionKind::AllowOnce).unwrap();
+        policy
+            .record_decision(
+                "conv_1",
+                "call_1",
+                &fingerprint,
+                PermissionDecisionKind::AllowOnce,
+            )
+            .unwrap();
 
         let found = policy.find_session_policy("conv_1", &fingerprint).unwrap();
         assert!(found.is_none());
 
         // Record RejectOnce - should NOT match for auto-hit
-        policy.record_decision("conv_1", "call_2", &fingerprint, PermissionDecisionKind::RejectOnce).unwrap();
+        policy
+            .record_decision(
+                "conv_1",
+                "call_2",
+                &fingerprint,
+                PermissionDecisionKind::RejectOnce,
+            )
+            .unwrap();
 
         let found = policy.find_session_policy("conv_1", &fingerprint).unwrap();
         assert!(found.is_none());
@@ -210,14 +224,16 @@ mod tests {
         let db = Database::new_in_memory().unwrap();
         let policy = PolicyEngine::new(db);
 
-        let fingerprint = PolicyEngine::fingerprint(
-            "write_file",
-            "Write file",
-            &json!({}),
-            &[],
-        );
+        let fingerprint = PolicyEngine::fingerprint("write_file", "Write file", &json!({}), &[]);
 
-        policy.record_decision("conv_1", "call_1", &fingerprint, PermissionDecisionKind::AllowAlways).unwrap();
+        policy
+            .record_decision(
+                "conv_1",
+                "call_1",
+                &fingerprint,
+                PermissionDecisionKind::AllowAlways,
+            )
+            .unwrap();
 
         // Should not match in different conversation
         let found = policy.find_session_policy("conv_2", &fingerprint).unwrap();
@@ -229,12 +245,14 @@ mod tests {
         let db = Database::new_in_memory().unwrap();
         let policy = PolicyEngine::new(db);
 
-        let decision = policy.record_decision(
-            "conv_1",
-            "call_1",
-            "fp_123",
-            PermissionDecisionKind::AllowAlways,
-        ).unwrap();
+        let decision = policy
+            .record_decision(
+                "conv_1",
+                "call_1",
+                "fp_123",
+                PermissionDecisionKind::AllowAlways,
+            )
+            .unwrap();
 
         assert_eq!(decision.conversation_id, "conv_1");
         assert_eq!(decision.tool_call_id, "call_1");

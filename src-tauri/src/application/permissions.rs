@@ -17,7 +17,10 @@ impl PermissionAppService {
         Self { runtime }
     }
 
-    pub fn list_permissions(&self, conversation_id: &str) -> ApplicationResult<Vec<PermissionDecision>> {
+    pub fn list_permissions(
+        &self,
+        conversation_id: &str,
+    ) -> ApplicationResult<Vec<PermissionDecision>> {
         Ok(self.runtime.list_permissions(conversation_id)?)
     }
 

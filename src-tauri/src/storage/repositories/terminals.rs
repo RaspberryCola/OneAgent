@@ -1,10 +1,10 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::domain::{TerminalRecord, McpServerConfig};
+use crate::domain::{McpServerConfig, TerminalRecord};
 use crate::storage::error::StorageResult;
-use crate::storage::mappers::terminal::read_terminal;
-use crate::storage::mappers::mcp::read_mcp;
 use crate::storage::mappers::enum_text;
+use crate::storage::mappers::mcp::read_mcp;
+use crate::storage::mappers::terminal::read_terminal;
 
 pub struct TerminalRepository<'a> {
     conn: &'a Connection,
@@ -149,9 +149,7 @@ mod tests {
 
         repo.upsert(&terminal).unwrap();
 
-        let retrieved = repo
-            .get_by_remote_id("conv_1", "remote_term_1")
-            .unwrap();
+        let retrieved = repo.get_by_remote_id("conv_1", "remote_term_1").unwrap();
         assert!(retrieved.is_some());
         let retrieved = retrieved.unwrap();
         assert_eq!(retrieved.terminal_id, "remote_term_1");

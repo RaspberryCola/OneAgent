@@ -5,8 +5,9 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::domain::{
-    AcpSessionModeState, AcpSessionModels, AgentCapabilities, AgentProfile, AgentPromptCapabilities, AttachmentInput,
-    ExternalSession, McpServerConfig, SessionConfigOption,
+    AcpSessionModeState, AcpSessionModels, AgentCapabilities, AgentProfile,
+    AgentPromptCapabilities, AttachmentInput, ExternalSession, McpServerConfig,
+    SessionConfigOption,
 };
 
 #[derive(thiserror::Error, Debug)]

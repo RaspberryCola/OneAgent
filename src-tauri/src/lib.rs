@@ -17,14 +17,7 @@ use tauri::Emitter;
 pub fn bootstrap() -> Arc<Gateway> {
     prime_process_path();
     write_path_diagnostics(&[
-        "gemini",
-        "qwen",
-        "opencode",
-        "goose",
-        "copilot",
-        "qodercli",
-        "agent",
-        "kiro-cli",
+        "gemini", "qwen", "opencode", "goose", "copilot", "qodercli", "agent", "kiro-cli",
     ]);
     let storage = storage::Database::open_default().expect("failed to open database");
     let gateway = Arc::new(Gateway::new(storage).expect("failed to initialize gateway"));

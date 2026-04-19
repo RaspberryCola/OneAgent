@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use crate::{
     agent_adapters::{AdapterError, AdapterResult},
     domain::{
-        AttachmentDeliveryPreference, AttachmentInput, AttachmentKind, AgentPromptCapabilities,
+        AgentPromptCapabilities, AttachmentDeliveryPreference, AttachmentInput, AttachmentKind,
     },
 };
 

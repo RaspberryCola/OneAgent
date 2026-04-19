@@ -9,8 +9,7 @@ use crate::{
     agent_adapters::RuntimeStreamEvent,
     domain::{
         AcpAvailableModel, AcpSessionMode, AcpSessionModeState, AcpSessionModels,
-        AgentCapabilities, AgentPromptCapabilities, AgentSessionCapabilities,
-        SessionConfigOption,
+        AgentCapabilities, AgentPromptCapabilities, AgentSessionCapabilities, SessionConfigOption,
     },
 };
 
@@ -209,7 +208,10 @@ pub fn parse_modes(result: Option<&Value>) -> Option<AcpSessionModeState> {
             available_modes.push(AcpSessionMode {
                 id: id.to_string(),
                 name: name.to_string(),
-                description: m.get("description").and_then(Value::as_str).map(ToOwned::to_owned),
+                description: m
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned),
             });
         }
     }
@@ -265,11 +267,7 @@ pub fn parse_models(result: Option<&Value>) -> Option<AcpSessionModels> {
 /// Parse a session/update notification into runtime stream events.
 pub fn parse_session_update(message: &Value, turn_id: &str) -> Vec<RuntimeStreamEvent> {
     let mut events = Vec::new();
-    let Some(update_value) = message
-        .get("params")
-        .and_then(|p| p.get("update"))
-        .cloned()
-    else {
+    let Some(update_value) = message.get("params").and_then(|p| p.get("update")).cloned() else {
         return events;
     };
     let Ok(update) = serde_json::from_value::<AcpSessionUpdate>(update_value) else {
@@ -318,15 +316,8 @@ pub fn parse_session_update(message: &Value, turn_id: &str) -> Vec<RuntimeStream
             });
         }
         AcpSessionUpdate::ToolCall { .. } | AcpSessionUpdate::ToolCallUpdate { .. } => {
-            if let Some((
-                tool_call_id,
-                title,
-                kind,
-                status,
-                raw_input,
-                input,
-                content,
-            )) = update.tool_call_parts()
+            if let Some((tool_call_id, title, kind, status, raw_input, input, content)) =
+                update.tool_call_parts()
             {
                 let content = extract_content(content);
                 let terminal_refs = content
@@ -440,16 +431,11 @@ pub fn extract_content(content: Option<&[AcpToolContentItem]>) -> Value {
         })
         .collect();
 
-    let diffs: Vec<Value> = items
-        .iter()
-        .filter_map(|item| item.diff.clone())
-        .collect();
+    let diffs: Vec<Value> = items.iter().filter_map(|item| item.diff.clone()).collect();
 
     let terminal_ids: Vec<String> = items
         .iter()
-        .filter_map(|item| {
-            item.terminal_id.clone()
-        })
+        .filter_map(|item| item.terminal_id.clone())
         .collect();
 
     json!({
@@ -627,7 +613,8 @@ mod tests {
     #[test]
     fn handles_think_tag_with_leading_and_trailing_text() {
         let thinking_emoji = "\u{1F4AD}";
-        let text = format!("some preamble {thinking_emoji} reasoning {thinking_emoji} final answer");
+        let text =
+            format!("some preamble {thinking_emoji} reasoning {thinking_emoji} final answer");
         let (thinking, stripped) = extract_and_strip_think_tags(&text);
         assert_eq!(thinking, " reasoning ");
         assert_eq!(stripped, "some preamble  final answer");
@@ -794,10 +781,9 @@ mod tests {
         assert_eq!(result2["text"]["text"], "hello");
 
         // Diff content
-        let content3: Vec<AcpToolContentItem> = serde_json::from_value(
-            json!([{ "diff": { "path": "src/lib.rs", "patch": "@@" } }]),
-        )
-        .unwrap();
+        let content3: Vec<AcpToolContentItem> =
+            serde_json::from_value(json!([{ "diff": { "path": "src/lib.rs", "patch": "@@" } }]))
+                .unwrap();
         let result3 = extract_content(Some(&content3));
         assert_eq!(result3["diffs"][0]["path"], "src/lib.rs");
 

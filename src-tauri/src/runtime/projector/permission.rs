@@ -2,9 +2,9 @@ use chrono::Utc;
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::runtime::{ManagedSession, Runtime, RuntimeResult};
-use crate::domain::{PendingPermissionRequest, PendingPermissionStatus};
 use crate::capability_services::policy::PolicyEngine;
+use crate::domain::{PendingPermissionRequest, PendingPermissionStatus};
+use crate::runtime::{ManagedSession, Runtime, RuntimeResult};
 
 impl Runtime {
     #[allow(clippy::too_many_arguments)]
@@ -30,7 +30,9 @@ impl Runtime {
                 let decision_clone = decision.decision.clone();
                 let tool_call_id_clone = tool_call_id.clone();
                 tokio::spawn(async move {
-                    let _ = session.resolve_permission(&tool_call_id_clone, decision_clone).await;
+                    let _ = session
+                        .resolve_permission(&tool_call_id_clone, decision_clone)
+                        .await;
                 });
             }
             self.emit(

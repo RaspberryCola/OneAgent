@@ -9,10 +9,8 @@ pub fn read_mcp(row: &Row<'_>) -> rusqlite::Result<McpServerConfig> {
         workspace_id: row.get(1)?,
         name: row.get(2)?,
         command: row.get(3)?,
-        args_json: from_json(&row.get::<_, String>(4)?)
-            .unwrap_or_else(|_| serde_json::json!([])),
-        env_json: from_json(&row.get::<_, String>(5)?)
-            .unwrap_or_else(|_| serde_json::json!({})),
+        args_json: from_json(&row.get::<_, String>(4)?).unwrap_or_else(|_| serde_json::json!([])),
+        env_json: from_json(&row.get::<_, String>(5)?).unwrap_or_else(|_| serde_json::json!({})),
         enabled: row.get::<_, i64>(6)? != 0,
     })
 }

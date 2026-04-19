@@ -1,12 +1,10 @@
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::domain::{
-    PermissionDecision, PendingPermissionRequest, PendingPermissionStatus,
-};
+use crate::domain::{PendingPermissionRequest, PendingPermissionStatus, PermissionDecision};
 use crate::storage::error::StorageResult;
-use crate::storage::mappers::permission::{read_permission, read_pending_permission};
 use crate::storage::mappers::enum_text;
+use crate::storage::mappers::permission::{read_pending_permission, read_permission};
 
 pub struct PermissionRepository<'a> {
     conn: &'a Connection,
@@ -85,7 +83,10 @@ impl<'a> PermissionRepository<'a> {
             .map_err(crate::storage::error::StorageError::from)
     }
 
-    pub fn list_pending(&self, conversation_id: &str) -> StorageResult<Vec<PendingPermissionRequest>> {
+    pub fn list_pending(
+        &self,
+        conversation_id: &str,
+    ) -> StorageResult<Vec<PendingPermissionRequest>> {
         let conn = self.conn;
         let mut stmt = conn.prepare(
             "SELECT id, conversation_id, turn_id, tool_call_id, fingerprint, options_json, status, created_at, resolved_at FROM pending_permission_requests WHERE conversation_id = ?1 ORDER BY created_at ASC",
@@ -119,7 +120,10 @@ impl<'a> PermissionRepository<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{PermissionDecision, PermissionDecisionKind, PendingPermissionRequest, PendingPermissionStatus};
+    use crate::domain::{
+        PendingPermissionRequest, PendingPermissionStatus, PermissionDecision,
+        PermissionDecisionKind,
+    };
     use crate::storage::sqlite::connection::Database;
     use serde_json::json;
 
@@ -189,9 +193,13 @@ mod tests {
         let request = create_test_pending_request();
 
         repo.upsert_pending(&request).unwrap();
-        repo.update_pending_status(&request.id, PendingPermissionStatus::Resolved).unwrap();
+        repo.update_pending_status(&request.id, PendingPermissionStatus::Resolved)
+            .unwrap();
 
-        let retrieved = repo.get_pending_by_tool_call("conv_1", "call_1").unwrap().unwrap();
+        let retrieved = repo
+            .get_pending_by_tool_call("conv_1", "call_1")
+            .unwrap()
+            .unwrap();
         assert_eq!(retrieved.status, PendingPermissionStatus::Resolved);
         assert!(retrieved.resolved_at.is_some());
     }
@@ -248,7 +256,10 @@ mod tests {
 
         let pending = repo.list_pending("conv_1").unwrap();
         // Should only have the pending one, now cancelled
-        let cancelled: Vec<_> = pending.iter().filter(|p| p.status == PendingPermissionStatus::Cancelled).collect();
+        let cancelled: Vec<_> = pending
+            .iter()
+            .filter(|p| p.status == PendingPermissionStatus::Cancelled)
+            .collect();
         assert_eq!(cancelled.len(), 1);
     }
 

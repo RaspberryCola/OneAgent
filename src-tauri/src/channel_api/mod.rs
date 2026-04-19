@@ -243,10 +243,7 @@ pub async fn list_workspace_files(
             Ok(metadata) => metadata,
             Err(_) => continue,
         };
-        let modified_at = metadata
-            .modified()
-            .ok()
-            .map(DateTime::<Utc>::from);
+        let modified_at = metadata.modified().ok().map(DateTime::<Utc>::from);
 
         entries.push(WorkspaceFileEntry {
             name: dir_entry.file_name().to_string_lossy().to_string(),

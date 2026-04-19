@@ -20,7 +20,9 @@ impl AttachmentAppService {
     ) -> ApplicationResult<PersistAttachmentBlobOutput> {
         let bytes = BASE64_STANDARD
             .decode(input.base64_data.as_bytes())
-            .map_err(|err| ApplicationError::Validation(format!("invalid attachment payload: {err}")))?;
+            .map_err(|err| {
+                ApplicationError::Validation(format!("invalid attachment payload: {err}"))
+            })?;
         let extension = input
             .mime_type
             .as_deref()
@@ -43,8 +45,9 @@ impl AttachmentAppService {
                 ApplicationError::Validation(format!("failed to create temp attachment dir: {err}"))
             })?;
         }
-        std::fs::write(&path, bytes)
-            .map_err(|err| ApplicationError::Validation(format!("failed to persist attachment: {err}")))?;
+        std::fs::write(&path, bytes).map_err(|err| {
+            ApplicationError::Validation(format!("failed to persist attachment: {err}"))
+        })?;
         Ok(PersistAttachmentBlobOutput {
             path: path.to_string_lossy().to_string(),
         })

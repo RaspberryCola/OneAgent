@@ -2,7 +2,9 @@ use chrono::Utc;
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::domain::{MessageKind, MessageProjection, MessageRole, ToolCallProjection, ToolCallStatus};
+use crate::domain::{
+    MessageKind, MessageProjection, MessageRole, ToolCallProjection, ToolCallStatus,
+};
 use crate::runtime::{Runtime, RuntimeResult};
 
 impl Runtime {

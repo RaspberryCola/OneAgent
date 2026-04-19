@@ -25,15 +25,15 @@ impl Runtime {
             self.finalize_text_stream(conversation_id, turn_id)?;
             stream_messages = self.streaming_messages.lock();
         }
-        let active = stream_messages
-            .entry(stream_key)
-            .or_insert_with(|| crate::runtime::ActiveStreamMessage {
+        let active = stream_messages.entry(stream_key).or_insert_with(|| {
+            crate::runtime::ActiveStreamMessage {
                 id: Uuid::new_v4().to_string(),
                 role: MessageRole::System,
                 kind: MessageKind::Thinking,
                 content: String::new(),
                 started_at: Utc::now(),
-            });
+            }
+        });
         active.content.push_str(&content);
         let message = MessageProjection {
             id: active.id.clone(),
@@ -74,23 +74,19 @@ impl Runtime {
         }
         self.finalize_thinking_stream(conversation_id, turn_id)?;
         let message_role = Self::role_from_stream(&role);
-        let stream_key = Self::stream_message_key(
-            conversation_id,
-            turn_id,
-            &message_role,
-            &MessageKind::Text,
-        );
+        let stream_key =
+            Self::stream_message_key(conversation_id, turn_id, &message_role, &MessageKind::Text);
         let mut stream_messages = self.streaming_messages.lock();
         let is_new_stream = !stream_messages.contains_key(&stream_key);
-        let active = stream_messages
-            .entry(stream_key)
-            .or_insert_with(|| crate::runtime::ActiveStreamMessage {
+        let active = stream_messages.entry(stream_key).or_insert_with(|| {
+            crate::runtime::ActiveStreamMessage {
                 id: Uuid::new_v4().to_string(),
                 role: message_role.clone(),
                 kind: MessageKind::Text,
                 content: String::new(),
                 started_at: Utc::now(),
-            });
+            }
+        });
         active.content.push_str(&content);
         let message = MessageProjection {
             id: active.id.clone(),
@@ -132,12 +128,8 @@ impl Runtime {
         }
         self.finalize_thinking_stream(conversation_id, turn_id)?;
         let message_role = Self::role_from_stream(&role);
-        let stream_key = Self::stream_message_key(
-            conversation_id,
-            turn_id,
-            &message_role,
-            &MessageKind::Text,
-        );
+        let stream_key =
+            Self::stream_message_key(conversation_id, turn_id, &message_role, &MessageKind::Text);
         let active = self.streaming_messages.lock().remove(&stream_key);
         let message = MessageProjection {
             id: active

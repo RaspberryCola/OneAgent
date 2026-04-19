@@ -5,8 +5,8 @@ use parking_lot::Mutex;
 
 use crate::agent_adapters::AgentSessionHandle;
 use crate::domain::{
-    AgentPromptCapabilities, AgentSessionBinding, SessionConfigOption,
-    AcpSessionModels, AcpSessionModeState,
+    AcpSessionModeState, AcpSessionModels, AgentPromptCapabilities, AgentSessionBinding,
+    SessionConfigOption,
 };
 use crate::storage::mappers::enum_text;
 
@@ -148,12 +148,7 @@ mod tests {
         Option<crate::domain::AcpSessionModels>,
         Option<crate::domain::AcpSessionModeState>,
     ) {
-        (
-            default_prompt_capabilities(),
-            vec![],
-            None,
-            None,
-        )
+        (default_prompt_capabilities(), vec![], None, None)
     }
 
     #[test]

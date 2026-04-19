@@ -1,6 +1,6 @@
 use rusqlite::Row;
 
-use crate::domain::{PermissionDecision, PendingPermissionRequest, PendingPermissionStatus};
+use crate::domain::{PendingPermissionRequest, PendingPermissionStatus, PermissionDecision};
 use crate::storage::mappers::{from_json, parse_dt, parse_enum};
 
 pub fn read_permission(row: &Row<'_>) -> rusqlite::Result<PermissionDecision> {

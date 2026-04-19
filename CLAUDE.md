@@ -14,24 +14,46 @@ npm run dev                  # Start Vite frontend dev server (port 1420)
 npm run tauri dev            # Full Tauri development mode (frontend + backend)
 
 # Build
-npm run prepare:claude-runtime  # Download bundled Bun runtime and Claude adapter
+npm run prepare:claude-runtime  # Download bundled Bun runtime and Claude adapter (required once)
 npm run build                # TypeScript check + Vite build
 npm run tauri build          # Full production build
 
 # Tauri-specific
 cd src-tauri && cargo build  # Build Rust backend only
 cd src-tauri && cargo test   # Run Rust tests
+
+# Frontend tests
+npm run test                 # Run Vitest in watch mode
+npm run test:run             # Run Vitest once (CI mode)
+
+# Run a single test file
+npm run test -- src/lib/utils/__tests__/conversation.test.ts
 ```
 
 ## Architecture
 
 ### Frontend (React + TypeScript + Vite)
 
+**Core Files:**
 - `src/App.tsx` - Main application component with layout
 - `src/lib/store.ts` - Zustand state management (workspace, conversations, agents, timeline)
 - `src/lib/backend/commands.ts` - Tauri command invocations
 - `src/lib/backend/events.ts` - Tauri event subscriptions
 - `src/lib/backend/types.ts` - TypeScript types matching Rust domain types
+
+**Custom Hooks:**
+- `useSearch` - Workspace file and conversation search
+- `useWorkspaceFileTree` - File tree navigation
+- `useModelSelector` - Model selection with state management
+- `useModeSelector` - Agent mode selection
+- `useAttachmentHandler` - File attachment handling
+- `useScrollManager` - Chat scroll behavior management
+
+**Utilities:**
+- `src/lib/utils/conversation.ts` - Conversation helpers (title building, status checks, cross-workspace lookup)
+- `src/lib/utils/timeline.ts` - Timeline item merging, key generation, message/tool_call/terminal merging
+- `src/lib/utils/settings.ts` - LocalStorage-based settings persistence
+- `src/lib/utils/constants.ts` - Sync configuration (poll intervals, grace periods)
 
 State management uses a Map-based multi-workspace architecture where conversations are keyed by workspace_id for cross-workspace navigation.
 
@@ -48,6 +70,19 @@ State management uses a Map-based multi-workspace architecture where conversatio
 | `storage/` | SQLite database operations (workspaces, profiles, conversations, bindings, events) |
 | `agent_adapters/` | Protocol adapters for AI agents |
 | `capability_services/` | MCP registry, skill discovery, policy engine, agent discovery |
+| `application/` | Application services layer (workspaces, agents, conversations, permissions, attachments, task_runs) |
+
+**Storage Layer:**
+- `storage/sqlite/` - Database connection, migrations, transaction management
+- `storage/repositories/` - CRUD operations per entity (agent_profiles, conversations, workspaces, permissions, etc.)
+- `storage/mappers/` - Row-to-domain mapping logic
+- `storage/facade.rs` - Unified Database facade wrapping repository access
+
+**Runtime Module:**
+- `runtime/session_manager.rs` - Manages agent session lifecycle
+- `runtime/stream_processor.rs` - Processes streaming events from agent subprocesses
+- `runtime/projector/` - Event projection to timeline (message, tool_call, terminal, permission)
+- `runtime/recovery.rs` - Session recovery and state reconstruction
 
 **Agent Adapters:**
 
@@ -133,3 +168,13 @@ When agents request permissions (file operations, commands, etc.), the runtime:
 - The database is SQLite, stored alongside the workspace
 - MCP servers are configured per-workspace
 - Skills are discovered from `.claude/skills/` directories
+
+## Troubleshooting
+
+**Runtime preparation fails:** Run `npm run prepare:claude-runtime` manually to download bundled Bun and Claude ACP adapter. Check network connectivity to GitHub.
+
+**Agent not discovered:** Verify the agent CLI is in PATH. Run "Refresh Agent Discovery" from the UI or call `listAgentDiscoveryStatus` to diagnose.
+
+**Conversation stuck in "initializing":** Check backend logs (`tracing` output) for adapter spawn errors. May indicate missing runtime (Bun/Node) or authentication issues (Claude requires `CLAUDE_API_KEY`).
+
+**Frontend tests failing:** Ensure `jsdom` environment is correctly configured in `vitest.config.ts`. Some tests may require Tauri API mocks.

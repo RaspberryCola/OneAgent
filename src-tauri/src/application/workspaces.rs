@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use crate::{
     domain::{
-        ConversationStatus, ExternalSession, McpServerConfig, SkillRecord, Workspace, WorkspaceBootstrap,
-        WorkspaceBootstrapInput,
+        ConversationStatus, ExternalSession, McpServerConfig, SkillRecord, Workspace,
+        WorkspaceBootstrap, WorkspaceBootstrapInput,
     },
     runtime::Runtime,
     storage::Database,
@@ -20,7 +20,11 @@ pub struct WorkspaceAppService {
 
 impl WorkspaceAppService {
     pub fn new(db: Database, runtime: Arc<Runtime>, agents: AgentAppService) -> Self {
-        Self { db, runtime, agents }
+        Self {
+            db,
+            runtime,
+            agents,
+        }
     }
 
     pub fn list_workspaces(&self) -> ApplicationResult<Vec<Workspace>> {
@@ -35,11 +39,17 @@ impl WorkspaceAppService {
         Ok(self.db.open_workspace(&cwd)?)
     }
 
-    pub fn list_workspace_mcp(&self, workspace_id: &str) -> ApplicationResult<Vec<McpServerConfig>> {
+    pub fn list_workspace_mcp(
+        &self,
+        workspace_id: &str,
+    ) -> ApplicationResult<Vec<McpServerConfig>> {
         Ok(self.db.list_workspace_mcp(workspace_id)?)
     }
 
-    pub fn upsert_workspace_mcp(&self, config: McpServerConfig) -> ApplicationResult<McpServerConfig> {
+    pub fn upsert_workspace_mcp(
+        &self,
+        config: McpServerConfig,
+    ) -> ApplicationResult<McpServerConfig> {
         self.db.upsert_workspace_mcp(&config)?;
         Ok(config)
     }

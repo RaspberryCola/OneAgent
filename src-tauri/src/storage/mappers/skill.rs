@@ -1,6 +1,6 @@
 use rusqlite::Row;
 
-use crate::domain::{SkillRecord, SkillScope, SkillOwner};
+use crate::domain::{SkillOwner, SkillRecord, SkillScope};
 use crate::storage::mappers::{from_json, parse_enum};
 
 pub fn read_skill(row: &Row<'_>) -> rusqlite::Result<SkillRecord> {

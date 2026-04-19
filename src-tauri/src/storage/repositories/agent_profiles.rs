@@ -1,9 +1,7 @@
 use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
-use crate::domain::{
-    AgentProfile, UpsertAgentProfileInput, AgentCapabilities,
-};
+use crate::domain::{AgentCapabilities, AgentProfile, UpsertAgentProfileInput};
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::mappers::agent_profile::read_agent_profile;
 use crate::storage::mappers::{enum_text, to_json};
@@ -31,7 +29,6 @@ impl<'a> AgentProfileRepository<'a> {
         let profile_id = input.id.unwrap_or_else(|| Uuid::new_v4().to_string());
         let existing_capabilities = self
             .conn
-            
             .query_row(
                 "SELECT capabilities_cache_json FROM agent_profiles WHERE id = ?1",
                 params![profile_id.clone()],

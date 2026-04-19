@@ -1,7 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{de::DeserializeOwned, Serialize};
 
-
 pub fn enum_text<T: Serialize>(value: &T) -> String {
     serde_json::to_value(value)
         .ok()

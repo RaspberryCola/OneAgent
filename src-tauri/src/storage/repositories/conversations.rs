@@ -3,14 +3,14 @@ use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
 use crate::domain::{
-    Conversation, ConversationOrigin, ConversationStatus, ConversationSnapshot, TaskRun,
+    Conversation, ConversationOrigin, ConversationSnapshot, ConversationStatus, TaskRun,
     TaskRunStatus,
 };
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::mappers::conversation::read_conversation;
+use crate::storage::mappers::enum_text;
 use crate::storage::mappers::snapshot::read_snapshot;
 use crate::storage::mappers::task_run::read_task_run;
-use crate::storage::mappers::enum_text;
 
 pub struct ConversationRepository<'a> {
     conn: &'a Connection,
@@ -60,7 +60,11 @@ impl<'a> ConversationRepository<'a> {
         Ok(conversation)
     }
 
-    pub fn update_status(&self, conversation_id: &str, status: ConversationStatus) -> StorageResult<()> {
+    pub fn update_status(
+        &self,
+        conversation_id: &str,
+        status: ConversationStatus,
+    ) -> StorageResult<()> {
         self.conn.execute(
             "UPDATE conversations SET status = ?2, updated_at = ?3 WHERE id = ?1",
             params![conversation_id, enum_text(&status), Utc::now().to_rfc3339()],
@@ -68,7 +72,11 @@ impl<'a> ConversationRepository<'a> {
         Ok(())
     }
 
-    pub fn list(&self, workspace_id: &str, include_tasks: bool) -> StorageResult<Vec<Conversation>> {
+    pub fn list(
+        &self,
+        workspace_id: &str,
+        include_tasks: bool,
+    ) -> StorageResult<Vec<Conversation>> {
         let sql = if include_tasks {
             "SELECT id, workspace_id, agent_profile_id, origin, status, title, created_at, updated_at, last_event_seq FROM conversations WHERE workspace_id = ?1 ORDER BY updated_at DESC"
         } else {
@@ -101,10 +109,7 @@ impl<'a> ConversationRepository<'a> {
         };
         let conn = self.conn;
         let mut stmt = conn.prepare(sql)?;
-        let rows = stmt.query_map(
-            params![workspace_id, search_pattern],
-            read_conversation,
-        )?;
+        let rows = stmt.query_map(params![workspace_id, search_pattern], read_conversation)?;
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(StorageError::from)
     }

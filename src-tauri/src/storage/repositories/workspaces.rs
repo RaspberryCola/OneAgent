@@ -3,11 +3,11 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::path::PathBuf;
 use uuid::Uuid;
 
-use crate::domain::{Workspace, AgentSessionBinding, AgentSessionSource};
+use crate::domain::{AgentSessionBinding, AgentSessionSource, Workspace};
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::mappers::binding::read_binding;
-use crate::storage::mappers::workspace::read_workspace;
 use crate::storage::mappers::enum_text;
+use crate::storage::mappers::workspace::read_workspace;
 
 pub struct WorkspaceRepository<'a> {
     conn: &'a Connection,

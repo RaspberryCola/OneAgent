@@ -31,6 +31,7 @@ Completed in this cycle:
 - G2 closed for key ACP families: `session/update` and `session/request_permission` now parse typed protocol models before mapping to runtime events
 - G3 closed: regression matrix now includes transactional behavior coverage (`import/cancel/permission resolve`) plus runtime projection behavior coverage (terminal accumulation, message/tool_call transitions)
 - G4 advanced: conversation state assembly now avoids repeated snapshot reads by decoding snapshot parts once per state emission path
+- G4 advanced further: runtime task summary now uses focused storage queries instead of full timeline loads, and terminal stream projection now reuses in-memory terminal records to reduce per-chunk DB reads
 
 ## 3. Stable Contracts (Do Not Break)
 

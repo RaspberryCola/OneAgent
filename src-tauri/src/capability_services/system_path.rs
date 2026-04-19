@@ -29,7 +29,10 @@ fn current_username() -> Option<String> {
     }
 
     dirs::home_dir()
-        .and_then(|path| path.file_name().map(|name| name.to_string_lossy().to_string()))
+        .and_then(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().to_string())
+        })
         .filter(|name| !name.trim().is_empty())
 }
 
@@ -230,8 +233,7 @@ fn command_candidates(command: &str) -> Vec<OsString> {
         return candidates;
     }
 
-    let path_ext =
-        env::var_os("PATHEXT").unwrap_or_else(|| OsString::from(".COM;.EXE;.BAT;.CMD"));
+    let path_ext = env::var_os("PATHEXT").unwrap_or_else(|| OsString::from(".COM;.EXE;.BAT;.CMD"));
     for ext in path_ext.to_string_lossy().split(';') {
         if ext.is_empty() {
             continue;
@@ -247,7 +249,9 @@ fn command_candidates(command: &str) -> Vec<OsString> {
 }
 
 pub fn command_exists(command: &str) -> bool {
-    if command.contains(std::path::MAIN_SEPARATOR) || command.contains('/') || command.contains('\\')
+    if command.contains(std::path::MAIN_SEPARATOR)
+        || command.contains('/')
+        || command.contains('\\')
     {
         return Path::new(command).is_file();
     }

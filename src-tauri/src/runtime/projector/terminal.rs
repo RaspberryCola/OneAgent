@@ -21,23 +21,33 @@ impl Runtime {
         exit_code: Option<i64>,
     ) -> RuntimeResult<()> {
         self.finalize_thinking_stream(conversation_id, turn_id)?;
-        let existing = self
-            .db
-            .get_terminal_by_remote_id(conversation_id, &terminal_id)?;
-        let mut record = existing.unwrap_or(TerminalRecord {
-            id: Uuid::new_v4().to_string(),
-            conversation_id: conversation_id.to_string(),
-            turn_id: turn_id.to_string(),
-            terminal_id: terminal_id.clone(),
-            cwd: cwd.clone().unwrap_or_default(),
-            command: command.clone().unwrap_or_default(),
-            args_json: args.clone(),
-            status: TerminalStatus::Running,
-            stdout_buffer: String::new(),
-            stderr_buffer: String::new(),
-            started_at: Utc::now(),
-            ended_at: None,
-        });
+        let cache_key = format!("{conversation_id}:{terminal_id}");
+        let cached_record = self.terminal_records_cache.lock().get(&cache_key).cloned();
+        let mut record = if let Some(cached) = cached_record {
+            cached
+        } else {
+            let existing = self
+                .db
+                .get_terminal_by_remote_id(conversation_id, &terminal_id)?;
+            let loaded = existing.unwrap_or(TerminalRecord {
+                id: Uuid::new_v4().to_string(),
+                conversation_id: conversation_id.to_string(),
+                turn_id: turn_id.to_string(),
+                terminal_id: terminal_id.clone(),
+                cwd: cwd.clone().unwrap_or_default(),
+                command: command.clone().unwrap_or_default(),
+                args_json: args.clone(),
+                status: TerminalStatus::Running,
+                stdout_buffer: String::new(),
+                stderr_buffer: String::new(),
+                started_at: Utc::now(),
+                ended_at: None,
+            });
+            self.terminal_records_cache
+                .lock()
+                .insert(cache_key.clone(), loaded.clone());
+            loaded
+        };
         if let Some(cwd) = cwd {
             record.cwd = cwd;
         }
@@ -73,6 +83,9 @@ impl Runtime {
             record.ended_at = Some(Utc::now());
         }
         self.db.upsert_terminal(&record)?;
+        self.terminal_records_cache
+            .lock()
+            .insert(cache_key, record.clone());
         if let Some(chunk) = content {
             let message = MessageProjection {
                 id: format!(

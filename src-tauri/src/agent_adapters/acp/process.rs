@@ -258,7 +258,7 @@ impl JsonRpcProcess {
     /// Handle a client request from the agent (fs/terminal operations).
     pub(crate) async fn handle_client_request(&mut self, message: &Value) -> AdapterResult<()> {
         let Some(method) = message.get("method").and_then(Value::as_str) else {
-            return Ok(())
+            return Ok(());
         };
         match method {
             "fs/read_text_file" => self.handle_fs_read(message).await?,
@@ -465,9 +465,15 @@ impl JsonRpcProcess {
 
     async fn handle_terminal_output(&mut self, message: &Value) -> AdapterResult<()> {
         if let Some(params) = message.get("params") {
-            let terminal_id = params.get("terminalId").and_then(Value::as_str).unwrap_or("");
+            let terminal_id = params
+                .get("terminalId")
+                .and_then(Value::as_str)
+                .unwrap_or("");
             let content = params.get("content").and_then(Value::as_str).unwrap_or("");
-            let stream = params.get("stream").and_then(Value::as_str).unwrap_or("stdout");
+            let stream = params
+                .get("stream")
+                .and_then(Value::as_str)
+                .unwrap_or("stdout");
 
             if !content.is_empty() {
                 self.emit_terminal_event(
@@ -754,12 +760,14 @@ pub(crate) fn message_id(message: &Value) -> AdapterResult<i64> {
         .ok_or_else(|| AdapterError::Protocol("message missing id".to_string()))
 }
 
-pub(crate) async fn read_available<R>(reader: Option<Arc<Mutex<BufReader<R>>>>) -> AdapterResult<String>
+pub(crate) async fn read_available<R>(
+    reader: Option<Arc<Mutex<BufReader<R>>>>,
+) -> AdapterResult<String>
 where
     R: AsyncRead + Unpin,
 {
     let Some(reader) = reader else {
-        return Ok(String::new())
+        return Ok(String::new());
     };
     let mut reader = reader.lock().await;
     let mut buf = [0_u8; 4096];

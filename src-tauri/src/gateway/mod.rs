@@ -156,7 +156,11 @@ impl Gateway {
     }
 
     pub async fn delete_conversation(&self, conversation_id: &str) -> GatewayResult<()> {
-        Ok(self.app.conversations.delete_conversation(conversation_id).await?)
+        Ok(self
+            .app
+            .conversations
+            .delete_conversation(conversation_id)
+            .await?)
     }
 
     pub async fn set_session_config(

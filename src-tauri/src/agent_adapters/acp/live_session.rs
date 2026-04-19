@@ -12,18 +12,20 @@ use uuid::Uuid;
 use crate::{
     agent_adapters::{AdapterError, AdapterResult, AgentSessionHandle, RuntimeStreamEvent},
     domain::{
-        AcpSessionModeState, AcpSessionModels, AttachmentInput, McpServerConfig,
-        PermissionDecisionKind, SessionConfigOption, AgentProfile,
+        AcpSessionModeState, AcpSessionModels, AgentProfile, AttachmentInput, McpServerConfig,
+        PermissionDecisionKind, SessionConfigOption,
     },
 };
 
 use super::parser::{
-    jsonrpc_error_message, parse_config_options, parse_modes, parse_models,
+    jsonrpc_error_message, parse_config_options, parse_models, parse_modes,
     parse_prompt_capabilities, parse_session_capabilities, parse_session_update,
 };
-use super::permission::{parse_permission_request, send_cancelled_permission, send_permission_decision};
-use super::prompt_codec::build_prompt_blocks_from_message;
+use super::permission::{
+    parse_permission_request, send_cancelled_permission, send_permission_decision,
+};
 use super::process::JsonRpcProcess;
+use super::prompt_codec::build_prompt_blocks_from_message;
 
 /// A permission option offered by the agent.
 #[derive(Debug, Clone)]
@@ -205,12 +207,10 @@ impl AcpLiveSession {
         &self,
         input: &str,
         attachments: &[AttachmentInput],
-    ) -> AdapterResult<
-        (
-            mpsc::UnboundedReceiver<RuntimeStreamEvent>,
-            oneshot::Receiver<AdapterResult<()>>,
-        ),
-    > {
+    ) -> AdapterResult<(
+        mpsc::UnboundedReceiver<RuntimeStreamEvent>,
+        oneshot::Receiver<AdapterResult<()>>,
+    )> {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let (completion_tx, completion_rx) = oneshot::channel();
         self.command_tx

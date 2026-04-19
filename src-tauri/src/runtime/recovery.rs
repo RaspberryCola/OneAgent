@@ -4,9 +4,7 @@ use chrono::Utc;
 use serde_json::{json, Value};
 
 use crate::agent_adapters::{acp::AcpLiveSession, RuntimeStreamEvent};
-use crate::domain::{
-    AgentKind, AgentProfile, AgentSessionBinding, SessionConfigOption,
-};
+use crate::domain::{AgentKind, AgentProfile, AgentSessionBinding, SessionConfigOption};
 use crate::runtime::{ManagedSession, Runtime, RuntimeResult};
 
 impl Runtime {
@@ -150,5 +148,4 @@ impl Runtime {
         )?;
         Ok(())
     }
-
 }

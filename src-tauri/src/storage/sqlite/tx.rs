@@ -2,7 +2,8 @@ use chrono::Utc;
 use rusqlite::{params, OptionalExtension, Transaction};
 
 use crate::domain::{
-    AgentSessionBinding, Conversation, ConversationStatus, PermissionDecision, TaskRun, TaskRunStatus,
+    AgentSessionBinding, Conversation, ConversationStatus, PermissionDecision, TaskRun,
+    TaskRunStatus,
 };
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::mappers::{enum_text, task_run::read_task_run};
@@ -453,8 +454,8 @@ mod tests {
     use uuid::Uuid;
 
     use crate::domain::{
-        AgentKind, AgentSessionBinding, AgentSessionSource, Conversation, ConversationOrigin,
-        ConversationRuntimeState, ConversationState, ConversationStatus, ConnectionPhase,
+        AgentKind, AgentSessionBinding, AgentSessionSource, ConnectionPhase, Conversation,
+        ConversationOrigin, ConversationRuntimeState, ConversationState, ConversationStatus,
         MessageKind, MessageProjection, MessageRole, PendingPermissionRequest,
         PendingPermissionStatus, PermissionDecision, PermissionDecisionKind, RuntimeEvent,
         SessionPhase, TaskRun, TaskRunStatus, TerminalRecord, TerminalStatus, ToolCallProjection,
@@ -808,7 +809,9 @@ mod tests {
         assert_eq!(pending[0].status, PendingPermissionStatus::Cancelled);
 
         let events = db.list_events(&conversation.id).unwrap();
-        assert!(events.iter().any(|event| event.event_type == "TurnCancelled"));
+        assert!(events
+            .iter()
+            .any(|event| event.event_type == "TurnCancelled"));
     }
 
     #[test]
@@ -883,7 +886,8 @@ mod tests {
             created_at: Utc::now(),
         };
 
-        db.resolve_permission_atomic(&decision, &pending.id).unwrap();
+        db.resolve_permission_atomic(&decision, &pending.id)
+            .unwrap();
 
         let decisions = db.list_permissions(&conversation.id).unwrap();
         assert_eq!(decisions.len(), 1);
