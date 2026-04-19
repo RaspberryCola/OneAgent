@@ -2,6 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
+@source "../node_modules/@streamdown/code/dist/*.js";
+
 :root {
   background-color: #ffffff;
   color: #000000;
@@ -143,17 +145,94 @@ h1, h2, h3, h4, h5, h6 {
   background-color: rgba(0, 0, 0, 0.30);
 }
 
-/* Streamdown code block styles - ensure proper formatting */
+/* Streamdown code block styles */
 pre {
-  white-space: pre;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  margin: 0;
 }
 
 pre code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9em;
 }
 
 /* Each line from Shiki is a span, needs to be block-level */
 pre code > span {
   display: block;
   min-height: 1em;
+}
+
+/* Code block container */
+[data-streamdown="code-block"] {
+  font-size: 0.9em;
+  margin: 16px 0;
+}
+
+/* Header with language and copy button */
+[data-streamdown="code-block-header"] {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+/* Language label */
+[data-streamdown="code-block-header"] span {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  color: #737373;
+}
+
+/* Hide download button */
+[data-streamdown="code-block-download-button"] {
+  display: none !important;
+}
+
+/* Copy button */
+[data-streamdown="code-block-copy-button"] {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+[data-streamdown="code-block-copy-button"]:hover {
+  opacity: 1;
+}
+
+[data-streamdown="code-block-copy-button"] svg {
+  width: 12px;
+  height: 12px;
+  display: block;
+}
+
+/* Actions container */
+[data-streamdown="code-block-actions"] {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Code area - pure content, no background, no border */
+[data-streamdown="code-block-body"] {
+  padding: 12px 16px;
+  background: transparent !important;
+  border: none !important;
+}
+
+[data-streamdown="code-block-body"] pre {
+  background: transparent !important;
+  border: none !important;
+  padding: 0;
+  margin: 0;
 }
