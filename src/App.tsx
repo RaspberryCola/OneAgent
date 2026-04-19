@@ -3,19 +3,10 @@ import {
   AlertCircle,
   ArrowDown,
   Bot,
-  ChevronDown,
-
-  ChevronRight,
-  Code,
-  Folder,
-  FolderOpen,
   Loader2,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
-  Plus,
-  SquarePen,
-  Search,
   Settings,
   X,
 } from "lucide-react";
@@ -28,9 +19,10 @@ import { ToolCallDisplay } from "./components/chat/ToolCallDisplay";
 import { PermissionDisplay } from "./components/chat/PermissionDisplay";
 import { Composer } from "./components/composer/Composer";
 import { SearchOverlay } from "./components/search/SearchOverlay";
-import { SidebarItem } from "./components/sidebar/SidebarItem";
+import { WorkspaceSidebar } from "./components/sidebar/WorkspaceSidebar";
 import { TimelineMessage } from "./components/timeline/TimelineMessage";
 import { WorkspaceDropdown } from "./components/ui/WorkspaceDropdown";
+import { WorkspacePanel } from "./components/workspace/WorkspacePanel";
 import { useScrollManager, useAttachmentHandler, useModelSelector, useModeSelector, useWorkspaceFileTree, useSearch, useConversationComposer } from "./hooks";
 
 const AGENT_LOGOS: Record<string, string> = {
@@ -179,18 +171,6 @@ function compareIsoTimestamp(a?: string | null, b?: string | null) {
   return a.localeCompare(b);
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let unitIndex = -1;
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
-}
-
 // Helper: get latest permission decision for a tool call
 function getLatestPermissionDecision(
   toolCallId: string,
@@ -288,8 +268,6 @@ export default function App() {
     loadingDirs: workspaceLoadingDirs,
     dirErrors: workspaceDirErrors,
     toggleDirectory: toggleWorkspaceDirectory,
-    refreshRoot: refreshWorkspaceRoot,
-    collapseDirectory: collapseWorkspaceDirectory,
   } = useWorkspaceFileTree({
     workspaceId: activeWorkspace?.id ?? null,
     cwd: activeWorkspace?.cwd ?? null,
@@ -304,7 +282,6 @@ export default function App() {
     openSearch,
     closeSearch,
     setQuery: setSearchQuery,
-    clearResults,
   } = useSearch({
     workspaceId: activeWorkspace?.id ?? null,
     enabled: true,
@@ -537,71 +514,6 @@ export default function App() {
     return meta;
   }, [activeTimeline?.events]);
 
-  const renderWorkspaceEntries = (entries: Types.WorkspaceFileEntry[], depth = 0) =>
-    entries.map((entry) => {
-      const isExpanded = expandedWorkspaceDirs.has(entry.path);
-      const isLoadingChildren = workspaceLoadingDirs.has(entry.path);
-      const children = workspaceDirChildren[entry.path] ?? [];
-      const childError = workspaceDirErrors[entry.path];
-
-      return (
-        <div key={entry.path}>
-          <button
-            type="button"
-            onClick={() => {
-              if (entry.is_dir) {
-                toggleWorkspaceDirectory(entry.path);
-              }
-            }}
-            className="w-full text-left px-2 py-1.5 rounded-md hover:bg-snow/90 transition-colors"
-            title={entry.path}
-          >
-            <div className="flex items-center gap-2 min-w-0" style={{ paddingLeft: `${depth * 14}px` }}>
-              {entry.is_dir ? (
-                isExpanded ? (
-                  <ChevronDown className="w-3.5 h-3.5 text-stone shrink-0" />
-                ) : (
-                  <ChevronRight className="w-3.5 h-3.5 text-stone shrink-0" />
-                )
-              ) : (
-                <span className="w-3.5 h-3.5 shrink-0" />
-              )}
-              {entry.is_dir ? (
-                <Folder className="w-3.5 h-3.5 text-stone shrink-0" />
-              ) : (
-                <Code className="w-3.5 h-3.5 text-stone shrink-0" />
-              )}
-              <span className="text-[12px] text-pure-black truncate flex-1 min-w-0">{entry.name}</span>
-              {!entry.is_dir && (
-                <span className="text-[10px] text-silver shrink-0">{formatBytes(entry.size_bytes ?? 0)}</span>
-              )}
-            </div>
-          </button>
-
-          {entry.is_dir && isExpanded && (
-            <div>
-              {isLoadingChildren ? (
-                <div className="ml-2 py-1.5 text-[11px] text-stone flex items-center gap-1.5" style={{ paddingLeft: `${(depth + 1) * 14}px` }}>
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  <span>Loading...</span>
-                </div>
-              ) : childError ? (
-                <div className="ml-2 py-1.5 text-[11px] text-stone truncate" style={{ paddingLeft: `${(depth + 1) * 14}px` }}>
-                  {childError}
-                </div>
-              ) : children.length === 0 ? (
-                <div className="ml-2 py-1.5 text-[11px] text-silver" style={{ paddingLeft: `${(depth + 1) * 14}px` }}>
-                  Empty
-                </div>
-              ) : (
-                renderWorkspaceEntries(children, depth + 1)
-              )}
-            </div>
-          )}
-        </div>
-      );
-    });
-
   if (isInitializing) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-pure-white text-pure-black">
@@ -614,194 +526,64 @@ export default function App() {
     <div className="flex h-screen w-full bg-pure-white font-body text-pure-black selection:bg-light-gray overflow-hidden">
       <input ref={fileInputRef as React.Ref<HTMLInputElement>} type="file" multiple className="hidden" onChange={handleFileInput} />
 
-      {isMobileSidebarOpen && (
-        <div className="fixed inset-0 bg-pure-black/20 z-20 md:hidden transition-opacity" onClick={() => setMobileSidebarOpen(false)} />
-      )}
-
-      <aside
-        className={`
-          fixed md:relative inset-y-0 left-0 z-30
-          bg-snow shrink-0 flex flex-col transition-all duration-300 ease-in-out
-          ${isMobileSidebarOpen ? "translate-x-0 w-[260px] border-r border-light-gray" : "-translate-x-full md:translate-x-0"}
-          ${isDesktopSidebarOpen ? "md:w-[260px]" : "md:w-0 md:overflow-hidden"}
-        `}
-      >
-        <div className="w-[260px] h-full flex flex-col">
-          <div className="p-3 shrink-0">
-            <div className="flex items-center justify-between mb-3 px-2">
-              <div className="flex items-center justify-start h-8">
-                <img src="/oneagent_horizontal.svg" alt=">_One Logo" className="h-[22px] object-contain" />
-              </div>
-              <button
-                onClick={() => setDesktopSidebarOpen(false)}
-                className="hidden md:flex p-1 text-stone hover:text-pure-black rounded-md hover:bg-light-gray/50 transition-colors"
-                title="Close Sidebar"
-              >
-                <PanelLeftClose className="w-[18px] h-[18px]" />
-              </button>
-              <button
-                onClick={() => setMobileSidebarOpen(false)}
-                className="md:hidden p-1 text-stone hover:text-pure-black rounded-md hover:bg-light-gray/50 transition-colors"
-              >
-                <PanelLeftClose className="w-[18px] h-[18px]" />
-              </button>
-            </div>
-
-            <div className="space-y-0.5">
-              <button
-                onClick={() => {
-                  void selectConversation(null);
-                  resetComposer();
-                }}
-                className={`w-full text-left px-3 py-1.5 rounded-container flex items-center gap-2.5 transition-colors min-w-0 ${
-                  activeConversationId === null ? "text-pure-black font-medium bg-light-gray" : "text-near-black hover:bg-light-gray/60"
-                }`}
-              >
-                <Plus className="w-3.5 h-3.5 shrink-0" />
-                <span className="text-caption truncate w-full block">New Chat</span>
-              </button>
-              <button
-                onClick={openSearch}
-                className="w-full text-left px-3 py-1.5 rounded-container flex items-center gap-2.5 transition-colors min-w-0 text-near-black hover:bg-light-gray/60"
-              >
-                <Search className="w-3.5 h-3.5 shrink-0" />
-                <span className="text-caption truncate w-full block">Search</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="px-3 shrink-0">
-            <div className="px-3 mb-0.5 mt-2 flex items-center justify-between gap-2">
-              <span className="text-[10px] font-medium text-stone uppercase tracking-widest opacity-80">
-                Workspaces
-              </span>
-              <button
-                type="button"
-                onClick={() => void pickWorkspace()}
-                className="rounded-container p-1.5 text-stone transition-colors hover:bg-light-gray/60 hover:text-pure-black"
-                title="Open workspace"
-                aria-label="Open workspace"
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto px-3 pb-4 no-scrollbar">
-            {/* Workspaces Tree */}
-            <div className="space-y-1">
-              {workspaces.length === 0 && <div className="px-2 py-1 text-[13px] text-silver">No workspaces</div>}
-              {workspaces.map((workspace) => {
-                const isExpanded = expandedWorkspaces.has(workspace.id);
-                const wsConversations = workspaceConversations.get(workspace.id) ?? [];
-                const hasConversations = wsConversations.length > 0;
-
-                return (
-                  <div key={workspace.id} className="space-y-0.5">
-                    {/* Workspace Header */}
-                    <div className="group relative w-full">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setExpandedWorkspaces((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(workspace.id)) {
-                              next.delete(workspace.id);
-                            } else {
-                              next.add(workspace.id);
-                            }
-                            return next;
-                          });
-                        }}
-                        className="w-full text-left px-3 py-1 pr-10 rounded-container flex items-center gap-2.5 transition-colors min-w-0 text-near-black hover:bg-light-gray/50"
-                      >
-                        {isExpanded ? (
-                          <FolderOpen className="w-3.5 h-3.5 shrink-0 text-stone" />
-                        ) : (
-                          <Folder className="w-3.5 h-3.5 shrink-0 text-stone" />
-                        )}
-                        <span className="text-caption truncate flex-1 min-w-0">{getWorkspaceLabel(workspace)}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void switchWorkspace(workspace).then(() => {
-                            void selectConversation(null);
-                            resetComposer();
-                            setPendingDeleteConversationId(null);
-                          });
-                        }}
-                        className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-container p-1.5 text-stone opacity-0 transition-all hover:bg-light-gray/60 hover:text-pure-black focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
-                        title={`New chat in ${getWorkspaceLabel(workspace)}`}
-                        aria-label={`New chat in ${getWorkspaceLabel(workspace)}`}
-                      >
-                        <SquarePen className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-
-                    {/* Workspace Conversations */}
-                    {isExpanded && (
-                      <div className="ml-5 pl-2 border-l border-light-gray/50 space-y-0.5 mt-0.5">
-                        {hasConversations ? (
-                          wsConversations.map((conversation) => {
-                            const agent = agentProfiles.find((a) => a.id === conversation.agent_profile_id);
-                            return (
-                              <SidebarItem
-                                key={conversation.id}
-                                title={conversation.title || "Untitled Chat"}
-                                agentCommand={agent?.command ?? conversation.agent_profile_id}
-                                status={conversation.status}
-                                renderAgentLogo={(agentCommand, className) => (
-                                  <AgentLogo agent={agentCommand} className={className} />
-                                )}
-                                unread={unreadCompletedConversations.has(conversation.id)}
-                                active={activeConversationId === conversation.id}
-                                onClick={() => {
-                                  void selectConversation(conversation.id);
-                                  setComposerNotice(null);
-                                  setPendingDeleteConversationId(null);
-                                }}
-                                deletePending={pendingDeleteConversationId === conversation.id}
-                                onDelete={() => {
-                                  if (pendingDeleteConversationId === conversation.id) {
-                                    setPendingDeleteConversationId(null);
-                                    void deleteConversation(conversation.id);
-                                    return;
-                                  }
-                                  setPendingDeleteConversationId(conversation.id);
-                                }}
-                                onCancelDelete={() => {
-                                  setPendingDeleteConversationId((current) =>
-                                    current === conversation.id ? null : current
-                                  );
-                                }}
-                              />
-                            );
-                          })
-                        ) : (
-                          <div className="px-3 py-1 text-[11px] text-silver">No conversations</div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-
-            </div>
-          </div>
-
-          <div className="p-3 shrink-0">
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              className="w-full flex items-center gap-2.5 px-3 py-1.5 text-small rounded-container hover:bg-snow transition-colors text-near-black text-left"
-            >
-              <Settings className="w-3.5 h-3.5 shrink-0" />
-              Settings
-            </button>
-          </div>
-        </div>
-      </aside>
+      <WorkspaceSidebar
+        isMobileSidebarOpen={isMobileSidebarOpen}
+        isDesktopSidebarOpen={isDesktopSidebarOpen}
+        workspaces={workspaces}
+        workspaceConversations={workspaceConversations}
+        expandedWorkspaces={expandedWorkspaces}
+        activeConversationId={activeConversationId}
+        unreadCompletedConversations={unreadCompletedConversations}
+        pendingDeleteConversationId={pendingDeleteConversationId}
+        agentProfiles={agentProfiles}
+        getWorkspaceLabel={getWorkspaceLabel}
+        renderAgentLogo={(agentCommand, className) => (
+          <AgentLogo agent={agentCommand} className={className} />
+        )}
+        onCloseMobileSidebar={() => setMobileSidebarOpen(false)}
+        onCloseDesktopSidebar={() => setDesktopSidebarOpen(false)}
+        onNewChat={() => {
+          void selectConversation(null);
+          resetComposer();
+        }}
+        onOpenSearch={openSearch}
+        onOpenWorkspacePicker={() => void pickWorkspace()}
+        onToggleWorkspaceExpand={(workspaceId) => {
+          setExpandedWorkspaces((prev) => {
+            const next = new Set(prev);
+            if (next.has(workspaceId)) {
+              next.delete(workspaceId);
+            } else {
+              next.add(workspaceId);
+            }
+            return next;
+          });
+        }}
+        onStartWorkspaceChat={(workspace) => {
+          void switchWorkspace(workspace).then(() => {
+            void selectConversation(null);
+            resetComposer();
+            setPendingDeleteConversationId(null);
+          });
+        }}
+        onSelectConversation={(conversationId) => {
+          void selectConversation(conversationId);
+          setComposerNotice(null);
+          setPendingDeleteConversationId(null);
+        }}
+        onToggleDeleteConversation={(conversationId) => {
+          if (pendingDeleteConversationId === conversationId) {
+            setPendingDeleteConversationId(null);
+            void deleteConversation(conversationId);
+            return;
+          }
+          setPendingDeleteConversationId(conversationId);
+        }}
+        onCancelDeleteConversation={(conversationId) => {
+          setPendingDeleteConversationId((current) => (current === conversationId ? null : current));
+        }}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+      />
 
       <main className="flex-1 flex flex-col min-w-0 h-screen bg-pure-white relative">
         <header className="h-14 flex items-center justify-between px-4 shrink-0 bg-pure-white z-10 w-full">
@@ -1084,40 +866,18 @@ export default function App() {
       </main>
 
       {activeConversationId !== null && (
-        <aside
-          className={`bg-pure-white transition-all duration-200 ${
-            isWorkspacePanelOpen ? "w-[320px]" : "w-0 overflow-hidden"
-          }`}
-        >
-          <div className="w-[320px] h-full flex flex-col">
-            <div className="px-4 py-3 border-b border-light-gray/40">
-              <div className="text-[11px] text-stone truncate" title={activeWorkspace?.cwd ?? ""}>
-                {activeWorkspace?.cwd ?? "No active workspace"}
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-3">
-              {isWorkspaceRootLoading ? (
-                <div className="h-full flex items-center justify-center gap-2 text-[12px] text-stone">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Loading files...</span>
-                </div>
-              ) : workspaceRootError ? (
-                <div className="p-3 rounded-container border border-light-gray/60 bg-snow text-[12px] text-stone">
-                  {workspaceRootError}
-                </div>
-              ) : workspaceRootFiles.length === 0 ? (
-                <div className="p-3 rounded-container border border-light-gray/60 bg-snow text-[12px] text-stone">
-                  No files found in this workspace root.
-                </div>
-              ) : (
-                <div className="space-y-0.5">
-                  {renderWorkspaceEntries(workspaceRootFiles)}
-                </div>
-              )}
-            </div>
-          </div>
-        </aside>
+        <WorkspacePanel
+          isOpen={isWorkspacePanelOpen}
+          cwd={activeWorkspace?.cwd}
+          isRootLoading={isWorkspaceRootLoading}
+          rootError={workspaceRootError}
+          rootFiles={workspaceRootFiles}
+          expandedDirs={expandedWorkspaceDirs}
+          dirChildren={workspaceDirChildren}
+          loadingDirs={workspaceLoadingDirs}
+          dirErrors={workspaceDirErrors}
+          onToggleDirectory={toggleWorkspaceDirectory}
+        />
       )}
 
       {isSettingsOpen && (
