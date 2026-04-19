@@ -10,55 +10,40 @@ function humanFileSize(size: number) {
 interface AttachmentPreviewListProps {
   attachments: Array<{ attachment: LocalAttachment; resolution: AttachmentResolution }>;
   onRemoveAttachment: (id: string) => void;
-  onSetUsageIntent: (id: string, usageIntent: 'vision_input' | 'file_resource') => void;
+  // onSetUsageIntent 已经在组件内不使用了，可以保留 props 方便后续不再修改外部依赖
+  onSetUsageIntent?: (id: string, usageIntent: 'vision_input' | 'file_resource') => void;
 }
 
-export function AttachmentPreviewList({ attachments, onRemoveAttachment, onSetUsageIntent }: AttachmentPreviewListProps) {
+export function AttachmentPreviewList({ attachments, onRemoveAttachment }: AttachmentPreviewListProps) {
   if (attachments.length === 0) return null;
 
   return (
-    <div className="px-3 pt-3 space-y-2">
-      {attachments.map(({ attachment, resolution }) => (
-        <div key={attachment.id} className="flex items-center gap-3 rounded-xl border border-light-gray bg-snow px-3 py-2">
+    <div className="px-3 pt-3 flex flex-wrap gap-2">
+      {attachments.map(({ attachment }) => (
+        <div key={attachment.id} className="relative group flex items-center gap-2.5 rounded-lg border border-light-gray bg-snow p-1.5 pr-3 max-w-[200px]">
           {attachment.previewUrl ? (
-            <img src={attachment.previewUrl} alt={attachment.name} className="w-12 h-12 rounded-lg object-cover shrink-0" />
+            <img src={attachment.previewUrl} alt={attachment.name} className="w-9 h-9 rounded-md object-cover shrink-0 border border-light-gray/50" />
           ) : (
-            <div className="w-12 h-12 rounded-lg bg-pure-white border border-light-gray shrink-0 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-md bg-pure-white border border-light-gray shrink-0 flex items-center justify-center">
               <Paperclip className="w-4 h-4 text-stone" />
             </div>
           )}
-          <div className="min-w-0 flex-1">
-            <div className="text-[13px] font-medium truncate">{attachment.name}</div>
-            <div className="text-[11px] text-stone flex flex-wrap gap-2">
-              <span>{humanFileSize(attachment.size)}</span>
-              <span>{resolution.label}</span>
+          
+          <div className="min-w-0 flex-1 flex flex-col justify-center">
+            <div className="text-[12px] font-medium truncate text-pure-black leading-tight">
+              {attachment.name}
             </div>
-            {attachment.kind === 'image' && (
-              <div className="mt-1 inline-flex rounded-md border border-light-gray overflow-hidden text-[11px]">
-                <button
-                  type="button"
-                  className={`px-2 py-0.5 transition-colors ${attachment.usageIntent !== 'file_resource' ? 'bg-pure-black text-pure-white' : 'bg-pure-white text-stone hover:text-pure-black'}`}
-                  onClick={() => onSetUsageIntent(attachment.id, 'vision_input')}
-                >
-                  Read image
-                </button>
-                <button
-                  type="button"
-                  className={`px-2 py-0.5 border-l border-light-gray transition-colors ${attachment.usageIntent === 'file_resource' ? 'bg-pure-black text-pure-white' : 'bg-pure-white text-stone hover:text-pure-black'}`}
-                  onClick={() => onSetUsageIntent(attachment.id, 'file_resource')}
-                >
-                  As file
-                </button>
-              </div>
-            )}
-            {resolution.reason && <div className="text-[11px] text-stone truncate">{resolution.reason}</div>}
+            <div className="text-[10px] text-stone mt-0.5 truncate leading-tight">
+              {humanFileSize(attachment.size)}
+            </div>
           </div>
+          
           <button
             type="button"
-            className="p-1.5 rounded-md hover:bg-light-gray/60 text-stone hover:text-pure-black"
+            className="absolute -top-2 -right-2 bg-pure-white border border-light-gray w-5 h-5 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-light-gray text-stone hover:text-pure-black shadow-sm"
             onClick={() => onRemoveAttachment(attachment.id)}
           >
-            <X className="w-4 h-4" />
+            <X className="w-3 h-3" />
           </button>
         </div>
       ))}

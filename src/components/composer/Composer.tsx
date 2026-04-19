@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { ArrowUp, Paperclip, Square } from 'lucide-react';
+import { motion } from 'framer-motion';
 import type * as Types from '../../lib/backend/types';
 import type {
   AttachmentResolution,
@@ -107,6 +108,18 @@ export function Composer({
     setIsDragging(true);
   };
 
+  const hasImages = attachments.some(a => a.attachment.kind === 'image');
+  const isVisionMode = attachments.some(a => a.attachment.kind === 'image' && a.attachment.usageIntent === 'vision_input') || (hasImages && !attachments.some(a => a.attachment.kind === 'image' && a.attachment.usageIntent === 'file_resource'));
+
+  const handleToggleVision = () => {
+    const nextMode = isVisionMode ? 'file_resource' : 'vision_input';
+    attachments.forEach(a => {
+      if (a.attachment.kind === 'image') {
+        onSetAttachmentUsageIntent(a.attachment.id, nextMode);
+      }
+    });
+  };
+
   return (
     <div
       onDrop={handleDropEvent}
@@ -153,6 +166,61 @@ export function Composer({
           >
             <Paperclip className={isCompact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
           </button>
+
+          {hasImages && (
+            <div className="flex items-center bg-light-gray/60 p-0.5 rounded-pill border border-light-gray/50 relative">
+              <div className="relative group/read flex items-center">
+                <button
+                  type="button"
+                  className={`text-[11px] px-2.5 py-1 rounded-pill transition-all font-medium relative focus:outline-none`}
+                  onClick={() => {
+                    if (!isVisionMode) handleToggleVision();
+                  }}
+                >
+                  {isVisionMode && (
+                    <motion.div
+                      layoutId="visionTogglePill"
+                      className="absolute inset-0 bg-pure-black rounded-pill shadow-sm"
+                      transition={{ type: "spring", stiffness: 500, damping: 35 }}
+                    />
+                  )}
+                  <span className={`relative z-10 transition-colors duration-200 ${isVisionMode ? 'text-pure-white' : 'text-stone hover:text-pure-black'}`}>
+                    Read Images
+                  </span>
+                </button>
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-pure-white border border-light-gray text-pure-black text-[11px] rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.08)] opacity-0 pointer-events-none group-hover/read:opacity-100 transition-opacity duration-150 whitespace-nowrap z-[60] flex flex-col gap-0.5 items-center">
+                  <span className="font-medium">Images will be analyzed by the AI model</span>
+                  <span className="text-[10px] text-stone">Requires a vision-capable model</span>
+                  <div className="absolute -bottom-[5px] left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-pure-white border-b border-r border-light-gray rotate-45" />
+                </div>
+              </div>
+              
+              <div className="relative group/file flex items-center">
+                <button
+                  type="button"
+                  className={`text-[11px] px-2.5 py-1 rounded-pill transition-all font-medium relative focus:outline-none`}
+                  onClick={() => {
+                    if (isVisionMode) handleToggleVision();
+                  }}
+                >
+                  {!isVisionMode && (
+                    <motion.div
+                      layoutId="visionTogglePill"
+                      className="absolute inset-0 bg-pure-black rounded-pill shadow-sm"
+                      transition={{ type: "spring", stiffness: 500, damping: 35 }}
+                    />
+                  )}
+                  <span className={`relative z-10 transition-colors duration-200 ${!isVisionMode ? 'text-pure-white' : 'text-stone hover:text-pure-black'}`}>
+                    As Files
+                  </span>
+                </button>
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-pure-white border border-light-gray text-pure-black text-[11px] rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.08)] opacity-0 pointer-events-none group-hover/file:opacity-100 transition-opacity duration-150 whitespace-nowrap z-[60] flex flex-col items-center">
+                  <span className="font-medium">Images will be sent as file attachments only</span>
+                  <div className="absolute -bottom-[5px] left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-pure-white border-b border-r border-light-gray rotate-45" />
+                </div>
+              </div>
+            </div>
+          )}
 
           <ModelSelectorMenu
             modelSelector={modelSelector}
