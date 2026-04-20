@@ -342,7 +342,8 @@ export function ToolCallDisplay({ toolCall, terminals, permissionDecision }: Too
   const hasOutput = hasMeaningfulValue(toolCall.raw_output_json) || Boolean(outputSummary);
   const hasDetail = hasInput || hasOutput || terminals.length > 0;
 
-  const stableTitle = getToolKindDisplayName(normalizedKind);
+  // AION-style strategy: explicit title first, fallback to kind display name.
+  const stableTitle = sanitizeDisplayString(toolCall.title) || getToolKindDisplayName(normalizedKind);
 
   // Permission decision label - uses shared PERMISSION_DECISION_CONFIG
   const permissionLabel = permissionDecision ? getPermissionDecisionConfig(permissionDecision.decision).label : null;
