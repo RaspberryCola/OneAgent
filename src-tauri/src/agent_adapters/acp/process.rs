@@ -238,6 +238,23 @@ impl JsonRpcProcess {
         Ok(serde_json::from_str(line.trim())?)
     }
 
+    /// Try to read a pending message with a short timeout.
+    /// Returns Ok(Some(message)) if a message is available, Ok(None) on timeout.
+    pub(crate) async fn try_read_message(
+        &mut self,
+        timeout_ms: u64,
+    ) -> AdapterResult<Option<Value>> {
+        match tokio::time::timeout(
+            std::time::Duration::from_millis(timeout_ms),
+            self.read_message(),
+        )
+        .await
+        {
+            Ok(result) => result.map(Some),
+            Err(_) => Ok(None), // timeout — no pending message
+        }
+    }
+
     /// Close the process connection.
     pub(crate) async fn close(&mut self) -> AdapterResult<()> {
         if let Err(e) = self.child.kill().await {

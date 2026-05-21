@@ -111,7 +111,7 @@ impl AgentAdapter for AcpAdapter {
         mcp_servers: &[McpServerConfig],
     ) -> AdapterResult<AgentSessionHandle> {
         // Use AcpLiveSession::start_new for creating a live session
-        let session = AcpLiveSession::start_new(profile, cwd, mcp_servers).await?;
+        let (session, _startup_events) = AcpLiveSession::start_new(profile, cwd, mcp_servers).await?;
         Ok(session.handle)
     }
 

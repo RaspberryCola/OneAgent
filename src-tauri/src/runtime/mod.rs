@@ -177,14 +177,19 @@ impl Runtime {
         let workspace = self.db.get_workspace(&input.workspace_id)?;
         let profile = self.db.get_agent_profile(&input.agent_profile_id)?;
         let mcp_servers = self.mcp_registry.list_for_workspace(&workspace.id)?;
-        let managed_session = match profile.kind {
-            AgentKind::Acp => ManagedSession::Acp(
-                AcpLiveSession::start_new(&profile, &workspace.cwd, &mcp_servers).await?,
-            ),
-            AgentKind::Compat => ManagedSession::Passive(
-                self.adapter_for(&profile)
-                    .new_session(&profile, &workspace.cwd, &mcp_servers)
-                    .await?,
+        let (managed_session, startup_events) = match profile.kind {
+            AgentKind::Acp => {
+                let (session, events) =
+                    AcpLiveSession::start_new(&profile, &workspace.cwd, &mcp_servers).await?;
+                (ManagedSession::Acp(session), events)
+            }
+            AgentKind::Compat => (
+                ManagedSession::Passive(
+                    self.adapter_for(&profile)
+                        .new_session(&profile, &workspace.cwd, &mcp_servers)
+                        .await?,
+                ),
+                Vec::new(),
             ),
         };
         let handle = match &managed_session {
@@ -230,6 +235,7 @@ impl Runtime {
             config_options: handle.config_options.clone(),
             models: handle.models.clone(),
             modes: handle.modes.clone(),
+            available_commands: Vec::new(),
             pending_permissions: Vec::new(),
         };
         self.db.create_conversation_atomic(
@@ -245,6 +251,11 @@ impl Runtime {
         self.session_manager
             .insert(conversation.id.clone(), managed_session);
         self.set_runtime_state(&conversation.id, initial_runtime)?;
+        // Process startup events (e.g. available_commands_update) that
+        // arrived immediately after session creation.
+        for event in startup_events {
+            let _ = self.apply_stream_event(&conversation.id, "startup", event);
+        }
         let state = ConversationState {
             conversation: self.db.get_conversation(&conversation.id)?,
             runtime: self.runtime_state(&conversation.id),
@@ -253,6 +264,7 @@ impl Runtime {
             config_options: handle.config_options.clone(),
             models: handle.models.clone(),
             modes: handle.modes.clone(),
+            available_commands: self.conversation_available_commands(&conversation.id),
             pending_permissions: Vec::new(),
         };
         self.db.replace_snapshot(
@@ -275,7 +287,7 @@ impl Runtime {
         let mcp_servers = self.mcp_registry.list_for_workspace(&workspace.id)?;
         match profile.kind {
             AgentKind::Acp => {
-                let session =
+                let (session, _events) =
                     AcpLiveSession::start_new(&profile, &workspace.cwd, &mcp_servers).await?;
                 let result = PreviewSessionConfigResult {
                     config_options: session.handle.config_options.clone(),
@@ -371,6 +383,7 @@ impl Runtime {
             config_options: loaded.handle.config_options.clone(),
             models: loaded.handle.models.clone(),
             modes: loaded.handle.modes.clone(),
+            available_commands: Vec::new(),
             pending_permissions: Vec::new(),
         };
         self.db.create_conversation_atomic(
@@ -553,6 +566,7 @@ impl Runtime {
             config_options: loaded.handle.config_options.clone(),
             models: loaded.handle.models.clone(),
             modes: loaded.handle.modes.clone(),
+            available_commands: Vec::new(),
             pending_permissions: self.db.list_pending_permissions(&conversation.id)?,
         };
         self.db.replace_snapshot(
@@ -573,14 +587,19 @@ impl Runtime {
         let workspace = self.db.get_workspace(&input.workspace_id)?;
         let profile = self.db.get_agent_profile(&input.agent_profile_id)?;
         let mcp_servers = self.mcp_registry.list_for_workspace(&workspace.id)?;
-        let managed_session = match profile.kind {
-            AgentKind::Acp => ManagedSession::Acp(
-                AcpLiveSession::start_new(&profile, &workspace.cwd, &mcp_servers).await?,
-            ),
-            AgentKind::Compat => ManagedSession::Passive(
-                self.adapter_for(&profile)
-                    .new_session(&profile, &workspace.cwd, &mcp_servers)
-                    .await?,
+        let (managed_session, startup_events) = match profile.kind {
+            AgentKind::Acp => {
+                let (session, events) =
+                    AcpLiveSession::start_new(&profile, &workspace.cwd, &mcp_servers).await?;
+                (ManagedSession::Acp(session), events)
+            }
+            AgentKind::Compat => (
+                ManagedSession::Passive(
+                    self.adapter_for(&profile)
+                        .new_session(&profile, &workspace.cwd, &mcp_servers)
+                        .await?,
+                ),
+                Vec::new(),
             ),
         };
         let handle = match &managed_session {
@@ -637,6 +656,7 @@ impl Runtime {
             config_options: handle.config_options.clone(),
             models: handle.models.clone(),
             modes: handle.modes.clone(),
+            available_commands: Vec::new(),
             pending_permissions: Vec::new(),
         };
         self.db.create_task_run_atomic(
@@ -653,6 +673,10 @@ impl Runtime {
         self.session_manager
             .insert(conversation.id.clone(), managed_session);
         self.set_runtime_state(&conversation.id, initial_runtime)?;
+        // Process startup events (e.g. available_commands_update).
+        for event in startup_events {
+            let _ = self.apply_stream_event(&conversation.id, "startup", event);
+        }
         let state = ConversationState {
             conversation: self.db.get_conversation(&conversation.id)?,
             runtime: self.runtime_state(&conversation.id),
@@ -661,6 +685,7 @@ impl Runtime {
             config_options: handle.config_options.clone(),
             models: handle.models.clone(),
             modes: handle.modes.clone(),
+            available_commands: self.conversation_available_commands(&conversation.id),
             pending_permissions: Vec::new(),
         };
         self.db.replace_snapshot(
@@ -1243,6 +1268,10 @@ impl Runtime {
         self.snapshot_parts(conversation_id).2
     }
 
+    fn conversation_available_commands(&self, conversation_id: &str) -> Vec<AvailableCommand> {
+        self.snapshot_parts(conversation_id).3
+    }
+
     fn snapshot_parts(
         &self,
         conversation_id: &str,
@@ -1250,10 +1279,16 @@ impl Runtime {
         Vec<SessionConfigOption>,
         Option<AcpSessionModels>,
         Option<AcpSessionModeState>,
+        Vec<AvailableCommand>,
     ) {
         match self.snapshot_state(conversation_id) {
-            Some(state) => (state.config_options, state.models, state.modes),
-            None => (Vec::new(), None, None),
+            Some(state) => (
+                state.config_options,
+                state.models,
+                state.modes,
+                state.available_commands,
+            ),
+            None => (Vec::new(), None, None, Vec::new()),
         }
     }
 
@@ -1266,7 +1301,8 @@ impl Runtime {
     }
 
     pub fn conversation_state(&self, conversation_id: &str) -> RuntimeResult<ConversationState> {
-        let (config_options, models, modes) = self.snapshot_parts(conversation_id);
+        let (config_options, models, modes, available_commands) =
+            self.snapshot_parts(conversation_id);
         Ok(ConversationState {
             conversation: self.db.get_conversation(conversation_id)?,
             runtime: self.runtime_state(conversation_id),
@@ -1275,6 +1311,7 @@ impl Runtime {
             config_options,
             models,
             modes,
+            available_commands,
             pending_permissions: self.db.list_pending_permissions(conversation_id)?,
         })
     }
@@ -1396,6 +1433,23 @@ impl Runtime {
     ) -> RuntimeResult<()> {
         let mut snapshot_state = self.snapshot_state(conversation_id).unwrap_or_default();
         snapshot_state.modes = Some(modes);
+        let event_seq = self.db.get_conversation(conversation_id)?.last_event_seq;
+        self.db.replace_snapshot(
+            conversation_id,
+            1,
+            &serde_json::to_value(&snapshot_state).unwrap_or_else(|_| Value::Null),
+            event_seq,
+        )?;
+        Ok(())
+    }
+
+    fn update_snapshot_available_commands(
+        &self,
+        conversation_id: &str,
+        available_commands: Vec<AvailableCommand>,
+    ) -> RuntimeResult<()> {
+        let mut snapshot_state = self.snapshot_state(conversation_id).unwrap_or_default();
+        snapshot_state.available_commands = available_commands;
         let event_seq = self.db.get_conversation(conversation_id)?.last_event_seq;
         self.db.replace_snapshot(
             conversation_id,
@@ -1667,6 +1721,7 @@ mod tests {
             config_options: vec![],
             models: None,
             modes: None,
+            available_commands: Vec::new(),
             pending_permissions: vec![],
         };
 

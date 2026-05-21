@@ -529,6 +529,14 @@ pub struct SessionConfigOption {
     pub raw: serde_json::Value,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AvailableCommand {
+    pub name: String,
+    pub description: String,
+    #[serde(default)]
+    pub input_hint: Option<String>,
+}
+
 /// Available model returned by session/new (unstable API)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AcpAvailableModel {
@@ -586,6 +594,8 @@ pub struct ConversationState {
     pub models: Option<AcpSessionModels>,
     #[serde(default)]
     pub modes: Option<AcpSessionModeState>,
+    #[serde(default)]
+    pub available_commands: Vec<AvailableCommand>,
     #[serde(default)]
     pub pending_permissions: Vec<PendingPermissionRequest>,
 }

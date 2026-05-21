@@ -69,6 +69,7 @@ describe('conversation utilities', () => {
         last_transition_at: new Date().toISOString(),
       },
       config_options: [],
+      available_commands: [],
       pending_permissions: [],
     });
 

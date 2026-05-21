@@ -140,3 +140,20 @@ export async function upsertWorkspaceMcp(config: Types.McpServerConfig): Promise
 export async function listWorkspaceSkills(workspaceId: string): Promise<Types.SkillRecord[]> {
   return invoke('list_workspace_skills', { workspaceId });
 }
+
+// Terminal Commands
+export async function spawnTerminal(id: string, cwd?: string | null): Promise<void> {
+  return invoke('spawn_terminal', { id, cwd });
+}
+
+export async function writeToTerminal(id: string, data: string): Promise<void> {
+  return invoke('write_to_terminal', { id, data });
+}
+
+export async function resizeTerminal(id: string, cols: number, rows: number): Promise<void> {
+  return invoke('resize_terminal', { id, cols, rows });
+}
+
+export async function closeTerminal(id: string): Promise<void> {
+  return invoke('close_terminal', { id });
+}

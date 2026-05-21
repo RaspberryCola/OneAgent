@@ -25,6 +25,8 @@ mime_guess = "2"
 base64 = "0.22"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+portable-pty = "0.8"
+
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

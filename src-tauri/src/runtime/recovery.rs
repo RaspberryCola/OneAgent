@@ -58,7 +58,10 @@ impl Runtime {
                     }
                 }
 
-                let session = AcpLiveSession::start_new(profile, &handle.cwd, &mcp_servers).await?;
+                let (session, startup_events) = AcpLiveSession::start_new(profile, &handle.cwd, &mcp_servers).await?;
+                for event in startup_events {
+                    let _ = self.apply_stream_event(conversation_id, "startup", event);
+                }
                 let mut updated_binding = binding.clone();
                 updated_binding.remote_session_id = session.handle.remote_session_id.clone();
                 updated_binding.load_supported = session.handle.load_supported;

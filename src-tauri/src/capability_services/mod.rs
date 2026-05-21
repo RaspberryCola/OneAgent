@@ -4,3 +4,4 @@ pub mod mcp;
 pub mod policy;
 pub mod skills;
 pub mod system_path;
+pub mod terminal;

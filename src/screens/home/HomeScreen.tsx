@@ -40,6 +40,7 @@ interface HomeScreenProps {
   onStop: () => void;
   onAttachClick: () => void;
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+  availableCommands?: Types.AvailableCommand[];
 }
 
 export function HomeScreen({
@@ -77,6 +78,7 @@ export function HomeScreen({
   onStop,
   onAttachClick,
   onKeyDown,
+  availableCommands,
 }: HomeScreenProps) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-4 pb-32 w-full max-w-3xl mx-auto overflow-y-auto overflow-x-hidden">
@@ -165,6 +167,7 @@ export function HomeScreen({
               isCompact={false}
               isBusy={isBusy}
               onStop={onStop}
+              availableCommands={availableCommands}
             />
           </div>
         </div>

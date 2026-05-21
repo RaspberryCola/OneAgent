@@ -37,6 +37,8 @@ export function PermissionDisplay({ request, toolCall, requestMeta, decision }: 
     if (typeof input === "string") return input;
     if (input.command) return `${input.command}${Array.isArray(input.args) ? ` ${input.args.join(" ")}` : ""}`;
     if (input.path) return String(input.path);
+    if (input.file_path) return String(input.file_path);
+    if (input.filePath) return String(input.filePath);
     return "";
   }, [requestMeta?.rawInput, toolCall?.raw_input_json]);
 

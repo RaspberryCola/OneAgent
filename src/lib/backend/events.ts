@@ -1,5 +1,5 @@
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
-import type { MessageProjection, ToolCallProjection, PermissionDecision, ConversationState, SessionConfigOption, AcpSessionModels, AcpSessionModeState, AgentCapabilities, PendingPermissionRequest, TerminalRecord, TaskRun } from './types';
+import type { AvailableCommand, MessageProjection, ToolCallProjection, PermissionDecision, ConversationState, SessionConfigOption, AcpSessionModels, AcpSessionModeState, AgentCapabilities, PendingPermissionRequest, TerminalRecord, TaskRun } from './types';
 
 // The backend now emits normalized envelopes, replacing the older raw-payload assumptions.
 
@@ -26,6 +26,10 @@ export type ConversationConfigUpdatedPayload = {
   config_options?: SessionConfigOption[];
   models?: AcpSessionModels;
   modes?: AcpSessionModeState;
+};
+export type ConversationCommandsUpdatedPayload = {
+  conversation_id: string;
+  available_commands: AvailableCommand[];
 };
 
 export function onAgentProfileProbed(handler: (payload: AgentProfileProbedPayload) => void): Promise<UnlistenFn> {
@@ -74,4 +78,8 @@ export function onTaskRunStateChanged(handler: (payload: TaskRunStateChangedPayl
 
 export function onConversationDeleted(handler: (payload: ConversationDeletedPayload) => void): Promise<UnlistenFn> {
   return listen<ConversationDeletedPayload>('conversation:deleted', (event) => handler(event.payload));
+}
+
+export function onConversationCommandsUpdated(handler: (payload: ConversationCommandsUpdatedPayload) => void): Promise<UnlistenFn> {
+  return listen<ConversationCommandsUpdatedPayload>('conversation:commands_updated', (event) => handler(event.payload));
 }

@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::domain::{
-    AcpSessionModeState, AcpSessionModels, ConversationState, SessionConfigOption,
+    AcpSessionModeState, AcpSessionModels, AvailableCommand, ConversationState,
+    SessionConfigOption,
 };
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -12,6 +13,8 @@ pub struct RuntimeSnapshotState {
     pub models: Option<AcpSessionModels>,
     #[serde(default)]
     pub modes: Option<AcpSessionModeState>,
+    #[serde(default)]
+    pub available_commands: Vec<AvailableCommand>,
 }
 
 impl RuntimeSnapshotState {
@@ -20,6 +23,7 @@ impl RuntimeSnapshotState {
             config_options: state.config_options.clone(),
             models: state.models.clone(),
             modes: state.modes.clone(),
+            available_commands: state.available_commands.clone(),
         }
     }
 
@@ -30,6 +34,7 @@ impl RuntimeSnapshotState {
                 obj.contains_key("config_options")
                     || obj.contains_key("models")
                     || obj.contains_key("modes")
+                    || obj.contains_key("available_commands")
             })
             .unwrap_or(false);
         if has_runtime_snapshot_shape {
@@ -99,6 +104,7 @@ mod tests {
             }],
             models: None,
             modes: None,
+            available_commands: Vec::new(),
             pending_permissions: vec![],
         }
     }

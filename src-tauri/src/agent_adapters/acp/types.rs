@@ -231,12 +231,24 @@ pub(crate) struct AcpToolContentRef {
     pub(crate) uri: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub(crate) struct AcpDiffContent {
+    #[serde(rename = "type")]
+    pub(crate) kind: String,
+    pub(crate) path: String,
+    #[serde(rename = "newText")]
+    pub(crate) new_text: Option<String>,
+    #[serde(rename = "oldText")]
+    pub(crate) old_text: Option<String>,
+}
+
 /// Typed content item in a tool call. Uses untagged deserialization to match
 /// the various wire formats sent by different agents.
 /// Order matters: more specific variants (with multiple fields) must come first.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
 pub(crate) enum AcpToolContent {
+    DiffBlock(AcpDiffContent),
     ContentRef { content: AcpToolContentRef },
     Terminal { #[serde(rename = "terminalId")] terminal_id: String },
     Diff { diff: Value },
@@ -338,6 +350,13 @@ pub(crate) enum AcpSessionUpdate {
         #[serde(rename = "configOptions", default)]
         config_options: Vec<Value>,
     },
+    #[serde(rename = "available_commands_update")]
+    AvailableCommandsUpdate {
+        #[serde(rename = "availableCommands", default)]
+        available_commands: Vec<Value>,
+    },
+    #[serde(rename = "usage_update")]
+    UsageUpdate,
 }
 
 impl AcpSessionUpdate {
@@ -391,7 +410,7 @@ pub(crate) struct AcpPermissionToolCall {
     pub(crate) kind: Option<ToolKind>,
     #[serde(default)]
     pub(crate) title: Option<String>,
-    #[serde(default)]
+    #[serde(alias = "rawInput", default)]
     pub(crate) input: Option<Value>,
     #[serde(default)]
     pub(crate) content: Option<Vec<AcpToolContent>>,
@@ -407,7 +426,7 @@ pub(crate) struct AcpPermissionParams {
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct AcpPermissionRequest {
-    pub(crate) id: i64,
+    pub(crate) id: Value,
     pub(crate) params: AcpPermissionParams,
 }
 

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::{
     AcpSessionModeState, AcpSessionModels, AcpToolCallLocations, AgentCapabilities, AgentProfile,
-    AgentPromptCapabilities, AttachmentInput, ExternalSession, McpServerConfig,
+    AgentPromptCapabilities, AttachmentInput, AvailableCommand, ExternalSession, McpServerConfig,
     SessionConfigOption, ToolCallStatus, ToolKind,
 };
 
@@ -126,6 +126,9 @@ pub enum RuntimeStreamEvent {
     },
     ConfigOptionsUpdated {
         config_options: Vec<SessionConfigOption>,
+    },
+    AvailableCommandsUpdated {
+        available_commands: Vec<AvailableCommand>,
     },
     Error {
         message: String,

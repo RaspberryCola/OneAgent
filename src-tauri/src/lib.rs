@@ -31,10 +31,12 @@ pub fn run() {
         .init();
     let gateway = bootstrap();
     let managed_gateway = gateway.clone();
+    let terminal_manager = Arc::new(capability_services::terminal::TerminalManager::new());
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             gateway: managed_gateway.clone(),
+            terminal_manager,
         })
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -77,7 +79,11 @@ pub fn run() {
             channel_api::list_workspace_skills,
             channel_api::get_conversation_timeline,
             channel_api::get_conversation_state,
-            channel_api::list_task_runs
+            channel_api::list_task_runs,
+            channel_api::spawn_terminal,
+            channel_api::write_to_terminal,
+            channel_api::resize_terminal,
+            channel_api::close_terminal
         ])
         .run(tauri::generate_context!())
         .expect("error while running OneAgent Tauri application");

@@ -14,6 +14,7 @@ use crate::{
 #[derive(Clone)]
 pub struct AppState {
     pub gateway: Arc<Gateway>,
+    pub terminal_manager: Arc<crate::capability_services::terminal::TerminalManager>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -532,4 +533,57 @@ pub async fn list_task_runs(
         .gateway
         .list_task_runs(&workspace_id)
         .map_err(BackendError::from)
+}
+
+#[tauri::command]
+pub async fn spawn_terminal(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    cwd: Option<String>,
+) -> Result<(), BackendError> {
+    state
+        .terminal_manager
+        .spawn_session(id, cwd, app)
+        .await
+        .map_err(|e| BackendError::new(ErrorCode::RuntimeError, e))
+}
+
+#[tauri::command]
+pub async fn write_to_terminal(
+    state: State<'_, AppState>,
+    id: String,
+    data: String,
+) -> Result<(), BackendError> {
+    state
+        .terminal_manager
+        .write(&id, &data)
+        .await
+        .map_err(|e| BackendError::new(ErrorCode::RuntimeError, e))
+}
+
+#[tauri::command]
+pub async fn resize_terminal(
+    state: State<'_, AppState>,
+    id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), BackendError> {
+    state
+        .terminal_manager
+        .resize(&id, cols, rows)
+        .await
+        .map_err(|e| BackendError::new(ErrorCode::RuntimeError, e))
+}
+
+#[tauri::command]
+pub async fn close_terminal(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), BackendError> {
+    state
+        .terminal_manager
+        .close(&id)
+        .await
+        .map_err(|e| BackendError::new(ErrorCode::RuntimeError, e))
 }

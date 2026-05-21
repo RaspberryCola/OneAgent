@@ -577,6 +577,7 @@ mod tests {
             config_options: vec![],
             models: None,
             modes: None,
+            available_commands: Vec::new(),
             pending_permissions: vec![],
         };
 
@@ -770,6 +771,7 @@ mod tests {
             config_options: vec![],
             models: None,
             modes: None,
+            available_commands: Vec::new(),
             pending_permissions: vec![],
         };
         db.create_task_run_atomic(
@@ -852,6 +854,7 @@ mod tests {
             config_options: vec![],
             models: None,
             modes: None,
+            available_commands: Vec::new(),
             pending_permissions: vec![],
         };
         db.create_conversation_atomic(
@@ -939,6 +942,7 @@ mod tests {
             config_options: vec![],
             models: None,
             modes: None,
+            available_commands: Vec::new(),
             pending_permissions: vec![],
         };
 

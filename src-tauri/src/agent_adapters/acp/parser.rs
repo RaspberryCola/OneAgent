@@ -10,7 +10,7 @@ use crate::{
     domain::{
         AcpAvailableModel, AcpSessionMode, AcpSessionModeState, AcpSessionModels,
         AcpToolCallLocations, AgentCapabilities, AgentPromptCapabilities,
-        AgentSessionCapabilities, SessionConfigOption, ToolCallStatus, ToolKind,
+        AgentSessionCapabilities, AvailableCommand, SessionConfigOption, ToolCallStatus, ToolKind,
     },
 };
 
@@ -203,6 +203,30 @@ pub fn parse_config_options_from_array(items: &[Value]) -> Vec<SessionConfigOpti
         .collect()
 }
 
+pub fn parse_available_commands(items: &[Value]) -> Vec<AvailableCommand> {
+    items
+        .iter()
+        .filter_map(|item| {
+            let name = item.get("name")?.as_str()?.to_string();
+            let description = item
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let input_hint = item
+                .get("input")
+                .and_then(|v| v.get("hint"))
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned);
+            Some(AvailableCommand {
+                name,
+                description,
+                input_hint,
+            })
+        })
+        .collect()
+}
+
 /// Parse modes from session/new or session/load response (unstable API).
 pub fn parse_modes(result: Option<&Value>) -> Option<AcpSessionModeState> {
     let result = result?;
@@ -284,9 +308,16 @@ pub fn parse_models(result: Option<&Value>) -> Option<AcpSessionModels> {
 pub fn parse_session_update(message: &Value, turn_id: &str) -> Vec<RuntimeStreamEvent> {
     let mut events = Vec::new();
     let Some(update_value) = message.get("params").and_then(|p| p.get("update")).cloned() else {
+        tracing::debug!("session/update missing params.update field");
         return events;
     };
-    let Ok(update) = serde_json::from_value::<AcpSessionUpdate>(update_value) else {
+    let update_tag = update_value
+        .get("sessionUpdate")
+        .and_then(|v| v.as_str())
+        .unwrap_or("<missing>");
+    tracing::debug!(tag = update_tag, "parsing session/update notification");
+    let Ok(update) = serde_json::from_value::<AcpSessionUpdate>(update_value.clone()) else {
+        tracing::warn!(tag = update_tag, raw = ?update_value, "failed to deserialize session/update");
         return events;
     };
 
@@ -378,6 +409,14 @@ pub fn parse_session_update(message: &Value, turn_id: &str) -> Vec<RuntimeStream
                 config_options: parse_config_options_from_array(&config_options),
             });
         }
+        AcpSessionUpdate::AvailableCommandsUpdate { available_commands } => {
+            events.push(RuntimeStreamEvent::AvailableCommandsUpdated {
+                available_commands: parse_available_commands(&available_commands),
+            });
+        }
+        AcpSessionUpdate::UsageUpdate { .. } => {
+            tracing::debug!("received usage_update, ignoring in stream events");
+        }
     }
     events
 }
@@ -439,6 +478,12 @@ pub fn extract_content(content: Option<&[AcpToolContent]>) -> ExtractedToolConte
 
     for item in items {
         match item {
+            AcpToolContent::DiffBlock(diff_block) => {
+                paths.push(diff_block.path.clone());
+                if let Ok(val) = serde_json::to_value(diff_block) {
+                    diffs.push(val);
+                }
+            }
             AcpToolContent::ContentRef { content } => {
                 if let Some(t) = &content.text {
                     text_parts.push(t.clone());
@@ -785,6 +830,58 @@ mod tests {
     }
 
     #[test]
+    fn parses_available_commands_update() {
+        let message = json!({
+            "params": {
+                "update": {
+                    "sessionUpdate": "available_commands_update",
+                    "availableCommands": [
+                        { "name": "init", "description": "Initialize project", "input": { "hint": "project name" } },
+                        { "name": "test", "description": "Run tests" }
+                    ]
+                }
+            }
+        });
+        let events = parse_session_update(&message, "turn");
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            RuntimeStreamEvent::AvailableCommandsUpdated { available_commands } => {
+                assert_eq!(available_commands.len(), 2);
+                assert_eq!(available_commands[0].name, "init");
+                assert_eq!(available_commands[0].description, "Initialize project");
+                assert_eq!(
+                    available_commands[0].input_hint.as_deref(),
+                    Some("project name")
+                );
+                assert_eq!(available_commands[1].name, "test");
+                assert_eq!(available_commands[1].description, "Run tests");
+                assert!(available_commands[1].input_hint.is_none());
+            }
+            other => panic!("expected available commands updated event, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_available_commands_update_empty() {
+        let message = json!({
+            "params": {
+                "update": {
+                    "sessionUpdate": "available_commands_update",
+                    "availableCommands": []
+                }
+            }
+        });
+        let events = parse_session_update(&message, "turn");
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            RuntimeStreamEvent::AvailableCommandsUpdated { available_commands } => {
+                assert_eq!(available_commands.len(), 0);
+            }
+            other => panic!("expected available commands updated event, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn handles_malformed_session_update_gracefully() {
         // Missing params
         let message1 = json!({});
@@ -998,5 +1095,55 @@ mod tests {
         assert!(fields.kind.is_none());
         assert!(fields.raw_input.is_none());
         assert!(fields.content.is_none());
+    }
+
+    #[test]
+    fn parses_usage_update() {
+        let message = json!({
+            "params": {
+                "update": {
+                    "sessionUpdate": "usage_update",
+                    "cost": {
+                        "amount": 0.096037,
+                        "currency": "USD"
+                    },
+                    "size": 200000,
+                    "used": null
+                }
+            }
+        });
+        let events = parse_session_update(&message, "turn");
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn parses_diff_block_content() {
+        let message = json!({
+            "params": {
+                "update": {
+                    "sessionUpdate": "tool_call_update",
+                    "toolCallId": "call_1",
+                    "content": [
+                        {
+                            "type": "diff",
+                            "path": "src/main.rs",
+                            "newText": "fn main() { println!(\"hello\"); }",
+                            "oldText": ""
+                        }
+                    ]
+                }
+            }
+        });
+        let events = parse_session_update(&message, "turn");
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            RuntimeStreamEvent::ToolCall { diffs, locations, .. } => {
+                assert_eq!(diffs.as_array().unwrap().len(), 1);
+                assert_eq!(diffs[0]["path"], "src/main.rs");
+                assert_eq!(diffs[0]["newText"], "fn main() { println!(\"hello\"); }");
+                assert_eq!(locations.paths[0], "src/main.rs");
+            }
+            other => panic!("expected tool call event, got {other:?}"),
+        }
     }
 }

@@ -11,6 +11,7 @@ import { WorkspacePanel } from "./components/workspace/WorkspacePanel";
 import { AppShell } from "./screens/app/AppShell";
 import { ConversationScreen } from "./screens/conversation/ConversationScreen";
 import { HomeScreen } from "./screens/home/HomeScreen";
+import { TerminalPanel } from "./components/terminal/TerminalPanel";
 import { useScrollManager, useAttachmentHandler, useModelSelector, useModeSelector, useWorkspaceFileTree, useSearch, useConversationComposer } from "./hooks";
 
 const AGENT_LOGOS: Record<string, string> = {
@@ -186,6 +187,7 @@ export default function App() {
   const [pendingDeleteConversationId, setPendingDeleteConversationId] = useState<string | null>(null);
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(new Set());
   const [permissionDecisions, setPermissionDecisions] = useState<Types.PermissionDecision[]>([]);
+
 
   const {
     scrollAreaRef,
@@ -413,6 +415,79 @@ export default function App() {
     setComposerNotice,
   });
 
+  // Terminal states & handlers
+  const [terminalTabs, setTerminalTabs] = useState<{ id: string; name: string; cwd: string }[]>([]);
+  const [activeTerminalTabId, setActiveTerminalTabId] = useState<string | null>(null);
+  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
+  const [nextTerminalNum, setNextTerminalNum] = useState(2);
+
+  useEffect(() => {
+    if (activeWorkspace) {
+      const initialId = crypto.randomUUID();
+      setTerminalTabs([
+        {
+          id: initialId,
+          name: 'Terminal 1',
+          cwd: activeWorkspace.cwd,
+        },
+      ]);
+      setActiveTerminalTabId(initialId);
+      setNextTerminalNum(2);
+    } else {
+      setTerminalTabs([]);
+      setActiveTerminalTabId(null);
+      setNextTerminalNum(1);
+    }
+  }, [activeWorkspace?.id]);
+
+  const handleAddTerminalTab = () => {
+    if (!activeWorkspace) return;
+    const newId = crypto.randomUUID();
+    const newTab = {
+      id: newId,
+      name: `Terminal ${nextTerminalNum}`,
+      cwd: activeWorkspace.cwd,
+    };
+    setTerminalTabs((prev) => [...prev, newTab]);
+    setActiveTerminalTabId(newId);
+    setNextTerminalNum((prev) => prev + 1);
+  };
+
+  const handleCloseTerminalTab = (id: string) => {
+    setTerminalTabs((prev) => {
+      const filtered = prev.filter((t) => t.id !== id);
+      if (activeTerminalTabId === id) {
+        if (filtered.length > 0) {
+          const closedIndex = prev.findIndex((t) => t.id === id);
+          const nextActiveIndex = Math.min(closedIndex, filtered.length - 1);
+          setActiveTerminalTabId(filtered[nextActiveIndex].id);
+        } else {
+          setActiveTerminalTabId(null);
+        }
+      }
+      return filtered;
+    });
+  };
+
+  const handleToggleTerminal = () => {
+    setIsTerminalOpen((prev) => {
+      const next = !prev;
+      if (next && terminalTabs.length === 0 && activeWorkspace) {
+        const initialId = crypto.randomUUID();
+        setTerminalTabs([
+          {
+            id: initialId,
+            name: 'Terminal 1',
+            cwd: activeWorkspace.cwd,
+          },
+        ]);
+        setActiveTerminalTabId(initialId);
+        setNextTerminalNum(2);
+      }
+      return next;
+    });
+  };
+
   // Calculate the last agent text message ID for each turn (for copy functionality)
   // Exclude the currently running turn (if any) from showing copy button
   const lastAgentMessageIdsPerTurn = useMemo(() => {
@@ -616,6 +691,21 @@ export default function App() {
         renderAgentLogo={(agent, className) => (
           <AgentLogo agent={agent} className={className} />
         )}
+        hasWorkspace={!!activeWorkspace}
+        isTerminalOpen={isTerminalOpen}
+        onToggleTerminal={handleToggleTerminal}
+        terminalContent={
+          <TerminalPanel
+            isOpen={isTerminalOpen}
+            onClose={() => setIsTerminalOpen(false)}
+            activeWorkspaceCwd={activeWorkspace?.cwd}
+            tabs={terminalTabs}
+            activeTabId={activeTerminalTabId}
+            onAddTab={handleAddTerminalTab}
+            onCloseTab={handleCloseTerminalTab}
+            onSelectTab={setActiveTerminalTabId}
+          />
+        }
         homeContent={
           <HomeScreen
             workspaces={workspaces}
@@ -695,6 +785,7 @@ export default function App() {
             onSend={() => void handleSend()}
             onStop={() => void handleStop()}
             onKeyDown={handleKeyDown}
+            availableCommands={activeConversationState?.available_commands}
           />
         }
         workspacePanel={activeConversationId !== null ? (

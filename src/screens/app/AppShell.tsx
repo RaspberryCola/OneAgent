@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { AlertCircle, Menu, PanelLeftClose, PanelLeftOpen, X } from 'lucide-react';
+import { AlertCircle, Menu, PanelLeftClose, PanelLeftOpen, Terminal, X } from 'lucide-react';
 import type * as Types from '../../lib/backend/types';
 
 interface ConversationStatus {
@@ -23,6 +23,12 @@ interface AppShellProps {
   homeContent: ReactNode;
   conversationContent: ReactNode;
   workspacePanel: ReactNode;
+  
+  // Terminal props
+  hasWorkspace: boolean;
+  isTerminalOpen: boolean;
+  onToggleTerminal: () => void;
+  terminalContent: ReactNode;
 }
 
 export function AppShell({
@@ -40,6 +46,12 @@ export function AppShell({
   homeContent,
   conversationContent,
   workspacePanel,
+  
+  // Terminal destructuring
+  hasWorkspace,
+  isTerminalOpen,
+  onToggleTerminal,
+  terminalContent,
 }: AppShellProps) {
   return (
     <>
@@ -76,23 +88,39 @@ export function AppShell({
             )}
           </div>
 
-          {activeConversationId && (
-            <button
-              type="button"
-              onClick={onToggleWorkspacePanel}
-              className={`p-1 shrink-0 rounded-interactive transition-colors hover:bg-light-gray/50 ${
-                isWorkspacePanelOpen ? 'text-pure-black' : 'text-stone hover:text-pure-black'
-              }`}
-              title="Toggle workspace panel"
-              aria-label="Toggle workspace panel"
-            >
-              {isWorkspacePanelOpen ? (
-                <PanelLeftClose className="w-[18px] h-[18px] -scale-x-100" />
-              ) : (
-                <PanelLeftOpen className="w-[18px] h-[18px] -scale-x-100" />
-              )}
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {hasWorkspace && (
+              <button
+                type="button"
+                onClick={onToggleTerminal}
+                className={`p-1 shrink-0 rounded-interactive transition-colors hover:bg-light-gray/50 ${
+                  isTerminalOpen ? 'text-pure-black' : 'text-stone hover:text-pure-black'
+                }`}
+                title="Toggle terminal"
+                aria-label="Toggle terminal"
+              >
+                <Terminal className="w-[18px] h-[18px]" />
+              </button>
+            )}
+
+            {activeConversationId && (
+              <button
+                type="button"
+                onClick={onToggleWorkspacePanel}
+                className={`p-1 shrink-0 rounded-interactive transition-colors hover:bg-light-gray/50 ${
+                  isWorkspacePanelOpen ? 'text-pure-black' : 'text-stone hover:text-pure-black'
+                }`}
+                title="Toggle workspace panel"
+                aria-label="Toggle workspace panel"
+              >
+                {isWorkspacePanelOpen ? (
+                  <PanelLeftClose className="w-[18px] h-[18px] -scale-x-100" />
+                ) : (
+                  <PanelLeftOpen className="w-[18px] h-[18px] -scale-x-100" />
+                )}
+              </button>
+            )}
+          </div>
         </header>
  
         {composerNotice && (
@@ -112,6 +140,7 @@ export function AppShell({
         )}
 
         {activeConversationId === null ? homeContent : conversationContent}
+        {terminalContent}
       </main>
 
       {workspacePanel}

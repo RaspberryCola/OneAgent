@@ -4,8 +4,8 @@ use serde_json::json;
 
 use crate::agent_adapters::RuntimeStreamEvent;
 use crate::domain::{
-    ConnectionPhase, MessageKind, MessageProjection, MessageRole, SessionConfigOption,
-    SessionPhase, TurnPhase,
+    AvailableCommand, ConnectionPhase, MessageKind, MessageProjection, MessageRole,
+    SessionConfigOption, SessionPhase, TurnPhase,
 };
 use crate::runtime::{Runtime, RuntimeResult};
 use crate::storage::StorageResult;
@@ -164,6 +164,19 @@ impl Runtime {
         Ok(())
     }
 
+    fn process_available_commands_updated(
+        &self,
+        conversation_id: &str,
+        available_commands: Vec<AvailableCommand>,
+    ) -> RuntimeResult<()> {
+        self.update_snapshot_available_commands(conversation_id, available_commands.clone())?;
+        self.emit(
+            "conversation:commands_updated",
+            &json!({ "conversation_id": conversation_id, "available_commands": available_commands }),
+        );
+        Ok(())
+    }
+
     pub(crate) fn apply_stream_event(
         &self,
         conversation_id: &str,
@@ -269,6 +282,13 @@ impl Runtime {
             }
             RuntimeStreamEvent::ConfigOptionsUpdated { config_options } => {
                 self.process_config_options_updated(conversation_id, config_options)?;
+            }
+            RuntimeStreamEvent::AvailableCommandsUpdated { available_commands } => {
+                tracing::info!(
+                    count = available_commands.len(),
+                    "received available_commands_update"
+                );
+                self.process_available_commands_updated(conversation_id, available_commands)?;
             }
         }
         Ok(())

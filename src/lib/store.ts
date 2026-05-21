@@ -461,6 +461,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           binding: null,
           task_run: null,
           config_options: [],
+          available_commands: [],
           pending_permissions: [],
         },
         activeTimeline: {
@@ -1112,6 +1113,20 @@ export const useAppStore = create<AppState>((set, get) => ({
               },
             };
           }
+        }
+        return {};
+      });
+    });
+
+    Events.onConversationCommandsUpdated((payload) => {
+      set((state) => {
+        if (state.activeConversationId === payload.conversation_id && state.activeConversationState) {
+          return {
+            activeConversationState: {
+              ...state.activeConversationState,
+              available_commands: payload.available_commands,
+            },
+          };
         }
         return {};
       });

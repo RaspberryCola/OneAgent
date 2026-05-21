@@ -43,7 +43,7 @@ pub(crate) struct PermissionOption {
 /// A pending permission request awaiting user decision.
 #[derive(Debug, Clone)]
 struct PendingPermission {
-    request_id: i64,
+    request_id: Value,
     options: Vec<PermissionOption>,
 }
 
@@ -92,7 +92,7 @@ impl AcpLiveSession {
         profile: &AgentProfile,
         cwd: &str,
         mcp_servers: &[McpServerConfig],
-    ) -> AdapterResult<Self> {
+    ) -> AdapterResult<(Self, Vec<RuntimeStreamEvent>)> {
         let mut process = JsonRpcProcess::spawn(profile).await?;
         process.set_session_cwd(cwd);
         let initialize_response = process.initialize().await?;
@@ -153,7 +153,22 @@ impl AcpLiveSession {
             models: parse_models(Some(&result_value)),
             modes: parse_modes(Some(&result_value)),
         };
-        Ok(spawn_live_actor(process, handle))
+        // Drain any pending notifications (e.g. available_commands_update)
+        // that arrived after the session/new response but before the live
+        // actor starts reading.  We use a short timeout so we don't block
+        // if the agent doesn't send anything.
+        let mut post_session_events = Vec::new();
+        loop {
+            match process.try_read_message(500).await? {
+                Some(msg) => {
+                    if msg.get("method").and_then(Value::as_str) == Some("session/update") {
+                        post_session_events.extend(parse_session_update(&msg, "startup"));
+                    }
+                }
+                None => break, // timeout — no more pending messages
+            }
+        }
+        Ok((spawn_live_actor(process, handle), post_session_events))
     }
 
     /// Load an existing ACP session.
@@ -622,6 +637,23 @@ async fn run_turn_loop(
                                     );
                                 }
                                 let _ = event_tx.send(event);
+                            } else {
+                                tracing::warn!("failed to parse ACP permission request: {}", message);
+                                if let Some(id) = message.get("id").cloned() {
+                                    process
+                                        .write_message(json!({
+                                            "jsonrpc": "2.0",
+                                            "id": id,
+                                            "error": {
+                                                "code": -32602,
+                                                "message": "invalid session/request_permission params"
+                                            }
+                                        }))
+                                        .await?;
+                                }
+                                let _ = event_tx.send(RuntimeStreamEvent::Error {
+                                    message: "failed to parse permission request from agent".to_string(),
+                                });
                             }
                         }
                         _ => {

@@ -99,6 +99,12 @@ export interface SessionConfigOption {
   raw: any;
 }
 
+export interface AvailableCommand {
+  name: string;
+  description: string;
+  input_hint?: string | null;
+}
+
 // ACP Models types (unstable API)
 export interface AcpAvailableModel {
   id?: string;
@@ -170,6 +176,7 @@ export interface ConversationState {
   config_options: SessionConfigOption[];
   models?: AcpSessionModels | null;
   modes?: AcpSessionModeState | null;
+  available_commands: AvailableCommand[];
   pending_permissions: PendingPermissionRequest[];
 }
 

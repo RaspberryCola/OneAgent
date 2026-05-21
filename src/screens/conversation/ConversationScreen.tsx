@@ -55,6 +55,7 @@ interface ConversationScreenProps {
   onSend: () => void;
   onStop: () => void;
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+  availableCommands?: Types.AvailableCommand[];
 }
 
 export function ConversationScreen({
@@ -92,6 +93,7 @@ export function ConversationScreen({
   onSend,
   onStop,
   onKeyDown,
+  availableCommands,
 }: ConversationScreenProps) {
   const planItems = activeTimelineItems.filter(
     (item) => item.type === 'message' && item.data.kind === 'plan'
@@ -217,6 +219,7 @@ export function ConversationScreen({
               isCompact
               isBusy={isBusy}
               onStop={onStop}
+              availableCommands={availableCommands}
             />
           </div>
         </div>

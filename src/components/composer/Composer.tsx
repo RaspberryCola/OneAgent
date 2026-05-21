@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowUp, Paperclip, Square } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type * as Types from '../../lib/backend/types';
@@ -10,6 +10,7 @@ import type {
 import { AttachmentPreviewList } from './AttachmentPreviewList';
 import { ModelSelectorMenu } from './ModelSelectorMenu';
 import { ModeSelectorMenu } from './ModeSelectorMenu';
+import { SlashCommandDropdown } from './SlashCommandDropdown';
 
 type ComposerProps = {
   input: string;
@@ -39,6 +40,7 @@ type ComposerProps = {
   isCompact: boolean;
   isBusy: boolean;
   onStop: () => void;
+  availableCommands?: Types.AvailableCommand[];
 };
 
 export function Composer({
@@ -69,11 +71,27 @@ export function Composer({
   isCompact,
   isBusy,
   onStop,
+  availableCommands,
 }: ComposerProps) {
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [slashQuery, setSlashQuery] = useState<string | null>(null);
   const dragDepthRef = useRef(0);
+
+  useEffect(() => {
+    const trimmed = input.trimStart();
+    if (trimmed.startsWith('/')) {
+      const spaceIndex = trimmed.indexOf(' ');
+      if (spaceIndex === -1) {
+        setSlashQuery(trimmed.slice(1));
+      } else {
+        setSlashQuery(null);
+      }
+    } else {
+      setSlashQuery(null);
+    }
+  }, [input]);
 
   const handleDropEvent = (event: React.DragEvent<HTMLElement>) => {
     event.preventDefault();
@@ -133,6 +151,20 @@ export function Composer({
       className={`w-full relative bg-pure-white border rounded-container transition-all flex flex-col group ${isDragging ? 'border-pure-black shadow-[0_0_0_2px_rgba(0,0,0,0.08)]' : 'border-light-gray'}`}
       data-active-agent={activeAgent?.id ?? ''}
     >
+      {availableCommands && availableCommands.length > 0 && slashQuery !== null && (
+        <div className="absolute bottom-full left-0 right-0 mb-1 z-10">
+          <SlashCommandDropdown
+            commands={availableCommands}
+            query={slashQuery}
+            onSelect={(cmd) => {
+              setInput(`/${cmd.name} `);
+              setSlashQuery(null);
+            }}
+            onDismiss={() => setSlashQuery(null)}
+          />
+        </div>
+      )}
+
       <AttachmentPreviewList
         attachments={attachments}
         onRemoveAttachment={onRemoveAttachment}
