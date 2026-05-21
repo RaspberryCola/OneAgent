@@ -26,6 +26,11 @@ use super::permission::{
 };
 use super::process::JsonRpcProcess;
 use super::prompt_codec::build_prompt_blocks_from_message;
+use super::types::{
+    jsonrpc_notification, jsonrpc_request, to_value_or_err, CancelParams, LoadSessionParams,
+    NewSessionParams, PromptParams, PromptResult, SessionResult, SetConfigOptionParams,
+    SetModeParams, SetModelParams,
+};
 
 /// A permission option offered by the agent.
 #[derive(Debug, Clone)]
@@ -96,17 +101,19 @@ impl AcpLiveSession {
                 .cloned()
                 .unwrap_or_else(|| json!({})),
         );
-        let response = process
-            .request(
-                "session/new",
-                json!({
-                    "cwd": cwd,
-                    "mcpServers": mcp_servers,
-                }),
-            )
-            .await?;
+        let new_session_params = to_value_or_err(
+            NewSessionParams {
+                cwd: cwd.to_string(),
+                mcp_servers: mcp_servers.to_vec(),
+            },
+            "session/new",
+        )?;
+        let response = process.request("session/new", new_session_params).await?;
+        let result_value = response.get("result").cloned().unwrap_or(Value::Null);
+        let session_result: SessionResult = serde_json::from_value(result_value.clone())
+            .unwrap_or_default();
         let fallback_session_id = Uuid::new_v4().to_string();
-        let mut config_options = parse_config_options(response.get("result"));
+        let mut config_options = parse_config_options(Some(&result_value));
         // Sanitize max_tokens to avoid OpenCode API errors.
         // OpenCode requires max_tokens in [1, 32768].
         for option in config_options.iter_mut() {
@@ -128,10 +135,9 @@ impl AcpLiveSession {
         }
         let handle = AgentSessionHandle {
             adapter_kind: "acp".to_string(),
-            remote_session_id: response
-                .get("result")
-                .and_then(|v| v.get("sessionId"))
-                .and_then(Value::as_str)
+            remote_session_id: session_result
+                .session_id
+                .as_deref()
                 .unwrap_or(&fallback_session_id)
                 .to_string(),
             cwd: cwd.to_string(),
@@ -143,8 +149,8 @@ impl AcpLiveSession {
                     .unwrap_or_else(|| json!({})),
             ),
             config_options,
-            models: parse_models(response.get("result")),
-            modes: parse_modes(response.get("result")),
+            models: parse_models(Some(&result_value)),
+            modes: parse_modes(Some(&result_value)),
         };
         Ok(spawn_live_actor(process, handle))
     }
@@ -171,16 +177,18 @@ impl AcpLiveSession {
         // session/load JSON-RPC call below will return an error which we
         // propagate to the caller.
         let request_id = process.next_id();
+        let load_params = serde_json::to_value(LoadSessionParams {
+            session_id: remote_session_id.to_string(),
+            cwd: cwd.to_string(),
+            mcp_servers: mcp_servers.to_vec(),
+        })
+        .map_err(|e| AdapterError::Protocol(format!("serialize session/load params: {e}")))?;
         process
             .write_message(json!({
                 "jsonrpc": "2.0",
                 "id": request_id,
                 "method": "session/load",
-                "params": {
-                    "sessionId": remote_session_id,
-                    "cwd": cwd,
-                    "mcpServers": mcp_servers
-                }
+                "params": load_params
             }))
             .await?;
         let mut replay_events = Vec::new();
@@ -381,15 +389,17 @@ fn spawn_live_actor(process: JsonRpcProcess, handle: AgentSessionHandle) -> AcpL
                     )));
                 }
                 LiveSessionCommand::Cancel { resp } => {
-                    let result = process
-                        .write_message(json!({
+                    let cancel_params = serde_json::to_value(CancelParams {
+                        session_id: live_handle.remote_session_id.clone(),
+                    });
+                    let result = match cancel_params {
+                        Ok(params) => process.write_message(json!({
                             "jsonrpc": "2.0",
                             "method": "session/cancel",
-                            "params": {
-                                "sessionId": live_handle.remote_session_id
-                            }
-                        }))
-                        .await;
+                            "params": params
+                        })).await,
+                        Err(e) => Err(AdapterError::Protocol(format!("serialize cancel params: {e}"))),
+                    };
                     let _ = resp.send(result);
                 }
                 LiveSessionCommand::SetConfig {
@@ -397,63 +407,65 @@ fn spawn_live_actor(process: JsonRpcProcess, handle: AgentSessionHandle) -> AcpL
                     value,
                     resp,
                 } => {
-                    let result = process
-                        .request(
-                            "session/set_config_option",
-                            json!({
-                                "sessionId": live_handle.remote_session_id,
-                                "configId": config_id,
-                                "value": value
-                            }),
-                        )
-                        .await
-                        .map(|response| parse_config_options(response.get("result")));
+                    let params = serde_json::to_value(SetConfigOptionParams {
+                        session_id: live_handle.remote_session_id.clone(),
+                        config_id,
+                        value,
+                    });
+                    let result = match params {
+                        Ok(p) => process
+                            .request("session/set_config_option", p)
+                            .await
+                            .map(|response| parse_config_options(response.get("result"))),
+                        Err(e) => Err(AdapterError::Protocol(format!("serialize set_config params: {e}"))),
+                    };
                     let _ = resp.send(result);
                 }
                 LiveSessionCommand::SetModel { model_id, resp } => {
-                    let result = process
-                        .request(
-                            "session/set_model",
-                            json!({
-                                "sessionId": live_handle.remote_session_id,
-                                "modelId": model_id
+                    let params = serde_json::to_value(SetModelParams {
+                        session_id: live_handle.remote_session_id.clone(),
+                        model_id: model_id.clone(),
+                    });
+                    let result = match params {
+                        Ok(p) => process
+                            .request("session/set_model", p)
+                            .await
+                            .map(|response| {
+                                let models_from_response = parse_models(response.get("result"));
+                                models_from_response.unwrap_or_else(|| AcpSessionModels {
+                                    current_model_id: Some(model_id.clone()),
+                                    available_models: live_handle
+                                        .models
+                                        .clone()
+                                        .and_then(|m| m.available_models),
+                                })
                             }),
-                        )
-                        .await
-                        .map(|response| {
-                            // Try to get models from response, otherwise construct from local state
-                            let models_from_response = parse_models(response.get("result"));
-                            models_from_response.unwrap_or_else(|| AcpSessionModels {
-                                current_model_id: Some(model_id.clone()),
-                                available_models: live_handle
-                                    .models
-                                    .clone()
-                                    .and_then(|m| m.available_models),
-                            })
-                        });
+                        Err(e) => Err(AdapterError::Protocol(format!("serialize set_model params: {e}"))),
+                    };
                     let _ = resp.send(result);
                 }
                 LiveSessionCommand::SetMode { mode_id, resp } => {
-                    let result = process
-                        .request(
-                            "session/set_mode",
-                            json!({
-                                "sessionId": live_handle.remote_session_id,
-                                "modeId": mode_id
+                    let params = serde_json::to_value(SetModeParams {
+                        session_id: live_handle.remote_session_id.clone(),
+                        mode_id: mode_id.clone(),
+                    });
+                    let result = match params {
+                        Ok(p) => process
+                            .request("session/set_mode", p)
+                            .await
+                            .map(|response| {
+                                let modes_from_response = parse_modes(response.get("result"));
+                                modes_from_response.unwrap_or_else(|| AcpSessionModeState {
+                                    current_mode_id: mode_id.clone(),
+                                    available_modes: live_handle
+                                        .modes
+                                        .clone()
+                                        .map(|m| m.available_modes)
+                                        .unwrap_or_default(),
+                                })
                             }),
-                        )
-                        .await
-                        .map(|response| {
-                            let modes_from_response = parse_modes(response.get("result"));
-                            modes_from_response.unwrap_or_else(|| AcpSessionModeState {
-                                current_mode_id: mode_id.clone(),
-                                available_modes: live_handle
-                                    .modes
-                                    .clone()
-                                    .map(|m| m.available_modes)
-                                    .unwrap_or_default(),
-                            })
-                        });
+                        Err(e) => Err(AdapterError::Protocol(format!("serialize set_mode params: {e}"))),
+                    };
                     let _ = resp.send(result);
                 }
                 LiveSessionCommand::Close => {
@@ -476,15 +488,17 @@ async fn run_turn_loop(
     let turn_id = Uuid::new_v4().to_string();
     process.bind_turn(&turn_id, event_tx);
     let request_id = process.next_id();
+    let prompt_params = serde_json::to_value(PromptParams {
+        session_id: handle.remote_session_id.clone(),
+        prompt,
+    })
+    .map_err(|e| AdapterError::Protocol(format!("serialize session/prompt params: {e}")))?;
     process
         .write_message(json!({
             "jsonrpc": "2.0",
             "id": request_id,
             "method": "session/prompt",
-            "params": {
-                "sessionId": handle.remote_session_id,
-                "prompt": prompt
-            }
+            "params": prompt_params
         }))
         .await?;
     let _ = event_tx.send(RuntimeStreamEvent::StateChanged {
@@ -508,65 +522,72 @@ async fn run_turn_loop(
                         for (_, pending) in pending_permissions.drain() {
                             let _ = send_cancelled_permission(process, pending.request_id).await;
                         }
-                        let result = process.write_message(json!({
-                            "jsonrpc": "2.0",
-                            "method": "session/cancel",
-                            "params": {
-                                "sessionId": handle.remote_session_id
-                            }
-                        })).await;
+                        let cancel_params = serde_json::to_value(CancelParams {
+                            session_id: handle.remote_session_id.clone(),
+                        });
+                        let result = match cancel_params {
+                            Ok(params) => process.write_message(json!({
+                                "jsonrpc": "2.0",
+                                "method": "session/cancel",
+                                "params": params
+                            })).await,
+                            Err(e) => Err(AdapterError::Protocol(format!("serialize cancel params: {e}"))),
+                        };
                         let _ = resp.send(result);
                     }
                     Some(LiveSessionCommand::SetConfig { config_id, value, resp }) => {
-                        let result = process
-                            .request(
-                                "session/set_config_option",
-                                json!({
-                                    "sessionId": handle.remote_session_id,
-                                    "configId": config_id,
-                                    "value": value
-                                }),
-                            )
-                            .await
-                            .map(|response| parse_config_options(response.get("result")));
+                        let params = serde_json::to_value(SetConfigOptionParams {
+                            session_id: handle.remote_session_id.clone(),
+                            config_id,
+                            value,
+                        });
+                        let result = match params {
+                            Ok(p) => process
+                                .request("session/set_config_option", p)
+                                .await
+                                .map(|response| parse_config_options(response.get("result"))),
+                            Err(e) => Err(AdapterError::Protocol(format!("serialize set_config params: {e}"))),
+                        };
                         let _ = resp.send(result);
                     }
                     Some(LiveSessionCommand::SetModel { model_id, resp }) => {
-                        let result = process
-                            .request(
-                                "session/set_model",
-                                json!({
-                                    "sessionId": handle.remote_session_id,
-                                    "modelId": model_id
+                        let params = serde_json::to_value(SetModelParams {
+                            session_id: handle.remote_session_id.clone(),
+                            model_id: model_id.clone(),
+                        });
+                        let result = match params {
+                            Ok(p) => process
+                                .request("session/set_model", p)
+                                .await
+                                .map(|response| {
+                                    let models_from_response = parse_models(response.get("result"));
+                                    models_from_response.unwrap_or_else(|| AcpSessionModels {
+                                        current_model_id: Some(model_id.clone()),
+                                        available_models: handle.models.clone().and_then(|m| m.available_models),
+                                    })
                                 }),
-                            )
-                            .await
-                            .map(|response| {
-                                let models_from_response = parse_models(response.get("result"));
-                                models_from_response.unwrap_or_else(|| AcpSessionModels {
-                                    current_model_id: Some(model_id.clone()),
-                                    available_models: handle.models.clone().and_then(|m| m.available_models),
-                                })
-                            });
+                            Err(e) => Err(AdapterError::Protocol(format!("serialize set_model params: {e}"))),
+                        };
                         let _ = resp.send(result);
                     }
                     Some(LiveSessionCommand::SetMode { mode_id, resp }) => {
-                        let result = process
-                            .request(
-                                "session/set_mode",
-                                json!({
-                                    "sessionId": handle.remote_session_id,
-                                    "modeId": mode_id
+                        let params = serde_json::to_value(SetModeParams {
+                            session_id: handle.remote_session_id.clone(),
+                            mode_id: mode_id.clone(),
+                        });
+                        let result = match params {
+                            Ok(p) => process
+                                .request("session/set_mode", p)
+                                .await
+                                .map(|response| {
+                                    let modes_from_response = parse_modes(response.get("result"));
+                                    modes_from_response.unwrap_or_else(|| AcpSessionModeState {
+                                        current_mode_id: mode_id.clone(),
+                                        available_modes: handle.modes.clone().map(|m| m.available_modes).unwrap_or_default(),
+                                    })
                                 }),
-                            )
-                            .await
-                            .map(|response| {
-                                let modes_from_response = parse_modes(response.get("result"));
-                                modes_from_response.unwrap_or_else(|| AcpSessionModeState {
-                                    current_mode_id: mode_id.clone(),
-                                    available_modes: handle.modes.clone().map(|m| m.available_modes).unwrap_or_default(),
-                                })
-                            });
+                            Err(e) => Err(AdapterError::Protocol(format!("serialize set_mode params: {e}"))),
+                        };
                         let _ = resp.send(result);
                     }
                     Some(LiveSessionCommand::RunTurn { completion_tx, .. }) => {
@@ -615,13 +636,12 @@ async fn run_turn_loop(
                             "session/prompt failed: {error_message}"
                         )));
                     }
-                    if let Some(stop_reason) = message
-                        .get("result")
-                        .and_then(|r| r.get("stopReason"))
-                        .and_then(Value::as_str)
-                    {
+                    let result_value = message.get("result").cloned().unwrap_or(Value::Null);
+                    let prompt_result: PromptResult =
+                        serde_json::from_value(result_value).unwrap_or_default();
+                    if let Some(stop_reason) = prompt_result.stop_reason {
                         let _ = event_tx.send(RuntimeStreamEvent::StateChanged {
-                            status: stop_reason.to_string(),
+                            status: stop_reason,
                         });
                     }
                     let _ = event_tx.send(RuntimeStreamEvent::TurnFinished { turn_id });

@@ -41,7 +41,7 @@ pub fn parse_permission_request(
             tool_kind: tool_call.kind.unwrap_or_else(|| "other".to_string()),
             title: tool_call.title.unwrap_or_default(),
             raw_input: tool_call.input.unwrap_or_else(|| json!({})),
-            paths: super::parser::extract_paths(normalized_content.clone()),
+            paths: super::parser::extract_paths(&normalized_content),
             options: serde_json::to_value(&options_raw).unwrap_or_else(|_| json!([])),
         },
         permission_id,

@@ -14,7 +14,7 @@ use crate::{
 };
 
 use super::types::ACP_PROTOCOL_VERSION;
-use super::types::{AcpSessionUpdate, AcpToolContentItem};
+use super::types::{AcpSessionUpdate, AcpToolContentItem, ExtractedToolContent};
 
 /// Extract error message from a JSON-RPC error response.
 pub fn jsonrpc_error_message(response: &Value) -> Option<String> {
@@ -325,28 +325,29 @@ pub fn parse_session_update(message: &Value, turn_id: &str) -> Vec<RuntimeStream
             }
         }
         AcpSessionUpdate::Plan { entries } => {
+            let entries_value = serde_json::to_value(&entries).unwrap_or(Value::Array(vec![]));
             events.push(RuntimeStreamEvent::Plan {
                 turn_id: turn_id.to_string(),
-                entries,
+                entries: entries_value,
             });
         }
         AcpSessionUpdate::ToolCall { .. } | AcpSessionUpdate::ToolCallUpdate { .. } => {
             if let Some((tool_call_id, title, kind, status, raw_input, input, content)) =
                 update.tool_call_parts()
             {
-                let content = extract_content(content);
-                let terminal_refs = content
-                    .get("terminal_ids")
-                    .cloned()
-                    .unwrap_or_else(|| json!([]));
-                let raw_output = content
-                    .get("text")
-                    .cloned()
-                    .unwrap_or_else(|| json!({ "text": "" }));
+                let extracted = extract_content(content);
+                let terminal_refs = serde_json::to_value(&extracted.terminal_ids)
+                    .unwrap_or_else(|_| json!([]));
+                let raw_output = json!({ "text": extracted.text });
                 let raw_input = raw_input
                     .cloned()
                     .or_else(|| input.cloned())
                     .unwrap_or_else(|| json!({}));
+                let content_value = serde_json::to_value(&extracted.content_items)
+                    .unwrap_or_else(|_| json!([]));
+                let diffs_value = serde_json::to_value(&extracted.diffs)
+                    .unwrap_or_else(|_| json!([]));
+                let paths = extracted.paths.clone();
 
                 events.push(RuntimeStreamEvent::ToolCall {
                     turn_id: turn_id.to_string(),
@@ -356,12 +357,12 @@ pub fn parse_session_update(message: &Value, turn_id: &str) -> Vec<RuntimeStream
                     status: normalize_tool_status(status.unwrap_or("pending")),
                     raw_input,
                     raw_output,
-                    content: content.get("content").cloned().unwrap_or_else(|| json!([])),
-                    diffs: content.get("diffs").cloned().unwrap_or_else(|| json!([])),
+                    content: content_value,
+                    diffs: diffs_value,
                     terminal_ids: terminal_refs.clone(),
                     locations: json!({
                         "terminals": terminal_refs,
-                        "paths": extract_paths(content)
+                        "paths": paths
                     }),
                 });
             }
@@ -419,22 +420,12 @@ pub fn extract_and_strip_think_tags(content: &str) -> (String, String) {
     (thinking_parts.join("\n\n"), stripped)
 }
 
-/// Extract content from tool call update content array.
-pub fn extract_content(content: Option<&[AcpToolContentItem]>) -> Value {
+/// Extract content from tool call update content array into a typed struct.
+pub fn extract_content(content: Option<&[AcpToolContentItem]>) -> ExtractedToolContent {
     let Some(items) = content else {
-        return json!({
-            "text": { "text": "" },
-            "content": [],
-            "diffs": [],
-            "terminal_ids": [],
-            "output": ""
-        });
+        return ExtractedToolContent::default();
     };
 
-    // Extract text from multiple content types:
-    // - type: 'content' with content.text
-    // - type: 'output' with text field
-    // - legacy format with content.text or output field
     let texts: Vec<String> = items
         .iter()
         .filter_map(|item| {
@@ -453,32 +444,27 @@ pub fn extract_content(content: Option<&[AcpToolContentItem]>) -> Value {
         .filter_map(|item| item.terminal_id.clone())
         .collect();
 
-    json!({
-        "text": { "text": texts.join("\n") },
-        "content": items,
-        "diffs": diffs,
-        "terminal_ids": terminal_ids,
-        "output": texts.join("\n")
-    })
+    let paths = items
+        .iter()
+        .filter_map(|item| {
+            item.content
+                .as_ref()
+                .and_then(|c| c.uri.clone())
+        })
+        .collect();
+
+    ExtractedToolContent {
+        text: texts.join("\n"),
+        terminal_ids,
+        diffs,
+        content_items: items.to_vec(),
+        paths,
+    }
 }
 
-/// Extract file paths from content array.
-pub fn extract_paths(content: Value) -> Vec<String> {
-    content
-        .get("content")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| {
-                    item.get("content")
-                        .and_then(|content| content.get("uri"))
-                        .and_then(Value::as_str)
-                        .map(ToOwned::to_owned)
-                })
-                .collect()
-        })
-        .unwrap_or_default()
+/// Extract file paths from extracted tool content.
+pub fn extract_paths(content: &ExtractedToolContent) -> Vec<String> {
+    content.paths.clone()
 }
 
 /// Normalize tool status from ACP to internal representation.
@@ -787,26 +773,26 @@ mod tests {
         let content1: Vec<AcpToolContentItem> =
             serde_json::from_value(json!([{ "terminalId": "term_1" }])).unwrap();
         let result1 = extract_content(Some(&content1));
-        assert_eq!(result1["terminal_ids"], json!(["term_1"]));
+        assert_eq!(result1.terminal_ids, vec!["term_1"]);
 
         // Text content
         let content2: Vec<AcpToolContentItem> =
             serde_json::from_value(json!([{ "content": { "text": "hello" } }])).unwrap();
         let result2 = extract_content(Some(&content2));
-        assert_eq!(result2["text"]["text"], "hello");
+        assert_eq!(result2.text, "hello");
 
         // Diff content
         let content3: Vec<AcpToolContentItem> =
             serde_json::from_value(json!([{ "diff": { "path": "src/lib.rs", "patch": "@@" } }]))
                 .unwrap();
         let result3 = extract_content(Some(&content3));
-        assert_eq!(result3["diffs"][0]["path"], "src/lib.rs");
+        assert_eq!(result3.diffs[0]["path"], "src/lib.rs");
 
         // Legacy format with output field
         let content4: Vec<AcpToolContentItem> =
             serde_json::from_value(json!([{ "output": "legacy output" }])).unwrap();
         let result4 = extract_content(Some(&content4));
-        assert_eq!(result4["output"], "legacy output");
+        assert_eq!(result4.text, "legacy output");
 
         // Mixed content
         let content5: Vec<AcpToolContentItem> = serde_json::from_value(json!([
@@ -816,9 +802,9 @@ mod tests {
         ]))
         .unwrap();
         let result5 = extract_content(Some(&content5));
-        assert_eq!(result5["terminal_ids"].as_array().unwrap().len(), 1);
-        assert_eq!(result5["diffs"].as_array().unwrap().len(), 1);
-        assert_eq!(result5["text"]["text"], "output");
+        assert_eq!(result5.terminal_ids.len(), 1);
+        assert_eq!(result5.diffs.len(), 1);
+        assert_eq!(result5.text, "output");
     }
 
     #[test]
@@ -828,7 +814,8 @@ mod tests {
             { "content": { "uri": "file:///home/user/file.rs" } }
         ]))
         .unwrap();
-        let paths = extract_paths(extract_content(Some(&content)));
+        let extracted = extract_content(Some(&content));
+        let paths = extract_paths(&extracted);
         assert_eq!(paths.len(), 2);
         assert_eq!(paths[0], "file:///tmp/test.txt");
         assert_eq!(paths[1], "file:///home/user/file.rs");
@@ -836,9 +823,7 @@ mod tests {
 
     #[test]
     fn extracts_empty_paths_when_no_content() {
-        assert!(extract_paths(json!({})).is_empty());
-        assert!(extract_paths(json!({ "content": [] })).is_empty());
-        assert!(extract_paths(json!({ "content": {} })).is_empty());
+        assert!(extract_paths(&ExtractedToolContent::default()).is_empty());
     }
 
     #[test]

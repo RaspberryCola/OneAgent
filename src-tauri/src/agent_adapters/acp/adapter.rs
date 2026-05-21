@@ -29,6 +29,10 @@ use super::parser::{
 use super::permission::parse_permission_request;
 use super::process::JsonRpcProcess;
 use super::prompt_codec::build_prompt_blocks_from_message;
+use super::types::{
+    jsonrpc_request, to_value_or_err, CancelParams, LoadSessionParams, PromptParams, PromptResult,
+    SetConfigOptionParams,
+};
 
 /// ACP adapter for Agent Client Protocol agents.
 #[derive(Default)]
@@ -139,31 +143,29 @@ impl AgentAdapter for AcpAdapter {
         process.set_session_cwd(&handle.cwd);
         let initialize_response = process.initialize().await?;
         let capabilities = parse_agent_capabilities(&initialize_response);
-        process
-            .request(
-                "session/load",
-                json!({
-                    "sessionId": handle.remote_session_id,
-                    "cwd": handle.cwd,
-                    "mcpServers": []
-                }),
-            )
-            .await?;
+        let load_params = to_value_or_err(
+            LoadSessionParams {
+                session_id: handle.remote_session_id.clone(),
+                cwd: handle.cwd.clone(),
+                mcp_servers: vec![],
+            },
+            "session/load",
+        )?;
+        process.request("session/load", load_params).await?;
         let turn_id = Uuid::new_v4().to_string();
         let request_id = process.next_id();
         let prompt =
             build_prompt_blocks_from_message(input, attachments, &capabilities.prompt_capabilities)
                 .await?;
+        let prompt_params = to_value_or_err(
+            PromptParams {
+                session_id: handle.remote_session_id.clone(),
+                prompt,
+            },
+            "session/prompt",
+        )?;
         process
-            .write_message(json!({
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "method": "session/prompt",
-                "params": {
-                    "sessionId": handle.remote_session_id,
-                    "prompt": prompt
-                }
-            }))
+            .write_message(jsonrpc_request(request_id, "session/prompt", prompt_params))
             .await?;
 
         let mut events = vec![RuntimeStreamEvent::StateChanged {
@@ -209,13 +211,12 @@ impl AgentAdapter for AcpAdapter {
                                 "session/prompt failed: {error_message}"
                             )));
                         }
-                        if let Some(stop_reason) = message
-                            .get("result")
-                            .and_then(|r| r.get("stopReason"))
-                            .and_then(Value::as_str)
-                        {
+                        let result_value = message.get("result").cloned().unwrap_or(Value::Null);
+                        let prompt_result: PromptResult =
+                            serde_json::from_value(result_value).unwrap_or_default();
+                        if let Some(stop_reason) = prompt_result.stop_reason {
                             events.push(RuntimeStreamEvent::StateChanged {
-                                status: stop_reason.to_string(),
+                                status: stop_reason,
                             });
                         }
                         break;
@@ -243,14 +244,13 @@ impl AgentAdapter for AcpAdapter {
         let mut process = JsonRpcProcess::spawn(profile).await?;
         process.set_session_cwd(&handle.cwd);
         process.initialize().await?;
-        process
-            .request(
-                "session/cancel",
-                json!({
-                    "sessionId": handle.remote_session_id
-                }),
-            )
-            .await?;
+        let cancel_params = to_value_or_err(
+            CancelParams {
+                session_id: handle.remote_session_id.clone(),
+            },
+            "cancel",
+        )?;
+        process.request("session/cancel", cancel_params).await?;
         process.close().await?;
         Ok(())
     }
@@ -265,16 +265,15 @@ impl AgentAdapter for AcpAdapter {
         let mut process = JsonRpcProcess::spawn(profile).await?;
         process.set_session_cwd(&handle.cwd);
         process.initialize().await?;
-        let response = process
-            .request(
-                "session/set_config_option",
-                json!({
-                    "sessionId": handle.remote_session_id,
-                    "configId": config_id,
-                    "value": value
-                }),
-            )
-            .await?;
+        let params = to_value_or_err(
+            SetConfigOptionParams {
+                session_id: handle.remote_session_id.clone(),
+                config_id: config_id.to_string(),
+                value: value.clone(),
+            },
+            "set_config_option",
+        )?;
+        let response = process.request("session/set_config_option", params).await?;
         process.close().await?;
         Ok(parse_config_options(response.get("result")))
     }

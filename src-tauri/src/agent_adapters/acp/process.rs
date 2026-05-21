@@ -26,7 +26,11 @@ use crate::{
 };
 
 use super::parser::jsonrpc_error_message;
-use super::types::ACP_PROTOCOL_VERSION;
+use super::types::{
+    jsonrpc_request, to_value_or_err, AcpClientCapabilities, AcpClientFsCapabilities,
+    AcpClientInfo, ACP_PROTOCOL_VERSION, FsReadTextFileParams, FsWriteTextFileParams,
+    InitializeParams, TerminalCreateParams, TerminalIdParams, TerminalOutputParams,
+};
 
 /// A handle to a spawned terminal process.
 #[derive(Clone)]
@@ -151,27 +155,23 @@ impl JsonRpcProcess {
 
     /// Initialize the ACP session with the agent.
     pub(crate) async fn initialize(&mut self) -> AdapterResult<Value> {
-        match self
-            .request(
-                "initialize",
-                json!({
-                    "protocolVersion": ACP_PROTOCOL_VERSION,
-                    "clientCapabilities": {
-                        "fs": {
-                            "readTextFile": true,
-                            "writeTextFile": true
-                        },
-                        "terminal": true
-                    },
-                    "clientInfo": {
-                        "name": "oneagent",
-                        "title": "OneAgent Desktop",
-                        "version": "0.1.0"
-                    }
-                }),
-            )
-            .await
-        {
+        let params = InitializeParams {
+            protocol_version: ACP_PROTOCOL_VERSION,
+            client_capabilities: AcpClientCapabilities {
+                fs: AcpClientFsCapabilities {
+                    read_text_file: true,
+                    write_text_file: true,
+                },
+                terminal: true,
+            },
+            client_info: AcpClientInfo {
+                name: "oneagent",
+                title: "OneAgent Desktop",
+                version: "0.1.0",
+            },
+        };
+        let params_value = to_value_or_err(params, "initialize")?;
+        match self.request("initialize", params_value).await {
             Ok(value) => Ok(value),
             Err(error) => Err(classify_initialize_error(
                 error,
@@ -291,11 +291,8 @@ impl JsonRpcProcess {
 
     async fn handle_fs_read(&mut self, message: &Value) -> AdapterResult<()> {
         let id = message_id(message)?;
-        let path = message
-            .get("params")
-            .and_then(|v| v.get("path"))
-            .and_then(Value::as_str)
-            .ok_or_else(|| AdapterError::Protocol("fs/read_text_file missing path".to_string()))?;
+        let params = extract_params::<FsReadTextFileParams>(message)?;
+        let path = &params.path;
         let resolved = match self.resolve_workspace_path(path) {
             Ok(p) => p,
             Err(e) => return self.write_jsonrpc_error(id, -32602, &e.to_string()).await,
@@ -324,19 +321,9 @@ impl JsonRpcProcess {
 
     async fn handle_fs_write(&mut self, message: &Value) -> AdapterResult<()> {
         let id = message_id(message)?;
-        let params = message.get("params").ok_or_else(|| {
-            AdapterError::Protocol("fs/write_text_file missing params".to_string())
-        })?;
-        let path = params
-            .get("path")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AdapterError::Protocol("fs/write_text_file missing path".to_string()))?;
-        let content = params
-            .get("content")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                AdapterError::Protocol("fs/write_text_file missing content".to_string())
-            })?;
+        let params = extract_params::<FsWriteTextFileParams>(message)?;
+        let path = &params.path;
+        let content = &params.content;
         let resolved = match self.resolve_workspace_path(path) {
             Ok(p) => p,
             Err(e) => return self.write_jsonrpc_error(id, -32602, &e.to_string()).await,
@@ -388,21 +375,10 @@ impl JsonRpcProcess {
 
     async fn handle_terminal_create(&mut self, message: &Value) -> AdapterResult<()> {
         let id = message_id(message)?;
-        let params = message
-            .get("params")
-            .ok_or_else(|| AdapterError::Protocol("terminal/create missing params".to_string()))?;
-        let command = params
-            .get("command")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AdapterError::Protocol("terminal/create missing command".to_string()))?;
-        let args: Vec<String> = params
-            .get("args")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|v| v.as_str().map(ToOwned::to_owned))
-            .collect();
-        let cwd = params.get("cwd").and_then(Value::as_str);
+        let params = extract_params::<TerminalCreateParams>(message)?;
+        let command = &params.command;
+        let args = &params.args;
+        let cwd = params.cwd.as_deref();
         if let Some(cwd) = cwd {
             self.resolve_workspace_path(cwd)?;
         }
@@ -419,7 +395,7 @@ impl JsonRpcProcess {
             }
         } else {
             let mut c = Command::new(command);
-            c.args(&args);
+            c.args(args);
             c
         };
         child
@@ -464,20 +440,13 @@ impl JsonRpcProcess {
     }
 
     async fn handle_terminal_output(&mut self, message: &Value) -> AdapterResult<()> {
-        if let Some(params) = message.get("params") {
-            let terminal_id = params
-                .get("terminalId")
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            let content = params.get("content").and_then(Value::as_str).unwrap_or("");
-            let stream = params
-                .get("stream")
-                .and_then(Value::as_str)
-                .unwrap_or("stdout");
+        if let Ok(params) = extract_params::<TerminalOutputParams>(message) {
+            let content = params.content.as_deref().unwrap_or("");
+            let stream = params.stream.as_deref().unwrap_or("stdout");
 
             if !content.is_empty() {
                 self.emit_terminal_event(
-                    terminal_id,
+                    &params.terminal_id,
                     "output",
                     None,
                     None,
@@ -502,13 +471,8 @@ impl JsonRpcProcess {
 
     async fn handle_terminal_read(&mut self, message: &Value) -> AdapterResult<()> {
         let id = message_id(message)?;
-        let terminal_id = message
-            .get("params")
-            .and_then(|v| v.get("terminalId"))
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                AdapterError::Protocol("terminal/read missing terminalId".to_string())
-            })?;
+        let params = extract_params::<TerminalIdParams>(message)?;
+        let terminal_id = &params.terminal_id;
         let (stdout, stderr, cwd, command, args) = {
             let terminals = self.terminals.lock().await;
             let handle = terminals
@@ -561,13 +525,8 @@ impl JsonRpcProcess {
 
     async fn handle_terminal_wait(&mut self, message: &Value) -> AdapterResult<()> {
         let id = message_id(message)?;
-        let terminal_id = message
-            .get("params")
-            .and_then(|v| v.get("terminalId"))
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                AdapterError::Protocol("terminal/wait_for_exit missing terminalId".to_string())
-            })?;
+        let params = extract_params::<TerminalIdParams>(message)?;
+        let terminal_id = &params.terminal_id;
         let (child, cwd, command, args) = {
             let terminals = self.terminals.lock().await;
             let handle = terminals
@@ -605,13 +564,8 @@ impl JsonRpcProcess {
 
     async fn handle_terminal_kill(&mut self, message: &Value) -> AdapterResult<()> {
         let id = message_id(message)?;
-        let terminal_id = message
-            .get("params")
-            .and_then(|v| v.get("terminalId"))
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                AdapterError::Protocol("terminal/kill missing terminalId".to_string())
-            })?;
+        let params = extract_params::<TerminalIdParams>(message)?;
+        let terminal_id = &params.terminal_id;
         let (child, cwd, command, args) = {
             let terminals = self.terminals.lock().await;
             let handle = terminals
@@ -645,13 +599,8 @@ impl JsonRpcProcess {
 
     async fn handle_terminal_release(&mut self, message: &Value) -> AdapterResult<()> {
         let id = message_id(message)?;
-        let terminal_id = message
-            .get("params")
-            .and_then(|v| v.get("terminalId"))
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                AdapterError::Protocol("terminal/release missing terminalId".to_string())
-            })?;
+        let params = extract_params::<TerminalIdParams>(message)?;
+        let terminal_id = &params.terminal_id;
         let metadata = self.terminals.lock().await.remove(terminal_id);
         let (cwd, command, args) = if let Some(handle) = metadata {
             (handle.cwd, Some(handle.command), json!(handle.args))
@@ -758,6 +707,16 @@ pub(crate) fn message_id(message: &Value) -> AdapterResult<i64> {
         .get("id")
         .and_then(Value::as_i64)
         .ok_or_else(|| AdapterError::Protocol("message missing id".to_string()))
+}
+
+/// Extract and deserialize typed params from a JSON-RPC message.
+fn extract_params<T: serde::de::DeserializeOwned>(message: &Value) -> AdapterResult<T> {
+    let params = message
+        .get("params")
+        .ok_or_else(|| AdapterError::Protocol("message missing params".to_string()))?;
+    serde_json::from_value(params.clone()).map_err(|e| {
+        AdapterError::Protocol(format!("invalid params: {e}"))
+    })
 }
 
 pub(crate) async fn read_available<R>(

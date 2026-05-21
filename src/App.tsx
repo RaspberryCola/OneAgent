@@ -713,19 +713,23 @@ export default function App() {
         ) : null}
       />
 
-      <SettingsDialog
-        isOpen={isSettingsOpen}
-        settingsTab={settingsTab}
-        alwaysExpandThinking={alwaysExpandThinking}
-        sortedDiscoveryStatus={sortedDiscoveryStatus}
-        availableAgentsCount={availableAgents.length}
-        onClose={() => setIsSettingsOpen(false)}
-        onSelectTab={setSettingsTab}
-        onToggleAlwaysExpandThinking={() => setAlwaysExpandThinking(!alwaysExpandThinking)}
-        renderAgentLogo={(agent, className) => (
-          <AgentLogo agent={agent} className={className} />
+      <AnimatePresence>
+        {isSettingsOpen && (
+          <SettingsDialog
+            isOpen={isSettingsOpen}
+            settingsTab={settingsTab}
+            alwaysExpandThinking={alwaysExpandThinking}
+            sortedDiscoveryStatus={sortedDiscoveryStatus}
+            availableAgentsCount={availableAgents.length}
+            onClose={() => setIsSettingsOpen(false)}
+            onSelectTab={setSettingsTab}
+            onToggleAlwaysExpandThinking={() => setAlwaysExpandThinking(!alwaysExpandThinking)}
+            renderAgentLogo={(agent, className) => (
+              <AgentLogo agent={agent} className={className} />
+            )}
+          />
         )}
-      />
+      </AnimatePresence>
 
       <AnimatePresence>
         {isSearchOpen && (

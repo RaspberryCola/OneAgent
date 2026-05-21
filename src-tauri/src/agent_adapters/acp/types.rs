@@ -1,9 +1,209 @@
 //! ACP protocol constants and internal type definitions.
 //!
-//! This module contains constants used throughout the ACP adapter implementation.
+//! This module contains constants and typed protocol message structs used
+//! throughout the ACP adapter implementation. Types are organized into:
+//! - Constants (protocol version, size limits)
+//! - Outgoing request params (Serialize)
+//! - Incoming request params (Deserialize)
+//! - Session update types (Deserialize)
+//! - Permission types (Deserialize/Serialize)
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
+
+use crate::{agent_adapters::{AdapterError, AdapterResult}, domain::McpServerConfig};
+
+/// Serialize a typed params struct into a JSON `Value`, wrapping errors
+/// as `AdapterError::Protocol` with a descriptive label.
+pub(crate) fn to_value_or_err<T: Serialize>(params: T, label: &str) -> AdapterResult<Value> {
+    serde_json::to_value(params)
+        .map_err(|e| AdapterError::Protocol(format!("serialize {label} params: {e}")))
+}
+
+/// Build a JSON-RPC 2.0 request envelope.
+pub(crate) fn jsonrpc_request(id: i64, method: &str, params: Value) -> Value {
+    json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+}
+
+/// Build a JSON-RPC 2.0 notification envelope (no id).
+pub(crate) fn jsonrpc_notification(method: &str, params: Value) -> Value {
+    json!({"jsonrpc": "2.0", "method": method, "params": params})
+}
+
+// ---------------------------------------------------------------------------
+// Outgoing request parameter types
+// ---------------------------------------------------------------------------
+
+/// Client implementation info sent during initialize.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct AcpClientInfo {
+    pub(crate) name: &'static str,
+    pub(crate) title: &'static str,
+    pub(crate) version: &'static str,
+}
+
+/// File system capabilities advertised by the client.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct AcpClientFsCapabilities {
+    #[serde(rename = "readTextFile")]
+    pub(crate) read_text_file: bool,
+    #[serde(rename = "writeTextFile")]
+    pub(crate) write_text_file: bool,
+}
+
+/// Capabilities advertised by the client during initialize.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct AcpClientCapabilities {
+    pub(crate) fs: AcpClientFsCapabilities,
+    pub(crate) terminal: bool,
+}
+
+/// Parameters for the `initialize` JSON-RPC request.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct InitializeParams {
+    #[serde(rename = "protocolVersion")]
+    pub(crate) protocol_version: u64,
+    #[serde(rename = "clientCapabilities")]
+    pub(crate) client_capabilities: AcpClientCapabilities,
+    #[serde(rename = "clientInfo")]
+    pub(crate) client_info: AcpClientInfo,
+}
+
+/// Parameters for the `session/new` JSON-RPC request.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct NewSessionParams {
+    pub(crate) cwd: String,
+    #[serde(rename = "mcpServers")]
+    pub(crate) mcp_servers: Vec<McpServerConfig>,
+}
+
+/// Parameters for the `session/load` JSON-RPC request.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct LoadSessionParams {
+    #[serde(rename = "sessionId")]
+    pub(crate) session_id: String,
+    pub(crate) cwd: String,
+    #[serde(rename = "mcpServers")]
+    pub(crate) mcp_servers: Vec<McpServerConfig>,
+}
+
+/// Parameters for the `session/prompt` JSON-RPC request.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct PromptParams {
+    #[serde(rename = "sessionId")]
+    pub(crate) session_id: String,
+    pub(crate) prompt: Vec<Value>,
+}
+
+/// Parameters for the `session/cancel` JSON-RPC notification.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct CancelParams {
+    #[serde(rename = "sessionId")]
+    pub(crate) session_id: String,
+}
+
+/// Parameters for the `session/set_config_option` JSON-RPC request.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct SetConfigOptionParams {
+    #[serde(rename = "sessionId")]
+    pub(crate) session_id: String,
+    #[serde(rename = "configId")]
+    pub(crate) config_id: String,
+    pub(crate) value: Value,
+}
+
+/// Parameters for the `session/set_model` JSON-RPC request.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct SetModelParams {
+    #[serde(rename = "sessionId")]
+    pub(crate) session_id: String,
+    #[serde(rename = "modelId")]
+    pub(crate) model_id: String,
+}
+
+/// Parameters for the `session/set_mode` JSON-RPC request.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct SetModeParams {
+    #[serde(rename = "sessionId")]
+    pub(crate) session_id: String,
+    #[serde(rename = "modeId")]
+    pub(crate) mode_id: String,
+}
+
+// ---------------------------------------------------------------------------
+// Incoming client request parameter types
+// ---------------------------------------------------------------------------
+
+/// Parameters for `fs/read_text_file` client method.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct FsReadTextFileParams {
+    pub(crate) path: String,
+}
+
+/// Parameters for `fs/write_text_file` client method.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct FsWriteTextFileParams {
+    pub(crate) path: String,
+    pub(crate) content: String,
+}
+
+/// Parameters for `terminal/create` client method.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct TerminalCreateParams {
+    pub(crate) command: String,
+    #[serde(default)]
+    pub(crate) args: Vec<String>,
+    #[serde(default)]
+    pub(crate) cwd: Option<String>,
+}
+
+/// Parameters for terminal methods that only need a terminal ID.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct TerminalIdParams {
+    #[serde(rename = "terminalId")]
+    pub(crate) terminal_id: String,
+}
+
+/// Parameters for `terminal/output` client method.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct TerminalOutputParams {
+    #[serde(rename = "terminalId")]
+    pub(crate) terminal_id: String,
+    #[serde(default)]
+    pub(crate) content: Option<String>,
+    #[serde(default)]
+    pub(crate) stream: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Response result types
+// ---------------------------------------------------------------------------
+
+/// Result of `session/new` and `session/load` responses.
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SessionResult {
+    #[serde(default)]
+    pub(crate) session_id: Option<String>,
+    #[serde(default)]
+    pub(crate) config_options: Option<Vec<Value>>,
+    #[serde(default)]
+    pub(crate) models: Option<Value>,
+    #[serde(default)]
+    pub(crate) modes: Option<Value>,
+    #[serde(flatten)]
+    pub(crate) extra: std::collections::HashMap<String, Value>,
+}
+
+/// Result of `session/prompt` response.
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PromptResult {
+    #[serde(default)]
+    pub(crate) stop_reason: Option<String>,
+    #[serde(flatten)]
+    pub(crate) extra: std::collections::HashMap<String, Value>,
+}
 
 /// The ACP protocol version supported by this adapter.
 pub const ACP_PROTOCOL_VERSION: u64 = 1;
@@ -88,7 +288,7 @@ pub(crate) enum AcpSessionUpdate {
     #[serde(rename = "plan")]
     Plan {
         #[serde(default)]
-        entries: Value,
+        entries: Vec<PlanEntry>,
     },
     #[serde(rename = "tool_call")]
     ToolCall {
@@ -242,4 +442,30 @@ pub(crate) struct AcpPermissionParams {
 pub(crate) struct AcpPermissionRequest {
     pub(crate) id: i64,
     pub(crate) params: AcpPermissionParams,
+}
+
+// ---------------------------------------------------------------------------
+// Internal typed representations for parsing
+// ---------------------------------------------------------------------------
+
+/// A single entry in an agent's execution plan.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub(crate) struct PlanEntry {
+    #[serde(default)]
+    pub(crate) content: Option<String>,
+    #[serde(default)]
+    pub(crate) status: Option<String>,
+    #[serde(flatten)]
+    pub(crate) extra: std::collections::HashMap<String, Value>,
+}
+
+/// Typed result of extracting content from tool call content items.
+/// Used internally by the parser; converted to `Value` at the `RuntimeStreamEvent` boundary.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ExtractedToolContent {
+    pub(crate) text: String,
+    pub(crate) terminal_ids: Vec<String>,
+    pub(crate) diffs: Vec<Value>,
+    pub(crate) content_items: Vec<AcpToolContentItem>,
+    pub(crate) paths: Vec<String>,
 }

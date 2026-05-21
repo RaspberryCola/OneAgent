@@ -1,4 +1,6 @@
+import { motion } from 'framer-motion';
 import { Settings, X } from 'lucide-react';
+import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import type * as Types from '../../lib/backend/types';
 import { AgentSettingsPane } from './AgentSettingsPane';
@@ -30,12 +32,27 @@ export function SettingsDialog({
   onToggleAlwaysExpandThinking,
   renderAgentLogo,
 }: SettingsDialogProps) {
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   return (
-    <div className="fixed inset-0 bg-pure-black/10 z-[100] flex items-center justify-center p-4">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-pure-black/10 z-[100] flex items-center justify-center p-4"
+    >
       <div className="absolute inset-0" onClick={onClose} />
-      <div className="w-full max-w-4xl h-[640px] bg-pure-white rounded-container border border-light-gray z-10 flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+      <div
+        className="w-full max-w-4xl h-[640px] bg-pure-white rounded-container border border-light-gray z-10 flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex-1 flex overflow-hidden">
           <aside className="w-[200px] bg-snow flex flex-col p-4 border-r border-light-gray/50">
             <div className="mb-4 px-2 font-display text-[14px] font-medium tracking-tight flex items-center gap-2">
@@ -74,7 +91,7 @@ export function SettingsDialog({
                 className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-[12px] font-medium text-stone hover:bg-light-gray/30 transition-colors"
               >
                 <X className="w-3.5 h-3.5" />
-                <span>关闭</span>
+                <span>Close</span>
               </button>
             </div>
           </aside>
@@ -99,6 +116,6 @@ export function SettingsDialog({
           </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

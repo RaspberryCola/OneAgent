@@ -103,6 +103,12 @@ pub const KNOWN_ACP_AGENTS: &[KnownAcpAgent] = &[
         args: &["gateway"],
         description: "OpenClaw gateway mode",
     },
+    KnownAcpAgent {
+        name: "Hermes Agent",
+        command: "hermes",
+        args: &["acp"],
+        description: "Hermes Agent in ACP mode",
+    },
 ];
 
 /// Discover installed ACP agents and return inputs for profile creation
