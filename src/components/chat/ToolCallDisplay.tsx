@@ -366,7 +366,7 @@ export function ToolCallDisplay({ toolCall, terminals, permissionDecision }: Too
           <StatusDot status={toolCall.status} permissionDecision={permissionDecision} />
 
           {/* Tool title */}
-          <span className="shrink-0 whitespace-nowrap text-[12px] font-mono text-stone group-hover:text-pure-black transition-colors">
+          <span className="min-w-0 shrink text-[12px] font-mono text-stone group-hover:text-pure-black transition-colors truncate">
             {stableTitle}
           </span>
 
@@ -396,7 +396,7 @@ export function ToolCallDisplay({ toolCall, terminals, permissionDecision }: Too
               <div>
                 <div className="text-[10px] font-mono uppercase tracking-wide text-silver mb-1">Input</div>
                 <CollapsibleContent maxHeight={150}>
-                  <pre className="text-[11px] font-mono text-stone whitespace-pre-wrap break-words bg-snow rounded-container px-2 py-1.5">
+                  <pre className="text-[11px] font-mono text-stone whitespace-pre-wrap break-words bg-snow rounded-container px-2 py-1.5 overflow-x-auto max-w-full">
                     {typeof toolCall.raw_input_json === 'string'
                       ? toolCall.raw_input_json
                       : JSON.stringify(effectiveInput, null, 2)}
@@ -409,7 +409,7 @@ export function ToolCallDisplay({ toolCall, terminals, permissionDecision }: Too
               <div>
                 <div className="text-[10px] font-mono uppercase tracking-wide text-silver mb-1">Output</div>
                 <CollapsibleContent maxHeight={300}>
-                  <pre className="text-[11px] font-mono text-stone whitespace-pre-wrap break-words bg-snow rounded-container px-2 py-1.5">
+                  <pre className="text-[11px] font-mono text-stone whitespace-pre-wrap break-words bg-snow rounded-container px-2 py-1.5 overflow-x-auto max-w-full">
                     {getOutputDisplayValue(toolCall.raw_output_json)}
                   </pre>
                 </CollapsibleContent>
@@ -426,7 +426,7 @@ export function ToolCallDisplay({ toolCall, terminals, permissionDecision }: Too
                     </div>
                     {(terminal.stdout_buffer || terminal.stderr_buffer) && (
                       <CollapsibleContent maxHeight={400}>
-                        <pre className="mt-1 text-[11px] font-mono whitespace-pre-wrap break-words text-stone bg-snow rounded-container px-2 py-1.5">
+                        <pre className="mt-1 text-[11px] font-mono whitespace-pre-wrap break-words text-stone bg-snow rounded-container px-2 py-1.5 overflow-x-auto max-w-full">
                           {terminal.stdout_buffer || terminal.stderr_buffer}
                         </pre>
                       </CollapsibleContent>

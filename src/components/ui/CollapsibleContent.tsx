@@ -63,7 +63,8 @@ export function CollapsibleContent({
 
   const contentStyle: React.CSSProperties = {
     maxHeight: isCollapsed && needsCollapse ? `${maxHeight}px` : undefined,
-    overflow: isCollapsed && needsCollapse ? 'hidden' : 'visible',
+    overflowX: 'auto',
+    overflowY: isCollapsed && needsCollapse ? 'hidden' : 'visible',
   };
 
   return (
