@@ -147,6 +147,11 @@ export function WorkspaceDropdown({
               role="listbox"
               aria-activedescendant={focusedIndex !== null ? `workspace-item-${focusedIndex}` : undefined}
             >
+              {/* Workspace header */}
+              <div className="px-3 py-1">
+                <span className="text-[10px] font-medium text-silver tracking-wider">Workspace</span>
+              </div>
+
               {/* Workspace list */}
               {workspaces.length === 0 ? (
                 <div className="px-3 py-2 text-[13px] text-silver text-center">

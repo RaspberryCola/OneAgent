@@ -113,7 +113,7 @@ export function PermissionDisplay({ request, toolCall, requestMeta, decision }: 
                     key={index}
                     onClick={() => void handleResolve(option)}
                     disabled={isResolved || !!isSubmitting}
-                    className={`inline-flex items-center justify-center rounded-pill px-3 py-1 text-[11px] font-medium transition-none cursor-pointer shrink-0 ${
+                    className={`inline-flex items-center justify-center rounded-interactive px-3 py-1 text-[11px] font-medium transition-none cursor-pointer shrink-0 ${
                       meta.primary
                         ? "bg-pure-black text-pure-white border border-pure-black hover:opacity-90"
                         : "bg-pure-white text-pure-black border border-light-gray hover:bg-snow"

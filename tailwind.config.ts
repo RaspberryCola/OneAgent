@@ -36,9 +36,10 @@ export default {
         },
       },
       borderRadius: {
-        // Binary border-radius system from DESIGN.md
+        // Two-level border-radius system from FRONTEND_DESIGN.md
         container: "12px",
-        pill: "9999px",
+        interactive: "8px",
+        pill: "9999px", // Reserved for homepage Agent switcher exception
       },
       fontFamily: {
         // SF Pro Rounded for display, UI Sans for body

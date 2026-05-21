@@ -5,9 +5,9 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::domain::{
-    AcpSessionModeState, AcpSessionModels, AgentCapabilities, AgentProfile,
+    AcpSessionModeState, AcpSessionModels, AcpToolCallLocations, AgentCapabilities, AgentProfile,
     AgentPromptCapabilities, AttachmentInput, ExternalSession, McpServerConfig,
-    SessionConfigOption,
+    SessionConfigOption, ToolCallStatus, ToolKind,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -95,19 +95,19 @@ pub enum RuntimeStreamEvent {
         turn_id: String,
         tool_call_id: String,
         title: String,
-        kind: String,
-        status: String,
+        kind: ToolKind,
+        status: ToolCallStatus,
         raw_input: serde_json::Value,
         raw_output: serde_json::Value,
         content: serde_json::Value,
         diffs: serde_json::Value,
         terminal_ids: serde_json::Value,
-        locations: serde_json::Value,
+        locations: AcpToolCallLocations,
     },
     PermissionRequest {
         turn_id: String,
         tool_call_id: String,
-        tool_kind: String,
+        tool_kind: ToolKind,
         title: String,
         raw_input: serde_json::Value,
         paths: Vec<String>,

@@ -11,10 +11,10 @@ What makes Ollama distinctive is the combination of SF Pro Rounded (Apple's roun
 **Key Characteristics:**
 - Pure white canvas with zero chromatic color — completely grayscale
 - SF Pro Rounded headlines creating a distinctively Apple-like softness
-- Binary border-radius system: 12px (containers) or 9999px (everything interactive)
+- Two-level border-radius system (with exception): 12px (containers) or 8px (interactive & details), with 9999px (pill) reserved for Homepage Agent switcher only
 - Zero shadows — depth comes exclusively from background color shifts and borders
-- Pill-shaped geometry on all interactive elements (buttons, tabs, inputs, tags)
-- The Ollama llama as the sole illustration — black line art, no color
+- Rounded-interactive (8px) geometry on all interactive elements (buttons, tabs, inputs, tags) except the homepage Agent switcher
+- The Ollama llama mascot as the sole illustration — black line art, no color
 - Extreme content restraint — the homepage is short, focused, and uncluttered
 
 ## 2. Color Palette & Roles
@@ -77,40 +77,40 @@ What makes Ollama distinctive is the combination of SF Pro Rounded (Apple's roun
 
 ### Buttons
 
-**Gray Pill (Primary)**
+**Gray Button (Primary)**
 - Background: Light Gray (`#e5e5e5`)
 - Text: Near Black (`#262626`)
 - Padding: 10px 24px
 - Border: thin solid Light Gray (`1px solid #e5e5e5`)
-- Radius: pill-shaped (9999px)
-- The primary action button — understated, grayscale, always pill-shaped
+- Radius: interactive (8px)
+- The primary action button — understated, grayscale, always 8px rounded
 
-**White Pill (Secondary)**
+**White Button (Secondary)**
 - Background: Pure White (`#ffffff`)
 - Text: Button Text Dark (`#404040`)
 - Padding: 10px 24px
 - Border: thin solid Border Light (`1px solid #d4d4d4`)
-- Radius: pill-shaped (9999px)
-- Secondary action — visually lighter than Gray Pill
+- Radius: interactive (8px)
+- Secondary action — visually lighter than Gray Button
 
-**Black Pill (CTA)**
+**Black Button (CTA)**
 - Background: Pure Black (`#000000`)
 - Text: Pure White (`#ffffff`)
-- Radius: pill-shaped (9999px)
+- Radius: interactive (8px)
 - Inferred from "Create account" and "Explore" buttons
 - Maximum emphasis — black on white
 
 ### Cards & Containers
 - Background: Pure White or Snow (`#fafafa`)
 - Border: thin solid Light Gray (`1px solid #e5e5e5`) when needed
-- Radius: comfortably rounded (12px) — the ONLY non-pill radius in the system
+- Radius: comfortably rounded (12px) — the container radius in the system
 - Shadow: **none** — zero shadows on any element
 - Hover: likely subtle background shift or border darkening
 
 ### Inputs & Forms
 - Background: Pure White
 - Border: `1px solid #e5e5e5`
-- Radius: pill-shaped (9999px) — search inputs and form fields are pill-shaped
+- Radius: interactive (8px) — search inputs and form fields are 8px rounded
 - Focus: Ring Blue (`#3b82f6` at 50%) ring
 - Placeholder: Silver (`#a3a3a3`)
 
@@ -118,8 +118,8 @@ What makes Ollama distinctive is the combination of SF Pro Rounded (Apple's roun
 - Clean horizontal nav with minimal elements
 - Logo: Ollama llama icon + wordmark in black
 - Links: "Models", "Docs", "Pricing" in black at 16px, weight 400
-- Search bar: pill-shaped with placeholder text
-- Right side: "Sign in" link + "Download" black pill CTA
+- Search bar: 8px rounded with placeholder text
+- Right side: "Sign in" link + "Download" black 8px rounded CTA
 - No borders, no background — transparent nav on white page
 
 ### Image Treatment
@@ -130,13 +130,13 @@ What makes Ollama distinctive is the combination of SF Pro Rounded (Apple's roun
 
 ### Distinctive Components
 
-**Tab Pills**
-- Pill-shaped tab selectors (e.g., "Coding" | "OpenClaw")
+**Tabs**
+- 8px rounded tab selectors (e.g., "Coding" | "OpenClaw")
 - Active: Light Gray bg; Inactive: transparent
-- All pill-shaped (9999px)
+- All 8px rounded (`rounded-interactive`)
 
 **Model Tags**
-- Small pill-shaped tags (e.g., "ollama", "launch", "claude")
+- Small 8px rounded tags (e.g., "ollama", "launch", "claude")
 - Light Gray background, dark text
 - The primary way to browse models
 
@@ -147,7 +147,7 @@ What makes Ollama distinctive is the combination of SF Pro Rounded (Apple's roun
 
 **Integration Grid**
 - Grid of integration logos (Codex, Claude Code, OpenCode, LangChain, etc.)
-- Each in a bordered pill or card with icon + name
+- Each in a bordered 8px-radius card with icon + name
 - Tabbed by category (Coding, Documents & RAG, Automation, Chat)
 
 ## 5. Layout Principles
@@ -172,10 +172,11 @@ What makes Ollama distinctive is the combination of SF Pro Rounded (Apple's roun
 - **The white space IS the brand**: Pure white space with zero decoration communicates "this tool gets out of your way."
 
 ### Border Radius Scale
-- Comfortably rounded (12px): The sole container radius — code blocks, cards, panels
-- Pill-shaped (9999px): Everything interactive — buttons, tabs, inputs, tags, badges
+- Comfortably rounded (12px): Container radius — code blocks, cards, panels
+- Interactive / Details (8px): All interactive items — buttons, tabs, inputs, tags, badges, and file attachments
+- Special Exception (9999px / Pill): Reserved strictly for Homepage Agent switcher and Toggle Switches.
 
-*This binary system is extreme and distinctive. There is no 4px, no 8px, no gradient of roundness. Elements are either containers (12px) or interactive (pill).*
+*This system is clean and standardized. Elements are either containers (12px), interactive/details (8px), or the special homepage switcher/switch exception (pill).*
 
 ## 6. Depth & Elevation
 
@@ -190,18 +191,18 @@ What makes Ollama distinctive is the combination of SF Pro Rounded (Apple's roun
 
 ### Do
 - Use pure white (`#ffffff`) as the page background — never off-white or cream
-- Use pill-shaped (9999px) radius on all interactive elements — buttons, tabs, inputs, tags
+- Use interactive (8px) radius on all interactive elements (buttons, tabs, inputs, tags) and details
 - Use 12px radius on all non-interactive containers — code blocks, cards, panels
 - Keep the palette strictly grayscale — no chromatic colors except the blue focus ring
 - Use SF Pro Rounded at weight 500 for display headings — the rounded terminals are the brand expression
 - Maintain zero shadows — depth comes from borders and background shifts only
 - Keep content density low — each section should present one clear idea
 - Use monospace for terminal commands and code — it's primary content, not decoration
-- Keep all buttons at 10px 24px padding with pill shape — consistency is absolute
+- Keep all buttons at 10px 24px padding with 8px rounded corners — consistency is absolute
 
 ### Don't
 - Don't introduce any chromatic color — no brand blue, no accent green, no warm tones
-- Don't use border-radius between 12px and 9999px — the system is binary
+- Don't use border-radius other than 12px (container), 8px (interactive), or 9999px (special homepage Agent switcher exception)
 - Don't add shadows to any element — the flat aesthetic is intentional
 - Don't use font weights above 500 — no bold, no black weight
 - Don't add decorative illustrations beyond the llama mascot
@@ -222,7 +223,7 @@ What makes Ollama distinctive is the combination of SF Pro Rounded (Apple's roun
 | Large Desktop | 1024–1280px | Maximum content width |
 
 ### Touch Targets
-- All buttons are pill-shaped with generous padding (10px 24px)
+- All buttons are 8px rounded with generous padding (10px 24px)
 - Navigation links at comfortable 16px size
 - Minimum touch area easily exceeds 44x44px
 
@@ -252,16 +253,16 @@ What makes Ollama distinctive is the combination of SF Pro Rounded (Apple's roun
 - Subtle Surface: "Snow (#fafafa)"
 
 ### Example Component Prompts
-- "Create a hero section on pure white (#ffffff) with an illustration centered above a headline at 48px SF Pro Rounded weight 500, line-height 1.0. Use Pure Black (#000000) text. Below, add a black pill-shaped CTA button (9999px radius, 10px 24px padding) and a gray pill button."
+- "Create a hero section on pure white (#ffffff) with an illustration centered above a headline at 48px SF Pro Rounded weight 500, line-height 1.0. Use Pure Black (#000000) text. Below, add a black CTA button (8px radius, 10px 24px padding) and a gray button (8px radius)."
 - "Design a code block with a 12px border-radius, 1px solid Light Gray (#e5e5e5) border on white background. Use ui-monospace at 16px for the terminal command. No shadow."
-- "Build a tab bar with pill-shaped tabs (9999px radius). Active tab: Light Gray (#e5e5e5) background, Near Black (#262626) text. Inactive: transparent background, Stone (#737373) text."
-- "Create an integration card grid. Each card is a bordered pill (9999px radius) or a 12px-radius card with 1px solid #e5e5e5 border. Icon + name inside. Grid of 4 columns on desktop."
-- "Design a navigation bar: transparent background, no border. Ollama logo on the left, 3 text links (Pure Black, 16px, weight 400), pill search input in the center, 'Sign in' text link and black pill 'Download' button on the right."
+- "Build a tab bar with 8px rounded tabs. Active tab: Light Gray (#e5e5e5) background, Near Black (#262626) text. Inactive: transparent background, Stone (#737373) text."
+- "Create an integration card grid. Each card is a bordered card (8px radius) or a 12px-radius card with 1px solid #e5e5e5 border. Icon + name inside. Grid of 4 columns on desktop."
+- "Design a navigation bar: transparent background, no border. Ollama logo on the left, 3 text links (Pure Black, 16px, weight 400), 8px rounded search input in the center, 'Sign in' text link and black 8px rounded 'Download' button on the right."
 
 ### Iteration Guide
 1. Focus on ONE component at a time
 2. Keep all values grayscale — "Stone (#737373)" not "use a light color"
-3. Always specify pill (9999px) or container (12px) radius — nothing in between
+3. Always specify container (12px) or interactive/detail (8px) radius — except for the homepage agent switcher (pill)
 4. Shadows are always zero — never add them
 5. Weight is always 400 or 500 — never bold
 6. If something feels too decorated, remove it — less is always more for Ollama

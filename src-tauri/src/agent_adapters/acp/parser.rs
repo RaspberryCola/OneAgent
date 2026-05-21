@@ -9,12 +9,13 @@ use crate::{
     agent_adapters::RuntimeStreamEvent,
     domain::{
         AcpAvailableModel, AcpSessionMode, AcpSessionModeState, AcpSessionModels,
-        AgentCapabilities, AgentPromptCapabilities, AgentSessionCapabilities, SessionConfigOption,
+        AcpToolCallLocations, AgentCapabilities, AgentPromptCapabilities,
+        AgentSessionCapabilities, SessionConfigOption, ToolCallStatus, ToolKind,
     },
 };
 
 use super::types::ACP_PROTOCOL_VERSION;
-use super::types::{AcpSessionUpdate, AcpToolContentItem, ExtractedToolContent};
+use super::types::{AcpSessionUpdate, AcpToolContent, ExtractedToolContent, ToolCallUpdateFields};
 
 /// Extract error message from a JSON-RPC error response.
 pub fn jsonrpc_error_message(response: &Value) -> Option<String> {
@@ -331,41 +332,46 @@ pub fn parse_session_update(message: &Value, turn_id: &str) -> Vec<RuntimeStream
                 entries: entries_value,
             });
         }
-        AcpSessionUpdate::ToolCall { .. } | AcpSessionUpdate::ToolCallUpdate { .. } => {
-            if let Some((tool_call_id, title, kind, status, raw_input, input, content)) =
-                update.tool_call_parts()
-            {
-                let extracted = extract_content(content);
-                let terminal_refs = serde_json::to_value(&extracted.terminal_ids)
-                    .unwrap_or_else(|_| json!([]));
-                let raw_output = json!({ "text": extracted.text });
-                let raw_input = raw_input
-                    .cloned()
-                    .or_else(|| input.cloned())
-                    .unwrap_or_else(|| json!({}));
-                let content_value = serde_json::to_value(&extracted.content_items)
-                    .unwrap_or_else(|_| json!([]));
-                let diffs_value = serde_json::to_value(&extracted.diffs)
-                    .unwrap_or_else(|_| json!([]));
-                let paths = extracted.paths.clone();
+        AcpSessionUpdate::ToolCall {
+            tool_call_id,
+            title,
+            kind,
+            status,
+            raw_input,
+            input,
+            content,
+        } => {
+            let extracted = extract_content(content.as_deref());
+            let terminal_refs =
+                serde_json::to_value(&extracted.terminal_ids).unwrap_or_else(|_| json!([]));
+            let raw_output = json!({ "text": extracted.text });
+            let raw_input = raw_input
+                .or(input)
+                .unwrap_or_else(|| json!({}));
+            let content_value =
+                serde_json::to_value(&extracted.content_items).unwrap_or_else(|_| json!([]));
+            let diffs_value =
+                serde_json::to_value(&extracted.diffs).unwrap_or_else(|_| json!([]));
 
-                events.push(RuntimeStreamEvent::ToolCall {
-                    turn_id: turn_id.to_string(),
-                    tool_call_id: tool_call_id.unwrap_or_default().to_string(),
-                    title: title.unwrap_or_default().to_string(),
-                    kind: kind.unwrap_or("other").to_string(),
-                    status: normalize_tool_status(status.unwrap_or("pending")),
-                    raw_input,
-                    raw_output,
-                    content: content_value,
-                    diffs: diffs_value,
-                    terminal_ids: terminal_refs.clone(),
-                    locations: json!({
-                        "terminals": terminal_refs,
-                        "paths": paths
-                    }),
-                });
-            }
+            events.push(RuntimeStreamEvent::ToolCall {
+                turn_id: turn_id.to_string(),
+                tool_call_id: tool_call_id.unwrap_or_default(),
+                title: title.unwrap_or_default(),
+                kind: kind.unwrap_or(ToolKind::Other),
+                status: status.unwrap_or(ToolCallStatus::Declared),
+                raw_input,
+                raw_output,
+                content: content_value,
+                diffs: diffs_value,
+                terminal_ids: terminal_refs.clone(),
+                locations: AcpToolCallLocations {
+                    terminals: extracted.terminal_ids.clone(),
+                    paths: extracted.paths.clone(),
+                },
+            });
+        }
+        AcpSessionUpdate::ToolCallUpdate { tool_call_id, fields } => {
+            emit_tool_call_update(turn_id, tool_call_id.as_deref(), &fields, &mut events);
         }
         AcpSessionUpdate::ConfigOptionUpdate { config_options } => {
             events.push(RuntimeStreamEvent::ConfigOptionsUpdated {
@@ -421,40 +427,43 @@ pub fn extract_and_strip_think_tags(content: &str) -> (String, String) {
 }
 
 /// Extract content from tool call update content array into a typed struct.
-pub fn extract_content(content: Option<&[AcpToolContentItem]>) -> ExtractedToolContent {
+pub fn extract_content(content: Option<&[AcpToolContent]>) -> ExtractedToolContent {
     let Some(items) = content else {
         return ExtractedToolContent::default();
     };
 
-    let texts: Vec<String> = items
-        .iter()
-        .filter_map(|item| {
-            item.content
-                .as_ref()
-                .and_then(|c| c.text.clone())
-                .or_else(|| item.text.clone())
-                .or_else(|| item.output.clone())
-        })
-        .collect();
+    let mut text_parts = Vec::new();
+    let mut terminal_ids = Vec::new();
+    let mut diffs = Vec::new();
+    let mut paths = Vec::new();
 
-    let diffs: Vec<Value> = items.iter().filter_map(|item| item.diff.clone()).collect();
-
-    let terminal_ids: Vec<String> = items
-        .iter()
-        .filter_map(|item| item.terminal_id.clone())
-        .collect();
-
-    let paths = items
-        .iter()
-        .filter_map(|item| {
-            item.content
-                .as_ref()
-                .and_then(|c| c.uri.clone())
-        })
-        .collect();
+    for item in items {
+        match item {
+            AcpToolContent::ContentRef { content } => {
+                if let Some(t) = &content.text {
+                    text_parts.push(t.clone());
+                }
+                if let Some(uri) = &content.uri {
+                    paths.push(uri.clone());
+                }
+            }
+            AcpToolContent::Terminal { terminal_id } => {
+                terminal_ids.push(terminal_id.clone());
+            }
+            AcpToolContent::Diff { diff } => {
+                diffs.push(diff.clone());
+            }
+            AcpToolContent::Output { output } => {
+                text_parts.push(output.clone());
+            }
+            AcpToolContent::Text { text } => {
+                text_parts.push(text.clone());
+            }
+        }
+    }
 
     ExtractedToolContent {
-        text: texts.join("\n"),
+        text: text_parts.join("\n"),
         terminal_ids,
         diffs,
         content_items: items.to_vec(),
@@ -467,14 +476,45 @@ pub fn extract_paths(content: &ExtractedToolContent) -> Vec<String> {
     content.paths.clone()
 }
 
-/// Normalize tool status from ACP to internal representation.
-pub fn normalize_tool_status(status: &str) -> String {
-    match status {
-        "pending" => "declared",
-        "in_progress" => "running",
-        other => other,
-    }
-    .to_string()
+/// Emit a `RuntimeStreamEvent::ToolCall` from a `tool_call_update` message.
+///
+/// Fields present in the update are used directly; missing fields fall back to
+/// defaults so the projector can apply its DB-based merge logic.
+fn emit_tool_call_update(
+    turn_id: &str,
+    tool_call_id: Option<&str>,
+    fields: &ToolCallUpdateFields,
+    events: &mut Vec<RuntimeStreamEvent>,
+) {
+    let extracted = extract_content(fields.content.as_deref());
+    let terminal_refs =
+        serde_json::to_value(&extracted.terminal_ids).unwrap_or_else(|_| json!([]));
+    let raw_output = json!({ "text": extracted.text });
+    let raw_input = fields
+        .raw_input
+        .clone()
+        .or_else(|| fields.input.clone())
+        .unwrap_or_else(|| json!({}));
+    let content_value =
+        serde_json::to_value(&extracted.content_items).unwrap_or_else(|_| json!([]));
+    let diffs_value = serde_json::to_value(&extracted.diffs).unwrap_or_else(|_| json!([]));
+
+    events.push(RuntimeStreamEvent::ToolCall {
+        turn_id: turn_id.to_string(),
+        tool_call_id: tool_call_id.unwrap_or_default().to_string(),
+        title: fields.title.clone().unwrap_or_default(),
+        kind: fields.kind.clone().unwrap_or(ToolKind::Other),
+        status: fields.status.clone().unwrap_or(ToolCallStatus::Declared),
+        raw_input,
+        raw_output,
+        content: content_value,
+        diffs: diffs_value,
+        terminal_ids: terminal_refs.clone(),
+        locations: AcpToolCallLocations {
+            terminals: extracted.terminal_ids.clone(),
+            paths: extracted.paths.clone(),
+        },
+    });
 }
 
 #[cfg(test)]
@@ -692,25 +732,26 @@ mod tests {
                 assert_eq!(turn_id, "turn");
                 assert_eq!(tool_call_id, "call_1");
                 assert_eq!(title, "Run tests");
-                assert_eq!(kind, "execute");
-                assert_eq!(status, "running"); // normalized from "in_progress"
+                assert_eq!(kind, &crate::domain::ToolKind::Execute);
+                assert_eq!(status, &crate::domain::ToolCallStatus::Running);
                 assert_eq!(raw_input["command"], "cargo test");
                 // raw_output comes from content["text"], which joins all text content
                 assert_eq!(raw_output["text"], "output");
                 assert_eq!(terminal_ids.as_array().unwrap().len(), 1);
-                assert_eq!(locations["terminals"].as_array().unwrap().len(), 1);
+                assert_eq!(locations.terminals.len(), 1);
             }
             other => panic!("expected tool call event, got {other:?}"),
         }
     }
 
     #[test]
-    fn normalizes_tool_status_from_acp() {
-        assert_eq!(normalize_tool_status("pending"), "declared");
-        assert_eq!(normalize_tool_status("in_progress"), "running");
-        assert_eq!(normalize_tool_status("completed"), "completed");
-        assert_eq!(normalize_tool_status("failed"), "failed");
-        assert_eq!(normalize_tool_status("custom_status"), "custom_status");
+    fn deserializes_acp_tool_status_wire_values() {
+        use crate::domain::ToolCallStatus;
+        assert_eq!(serde_json::from_value::<ToolCallStatus>(json!("pending")).unwrap(), ToolCallStatus::Declared);
+        assert_eq!(serde_json::from_value::<ToolCallStatus>(json!("in_progress")).unwrap(), ToolCallStatus::Running);
+        assert_eq!(serde_json::from_value::<ToolCallStatus>(json!("completed")).unwrap(), ToolCallStatus::Completed);
+        assert_eq!(serde_json::from_value::<ToolCallStatus>(json!("failed")).unwrap(), ToolCallStatus::Failed);
+        assert_eq!(serde_json::from_value::<ToolCallStatus>(json!("custom_status")).unwrap(), ToolCallStatus::Unknown);
     }
 
     #[test]
@@ -770,32 +811,32 @@ mod tests {
     #[test]
     fn extracts_content_with_various_formats() {
         // Terminal ref only
-        let content1: Vec<AcpToolContentItem> =
+        let content1: Vec<AcpToolContent> =
             serde_json::from_value(json!([{ "terminalId": "term_1" }])).unwrap();
         let result1 = extract_content(Some(&content1));
         assert_eq!(result1.terminal_ids, vec!["term_1"]);
 
         // Text content
-        let content2: Vec<AcpToolContentItem> =
+        let content2: Vec<AcpToolContent> =
             serde_json::from_value(json!([{ "content": { "text": "hello" } }])).unwrap();
         let result2 = extract_content(Some(&content2));
         assert_eq!(result2.text, "hello");
 
         // Diff content
-        let content3: Vec<AcpToolContentItem> =
+        let content3: Vec<AcpToolContent> =
             serde_json::from_value(json!([{ "diff": { "path": "src/lib.rs", "patch": "@@" } }]))
                 .unwrap();
         let result3 = extract_content(Some(&content3));
         assert_eq!(result3.diffs[0]["path"], "src/lib.rs");
 
         // Legacy format with output field
-        let content4: Vec<AcpToolContentItem> =
+        let content4: Vec<AcpToolContent> =
             serde_json::from_value(json!([{ "output": "legacy output" }])).unwrap();
         let result4 = extract_content(Some(&content4));
         assert_eq!(result4.text, "legacy output");
 
         // Mixed content
-        let content5: Vec<AcpToolContentItem> = serde_json::from_value(json!([
+        let content5: Vec<AcpToolContent> = serde_json::from_value(json!([
             { "terminalId": "term_1" },
             { "content": { "text": "output" } },
             { "diff": { "path": "file.rs", "patch": "@@" } }
@@ -809,7 +850,7 @@ mod tests {
 
     #[test]
     fn extracts_paths_from_content() {
-        let content: Vec<AcpToolContentItem> = serde_json::from_value(json!([
+        let content: Vec<AcpToolContent> = serde_json::from_value(json!([
             { "content": { "uri": "file:///tmp/test.txt" } },
             { "content": { "uri": "file:///home/user/file.rs" } }
         ]))
@@ -908,5 +949,54 @@ mod tests {
             }
             other => panic!("expected tool call event, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn tool_call_update_with_partial_fields() {
+        // Only status is updated — title, kind, content are absent
+        let message = json!({
+            "params": {
+                "update": {
+                    "sessionUpdate": "tool_call_update",
+                    "toolCallId": "call_42",
+                    "status": "completed"
+                }
+            }
+        });
+        let events = parse_session_update(&message, "turn");
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            RuntimeStreamEvent::ToolCall {
+                tool_call_id,
+                title,
+                kind,
+                status,
+                raw_input,
+                ..
+            } => {
+                assert_eq!(tool_call_id, "call_42");
+                assert_eq!(title, ""); // absent → default
+                assert_eq!(kind, &crate::domain::ToolKind::Other); // absent → default
+                assert_eq!(status, &crate::domain::ToolCallStatus::Completed);
+                assert_eq!(raw_input, &json!({})); // absent → default
+            }
+            other => panic!("expected tool call event, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tool_call_update_fields_deserialize_with_serde_flatten() {
+        use super::super::types::ToolCallUpdateFields;
+        // Verify ToolCallUpdateFields works with #[serde(flatten)]
+        let fields: ToolCallUpdateFields = serde_json::from_value(json!({
+            "title": "Updated title",
+            "status": "completed"
+        }))
+        .unwrap();
+        assert_eq!(fields.title.as_deref(), Some("Updated title"));
+        assert_eq!(fields.status, Some(crate::domain::ToolCallStatus::Completed));
+        assert!(fields.kind.is_none());
+        assert!(fields.raw_input.is_none());
+        assert!(fields.content.is_none());
     }
 }

@@ -35,7 +35,7 @@ export function ModeSelectorMenu({
         type="button"
         onClick={() => !isSettingMode && setIsOpen(!isOpen)}
         disabled={isSettingMode}
-        className={`flex items-center gap-1.25 ${isCompact ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-small'} text-stone bg-transparent rounded-pill transition-colors select-none ${
+        className={`flex items-center gap-1.25 ${isCompact ? 'px-2 py-1 text-[11px]' : 'px-2.5 py-1.5 text-small'} text-stone bg-transparent rounded-interactive transition-colors select-none ${
           !isSettingMode ? 'hover:text-pure-black hover:bg-snow' : 'opacity-60 cursor-not-allowed'
         }`}
       >

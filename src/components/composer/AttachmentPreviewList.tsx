@@ -20,11 +20,11 @@ export function AttachmentPreviewList({ attachments, onRemoveAttachment }: Attac
   return (
     <div className="px-3 pt-3 flex flex-wrap gap-2">
       {attachments.map(({ attachment }) => (
-        <div key={attachment.id} className="relative group flex items-center gap-2.5 rounded-lg border border-light-gray bg-snow p-1.5 pr-3 max-w-[200px]">
+        <div key={attachment.id} className="relative group flex items-center gap-2.5 rounded-interactive border border-light-gray bg-snow p-1.5 pr-3 max-w-[200px]">
           {attachment.previewUrl ? (
-            <img src={attachment.previewUrl} alt={attachment.name} className="w-9 h-9 rounded-md object-cover shrink-0 border border-light-gray/50" />
+            <img src={attachment.previewUrl} alt={attachment.name} className="w-9 h-9 rounded-interactive object-cover shrink-0 border border-light-gray/50" />
           ) : (
-            <div className="w-9 h-9 rounded-md bg-pure-white border border-light-gray shrink-0 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-interactive bg-pure-white border border-light-gray shrink-0 flex items-center justify-center">
               <Paperclip className="w-4 h-4 text-stone" />
             </div>
           )}

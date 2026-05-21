@@ -46,7 +46,7 @@ export function WorkspaceFileTreeNode({
             onToggleDirectory(entry.path);
           }
         }}
-        className="w-full text-left px-2 py-1.5 rounded-md hover:bg-snow/90 transition-colors"
+        className="w-full text-left px-2 py-1.5 rounded-interactive hover:bg-snow/90 transition-colors"
         title={entry.path}
       >
         <div className="flex items-center gap-2 min-w-0" style={{ paddingLeft: `${depth * 14}px` }}>

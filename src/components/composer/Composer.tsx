@@ -160,7 +160,7 @@ export function Composer({
         <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
-            className={`${isCompact ? 'p-1.5' : 'p-2'} text-stone hover:text-pure-black rounded-pill hover:bg-light-gray/50 transition-colors shrink-0`}
+            className={`${isCompact ? 'p-1.5' : 'p-2'} text-stone hover:text-pure-black rounded-interactive hover:bg-light-gray/50 transition-colors shrink-0`}
             title="Add Attachment"
             onClick={onAttachClick}
           >
@@ -168,11 +168,11 @@ export function Composer({
           </button>
 
           {hasImages && (
-            <div className="flex items-center bg-light-gray/60 p-0.5 rounded-pill border border-light-gray/50 relative">
+            <div className="flex items-center bg-light-gray/60 p-0.5 rounded-interactive border border-light-gray/50 relative">
               <div className="relative group/read flex items-center">
                 <button
                   type="button"
-                  className={`text-[11px] px-2.5 py-1 rounded-pill transition-all font-medium relative focus:outline-none`}
+                  className={`text-[11px] px-2.5 py-1 rounded-interactive transition-all font-medium relative focus:outline-none`}
                   onClick={() => {
                     if (!isVisionMode) handleToggleVision();
                   }}
@@ -180,7 +180,7 @@ export function Composer({
                   {isVisionMode && (
                     <motion.div
                       layoutId="visionTogglePill"
-                      className="absolute inset-0 bg-pure-black rounded-pill shadow-sm"
+                      className="absolute inset-0 bg-pure-black rounded-interactive shadow-sm"
                       transition={{ type: "spring", stiffness: 500, damping: 35 }}
                     />
                   )}
@@ -188,7 +188,7 @@ export function Composer({
                     Read Images
                   </span>
                 </button>
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-pure-white border border-light-gray text-pure-black text-[11px] rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.08)] opacity-0 pointer-events-none group-hover/read:opacity-100 transition-opacity duration-150 whitespace-nowrap z-[60] flex flex-col gap-0.5 items-center">
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-pure-white border border-light-gray text-pure-black text-[11px] rounded-interactive shadow-[0_4px_12px_rgba(0,0,0,0.08)] opacity-0 pointer-events-none group-hover/read:opacity-100 transition-opacity duration-150 whitespace-nowrap z-[60] flex flex-col gap-0.5 items-center">
                   <span className="font-medium">Images will be analyzed by the AI model</span>
                   <span className="text-[10px] text-stone">Requires a vision-capable model</span>
                   <div className="absolute -bottom-[5px] left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-pure-white border-b border-r border-light-gray rotate-45" />
@@ -198,7 +198,7 @@ export function Composer({
               <div className="relative group/file flex items-center">
                 <button
                   type="button"
-                  className={`text-[11px] px-2.5 py-1 rounded-pill transition-all font-medium relative focus:outline-none`}
+                  className={`text-[11px] px-2.5 py-1 rounded-interactive transition-all font-medium relative focus:outline-none`}
                   onClick={() => {
                     if (isVisionMode) handleToggleVision();
                   }}
@@ -206,7 +206,7 @@ export function Composer({
                   {!isVisionMode && (
                     <motion.div
                       layoutId="visionTogglePill"
-                      className="absolute inset-0 bg-pure-black rounded-pill shadow-sm"
+                      className="absolute inset-0 bg-pure-black rounded-interactive shadow-sm"
                       transition={{ type: "spring", stiffness: 500, damping: 35 }}
                     />
                   )}
@@ -214,7 +214,7 @@ export function Composer({
                     As Files
                   </span>
                 </button>
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-pure-white border border-light-gray text-pure-black text-[11px] rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.08)] opacity-0 pointer-events-none group-hover/file:opacity-100 transition-opacity duration-150 whitespace-nowrap z-[60] flex flex-col items-center">
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-pure-white border border-light-gray text-pure-black text-[11px] rounded-interactive shadow-[0_4px_12px_rgba(0,0,0,0.08)] opacity-0 pointer-events-none group-hover/file:opacity-100 transition-opacity duration-150 whitespace-nowrap z-[60] flex flex-col items-center">
                   <span className="font-medium">Images will be sent as file attachments only</span>
                   <div className="absolute -bottom-[5px] left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-pure-white border-b border-r border-light-gray rotate-45" />
                 </div>
@@ -248,7 +248,7 @@ export function Composer({
         {isBusy ? (
           <button
             type="button"
-            className={`${isCompact ? 'p-1.5' : 'p-2.5'} rounded-pill shrink-0 flex items-center justify-center bg-light-gray text-pure-black hover:bg-mid-gray transition-colors`}
+            className={`${isCompact ? 'p-1.5' : 'p-2.5'} rounded-interactive shrink-0 flex items-center justify-center bg-light-gray text-pure-black hover:bg-mid-gray transition-colors`}
             onClick={onStop}
           >
             <Square className={isCompact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
@@ -256,7 +256,7 @@ export function Composer({
         ) : (
           <button
             type="button"
-            className={`${isCompact ? 'p-1.5' : 'p-2.5'} rounded-pill transition-colors shrink-0 flex items-center justify-center ${canSend ? 'bg-pure-black text-pure-white' : 'bg-light-gray text-silver'}`}
+            className={`${isCompact ? 'p-1.5' : 'p-2.5'} rounded-interactive transition-colors shrink-0 flex items-center justify-center ${canSend ? 'bg-pure-black text-pure-white' : 'bg-light-gray text-silver'}`}
             disabled={!canSend}
             onClick={onSend}
           >

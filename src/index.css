@@ -42,17 +42,17 @@ h1, h2, h3, h4, h5, h6 {
   font-family: "SF Pro Rounded", "system-ui", "-apple-system", sans-serif;
 }
 
-/* Custom button styles based on DESIGN.md */
-.btn-pill-black {
-  @apply bg-pure-black text-pure-white px-6 py-[10px] rounded-pill text-body font-medium transition-opacity hover:opacity-90;
+/* Custom button styles based on FRONTEND_DESIGN.md */
+.btn-interactive-black {
+  @apply bg-pure-black text-pure-white px-5 py-[10px] rounded-interactive text-body font-medium transition-opacity hover:opacity-90;
 }
 
-.btn-pill-gray {
-  @apply bg-light-gray text-near-black border border-light-gray px-6 py-[10px] rounded-pill text-body font-medium transition-opacity hover:opacity-90;
+.btn-interactive-gray {
+  @apply bg-light-gray text-near-black border border-light-gray px-5 py-[10px] rounded-interactive text-body font-medium transition-opacity hover:opacity-90;
 }
 
-.btn-pill-white {
-  @apply bg-pure-white text-button-text-dark border border-border-light px-6 py-[10px] rounded-pill text-body font-medium transition-opacity hover:opacity-90;
+.btn-interactive-white {
+  @apply bg-pure-white text-button-text-dark border border-border-light px-5 py-[10px] rounded-interactive text-body font-medium transition-opacity hover:opacity-90;
 }
 
 /* 彻底隐藏滚动条，但保留滚动功能 */

@@ -10,7 +10,7 @@ pub fn read_tool_call(row: &Row<'_>) -> rusqlite::Result<ToolCallProjection> {
         turn_id: row.get(2)?,
         tool_call_id: row.get(3)?,
         title: row.get(4)?,
-        kind: row.get(5)?,
+        kind: parse_enum(&row.get::<_, String>(5)?)?,
         status: parse_enum(&row.get::<_, String>(6)?)?,
         raw_input_json: from_json(&row.get::<_, String>(7)?)
             .unwrap_or_else(|_| serde_json::json!({})),

@@ -3,8 +3,9 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::capability_services::policy::PolicyEngine;
-use crate::domain::{PendingPermissionRequest, PendingPermissionStatus};
+use crate::domain::{PendingPermissionRequest, PendingPermissionStatus, ToolKind};
 use crate::runtime::{ManagedSession, Runtime, RuntimeResult};
+use crate::storage::mappers::enum_text;
 
 impl Runtime {
     #[allow(clippy::too_many_arguments)]
@@ -13,14 +14,15 @@ impl Runtime {
         conversation_id: &str,
         turn_id: &str,
         tool_call_id: String,
-        tool_kind: String,
+        tool_kind: ToolKind,
         title: String,
         raw_input: serde_json::Value,
         paths: Vec<String>,
         options: serde_json::Value,
     ) -> RuntimeResult<()> {
         self.finalize_thinking_stream(conversation_id, turn_id)?;
-        let fingerprint = PolicyEngine::fingerprint(&tool_kind, &title, &raw_input, &paths);
+        let tool_kind_str = enum_text(&tool_kind);
+        let fingerprint = PolicyEngine::fingerprint(&tool_kind_str, &title, &raw_input, &paths);
         if let Some(decision) = self
             .policy_engine
             .find_session_policy(conversation_id, &fingerprint)?
@@ -58,7 +60,7 @@ impl Runtime {
                 json!({
                     "request_id": request.id,
                     "tool_call_id": tool_call_id,
-                    "tool_kind": tool_kind,
+                    "tool_kind": tool_kind_str,
                     "title": title,
                     "paths": paths,
                     "fingerprint": fingerprint,

@@ -62,7 +62,7 @@ export function SettingsDialog({
             <nav className="space-y-0.5 flex-1">
               <button
                 onClick={() => onSelectTab('general')}
-                className={`w-full text-left px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${
+                className={`w-full text-left px-3 py-1.5 rounded-interactive text-[12px] font-medium transition-colors ${
                   settingsTab === 'general' ? 'bg-light-gray/60 text-pure-black' : 'text-stone hover:bg-light-gray/30'
                 }`}
               >
@@ -70,7 +70,7 @@ export function SettingsDialog({
               </button>
               <button
                 onClick={() => onSelectTab('agents')}
-                className={`w-full text-left px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors ${
+                className={`w-full text-left px-3 py-1.5 rounded-interactive text-[12px] font-medium transition-colors ${
                   settingsTab === 'agents' ? 'bg-light-gray/60 text-pure-black' : 'text-stone hover:bg-light-gray/30'
                 }`}
               >
@@ -78,7 +78,7 @@ export function SettingsDialog({
               </button>
               <button
                 onClick={() => onSelectTab('mcp')}
-                className={`w-full text-left px-3 py-1.5 rounded-md text-[12px] transition-colors ${
+                className={`w-full text-left px-3 py-1.5 rounded-interactive text-[12px] transition-colors ${
                   settingsTab === 'mcp' ? 'bg-light-gray/60 text-pure-black' : 'text-stone hover:bg-light-gray/30'
                 }`}
               >
@@ -88,7 +88,7 @@ export function SettingsDialog({
             <div className="mt-4 pt-4 border-t border-light-gray/50">
               <button
                 onClick={onClose}
-                className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-[12px] font-medium text-stone hover:bg-light-gray/30 transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-interactive text-[12px] font-medium text-stone hover:bg-light-gray/30 transition-colors"
               >
                 <X className="w-3.5 h-3.5" />
                 <span>Close</span>

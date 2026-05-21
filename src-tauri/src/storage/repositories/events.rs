@@ -176,7 +176,7 @@ impl<'a> ToolCallRepository<'a> {
                 call.turn_id,
                 call.tool_call_id,
                 call.title,
-                call.kind,
+                enum_text(&call.kind),
                 enum_text(&call.status),
                 call.raw_input_json.to_string(),
                 call.raw_output_json.to_string(),

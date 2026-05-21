@@ -443,14 +443,6 @@ impl Runtime {
                     locations,
                     ..
                 } => {
-                    let tool_call_status = match status.as_str() {
-                        "running" => crate::domain::ToolCallStatus::Running,
-                        "waiting_permission" => crate::domain::ToolCallStatus::WaitingPermission,
-                        "completed" => crate::domain::ToolCallStatus::Completed,
-                        "failed" => crate::domain::ToolCallStatus::Failed,
-                        "cancelled" => crate::domain::ToolCallStatus::Cancelled,
-                        _ => crate::domain::ToolCallStatus::Declared,
-                    };
                     tool_calls.push(crate::domain::ToolCallProjection {
                         id: tool_call_id.clone(),
                         conversation_id: conversation.id.clone(),
@@ -458,7 +450,7 @@ impl Runtime {
                         tool_call_id: tool_call_id.clone(),
                         title: title.clone(),
                         kind: kind.clone(),
-                        status: tool_call_status,
+                        status: status.clone(),
                         raw_input_json: raw_input.clone(),
                         raw_output_json: raw_output.clone(),
                         content_json: serde_json::json!({ "elements": content }),
@@ -466,7 +458,7 @@ impl Runtime {
                         terminal_ids_json: serde_json::json!(terminal_ids),
                         locations_json: serde_json::json!(locations),
                         started_at: Some(Utc::now()),
-                        ended_at: matches!(status.as_str(), "completed" | "failed" | "cancelled")
+                        ended_at: matches!(status, crate::domain::ToolCallStatus::Completed | crate::domain::ToolCallStatus::Failed | crate::domain::ToolCallStatus::Cancelled)
                             .then_some(Utc::now()),
                     });
                 }
@@ -1606,7 +1598,7 @@ mod tests {
             turn_id: "turn_1".to_string(),
             tool_call_id: id.to_string(),
             title: "Test".to_string(),
-            kind: "test".to_string(),
+            kind: crate::domain::ToolKind::Other,
             status: crate::domain::ToolCallStatus::Completed,
             raw_input_json: json!({}),
             raw_output_json: json!({}),
@@ -1842,14 +1834,14 @@ mod tests {
                 turn_id,
                 "call_1".to_string(),
                 "Run".to_string(),
-                "execute".to_string(),
-                "completed".to_string(),
+                crate::domain::ToolKind::Execute,
+                crate::domain::ToolCallStatus::Completed,
                 json!({ "cmd": "echo hi" }),
                 json!({ "text": "hi" }),
                 json!([]),
                 json!([{ "path": "src/main.rs" }]),
                 json!(["term_1"]),
-                json!({}),
+                crate::domain::AcpToolCallLocations::default(),
             )
             .unwrap();
 

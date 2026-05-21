@@ -73,14 +73,14 @@ export function WorkspaceSidebar({
               </div>
               <button
                 onClick={onCloseDesktopSidebar}
-                className="hidden md:flex p-1 text-stone hover:text-pure-black rounded-md hover:bg-light-gray/50 transition-colors"
+                className="hidden md:flex p-1 text-stone hover:text-pure-black rounded-interactive hover:bg-light-gray/50 transition-colors"
                 title="Close Sidebar"
               >
                 <PanelLeftClose className="w-[18px] h-[18px]" />
               </button>
               <button
                 onClick={onCloseMobileSidebar}
-                className="md:hidden p-1 text-stone hover:text-pure-black rounded-md hover:bg-light-gray/50 transition-colors"
+                className="md:hidden p-1 text-stone hover:text-pure-black rounded-interactive hover:bg-light-gray/50 transition-colors"
               >
                 <PanelLeftClose className="w-[18px] h-[18px]" />
               </button>

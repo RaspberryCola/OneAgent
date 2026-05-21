@@ -459,7 +459,7 @@ mod tests {
         MessageKind, MessageProjection, MessageRole, PendingPermissionRequest,
         PendingPermissionStatus, PermissionDecision, PermissionDecisionKind, RuntimeEvent,
         SessionPhase, TaskRun, TaskRunStatus, TerminalRecord, TerminalStatus, ToolCallProjection,
-        ToolCallStatus, TurnPhase,
+        ToolCallStatus, ToolKind, TurnPhase,
     };
     use crate::runtime::snapshot_model::RuntimeSnapshotState;
     use crate::storage::{sqlite::connection::Database, StorageError};
@@ -648,7 +648,7 @@ mod tests {
             turn_id: "history-1".to_string(),
             tool_call_id: "call_1".to_string(),
             title: "Run".to_string(),
-            kind: "execute".to_string(),
+            kind: ToolKind::Execute,
             status: ToolCallStatus::Completed,
             raw_input_json: json!({"cmd": "echo hi"}),
             raw_output_json: json!({"text": "hi"}),

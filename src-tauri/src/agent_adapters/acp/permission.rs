@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 
 use crate::{
     agent_adapters::{AdapterError, AdapterResult, RuntimeStreamEvent},
-    domain::PermissionDecisionKind,
+    domain::{PermissionDecisionKind, PermissionOptionKind, ToolKind},
 };
 
 use super::live_session::PermissionOption;
@@ -38,7 +38,7 @@ pub fn parse_permission_request(
         RuntimeStreamEvent::PermissionRequest {
             turn_id: turn_id.to_string(),
             tool_call_id: tool_call.tool_call_id,
-            tool_kind: tool_call.kind.unwrap_or_else(|| "other".to_string()),
+            tool_kind: tool_call.kind.unwrap_or(ToolKind::Other),
             title: tool_call.title.unwrap_or_default(),
             raw_input: tool_call.input.unwrap_or_else(|| json!({})),
             paths: super::parser::extract_paths(&normalized_content),
@@ -58,10 +58,10 @@ pub async fn send_permission_decision(
 ) -> AdapterResult<()> {
     let outcome = match decision {
         PermissionDecisionKind::Cancelled => json!({ "outcome": "cancelled" }),
-        PermissionDecisionKind::AllowOnce => selected_option(options, "allow_once")?,
-        PermissionDecisionKind::AllowAlways => selected_option(options, "allow_always")?,
-        PermissionDecisionKind::RejectOnce => selected_option(options, "reject_once")?,
-        PermissionDecisionKind::RejectAlways => selected_option(options, "reject_always")?,
+        PermissionDecisionKind::AllowOnce => selected_option(options, &PermissionOptionKind::AllowOnce)?,
+        PermissionDecisionKind::AllowAlways => selected_option(options, &PermissionOptionKind::AllowAlways)?,
+        PermissionDecisionKind::RejectOnce => selected_option(options, &PermissionOptionKind::RejectOnce)?,
+        PermissionDecisionKind::RejectAlways => selected_option(options, &PermissionOptionKind::RejectAlways)?,
     };
     process
         .write_message(json!({
@@ -93,12 +93,12 @@ pub async fn send_cancelled_permission(
 }
 
 /// Find and format the selected option for a permission decision.
-fn selected_option(options: &[PermissionOption], kind: &str) -> AdapterResult<Value> {
+fn selected_option(options: &[PermissionOption], kind: &PermissionOptionKind) -> AdapterResult<Value> {
     let option = options
         .iter()
-        .find(|option| option.kind == kind)
+        .find(|option| option.kind == *kind)
         .ok_or_else(|| {
-            AdapterError::Protocol(format!("permission option {kind} not offered by agent"))
+            AdapterError::Protocol(format!("permission option {kind:?} not offered by agent"))
         })?;
     Ok(json!({
         "outcome": "selected",

@@ -11,7 +11,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::{agent_adapters::{AdapterError, AdapterResult}, domain::McpServerConfig};
+use crate::{agent_adapters::{AdapterError, AdapterResult}, domain::{McpServerConfig, PermissionOptionKind, PlanEntryPriority, PlanEntryStatus, StopReason, ToolCallStatus, ToolKind}};
 
 /// Serialize a typed params struct into a JSON `Value`, wrapping errors
 /// as `AdapterError::Protocol` with a descriptive label.
@@ -200,7 +200,7 @@ pub(crate) struct SessionResult {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PromptResult {
     #[serde(default)]
-    pub(crate) stop_reason: Option<String>,
+    pub(crate) stop_reason: Option<StopReason>,
     #[serde(flatten)]
     pub(crate) extra: std::collections::HashMap<String, Value>,
 }
@@ -231,18 +231,37 @@ pub(crate) struct AcpToolContentRef {
     pub(crate) uri: Option<String>,
 }
 
+/// Typed content item in a tool call. Uses untagged deserialization to match
+/// the various wire formats sent by different agents.
+/// Order matters: more specific variants (with multiple fields) must come first.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub(crate) struct AcpToolContentItem {
-    #[serde(rename = "terminalId", default)]
-    pub(crate) terminal_id: Option<String>,
+#[serde(untagged)]
+pub(crate) enum AcpToolContent {
+    ContentRef { content: AcpToolContentRef },
+    Terminal { #[serde(rename = "terminalId")] terminal_id: String },
+    Diff { diff: Value },
+    Output { output: String },
+    Text { text: String },
+}
+
+/// Incremental fields for a `tool_call_update`. All fields are optional —
+/// only the fields present on the wire are populated. Follows the ACP SDK
+/// pattern where `ToolCallUpdate` carries only changed fields.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ToolCallUpdateFields {
     #[serde(default)]
-    pub(crate) content: Option<AcpToolContentRef>,
+    pub(crate) title: Option<String>,
     #[serde(default)]
-    pub(crate) diff: Option<Value>,
+    pub(crate) kind: Option<ToolKind>,
     #[serde(default)]
-    pub(crate) text: Option<String>,
+    pub(crate) status: Option<ToolCallStatus>,
+    #[serde(rename = "rawInput", default)]
+    pub(crate) raw_input: Option<Value>,
     #[serde(default)]
-    pub(crate) output: Option<String>,
+    pub(crate) input: Option<Value>,
+    #[serde(default)]
+    pub(crate) content: Option<Vec<AcpToolContent>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -297,32 +316,22 @@ pub(crate) enum AcpSessionUpdate {
         #[serde(default)]
         title: Option<String>,
         #[serde(default)]
-        kind: Option<String>,
+        kind: Option<ToolKind>,
         #[serde(default)]
-        status: Option<String>,
+        status: Option<ToolCallStatus>,
         #[serde(rename = "rawInput", default)]
         raw_input: Option<Value>,
         #[serde(default)]
         input: Option<Value>,
         #[serde(default)]
-        content: Option<Vec<AcpToolContentItem>>,
+        content: Option<Vec<AcpToolContent>>,
     },
     #[serde(rename = "tool_call_update")]
     ToolCallUpdate {
         #[serde(rename = "toolCallId", default)]
         tool_call_id: Option<String>,
-        #[serde(default)]
-        title: Option<String>,
-        #[serde(default)]
-        kind: Option<String>,
-        #[serde(default)]
-        status: Option<String>,
-        #[serde(rename = "rawInput", default)]
-        raw_input: Option<Value>,
-        #[serde(default)]
-        input: Option<Value>,
-        #[serde(default)]
-        content: Option<Vec<AcpToolContentItem>>,
+        #[serde(flatten)]
+        fields: ToolCallUpdateFields,
     },
     #[serde(rename = "config_option_update")]
     ConfigOptionUpdate {
@@ -365,55 +374,13 @@ impl AcpSessionUpdate {
             _ => None,
         }
     }
-
-    pub(crate) fn tool_call_parts(
-        &self,
-    ) -> Option<(
-        Option<&str>,
-        Option<&str>,
-        Option<&str>,
-        Option<&str>,
-        Option<&Value>,
-        Option<&Value>,
-        Option<&[AcpToolContentItem]>,
-    )> {
-        match self {
-            Self::ToolCall {
-                tool_call_id,
-                title,
-                kind,
-                status,
-                raw_input,
-                input,
-                content,
-            }
-            | Self::ToolCallUpdate {
-                tool_call_id,
-                title,
-                kind,
-                status,
-                raw_input,
-                input,
-                content,
-            } => Some((
-                tool_call_id.as_deref(),
-                title.as_deref(),
-                kind.as_deref(),
-                status.as_deref(),
-                raw_input.as_ref(),
-                input.as_ref(),
-                content.as_deref(),
-            )),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub(crate) struct AcpPermissionOption {
     #[serde(rename = "optionId")]
     pub(crate) option_id: String,
-    pub(crate) kind: String,
+    pub(crate) kind: PermissionOptionKind,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -421,13 +388,13 @@ pub(crate) struct AcpPermissionToolCall {
     #[serde(rename = "toolCallId")]
     pub(crate) tool_call_id: String,
     #[serde(default)]
-    pub(crate) kind: Option<String>,
+    pub(crate) kind: Option<ToolKind>,
     #[serde(default)]
     pub(crate) title: Option<String>,
     #[serde(default)]
     pub(crate) input: Option<Value>,
     #[serde(default)]
-    pub(crate) content: Option<Vec<AcpToolContentItem>>,
+    pub(crate) content: Option<Vec<AcpToolContent>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -449,12 +416,13 @@ pub(crate) struct AcpPermissionRequest {
 // ---------------------------------------------------------------------------
 
 /// A single entry in an agent's execution plan.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct PlanEntry {
+    pub(crate) content: String,
     #[serde(default)]
-    pub(crate) content: Option<String>,
+    pub(crate) status: PlanEntryStatus,
     #[serde(default)]
-    pub(crate) status: Option<String>,
+    pub(crate) priority: PlanEntryPriority,
     #[serde(flatten)]
     pub(crate) extra: std::collections::HashMap<String, Value>,
 }
@@ -466,6 +434,6 @@ pub(crate) struct ExtractedToolContent {
     pub(crate) text: String,
     pub(crate) terminal_ids: Vec<String>,
     pub(crate) diffs: Vec<Value>,
-    pub(crate) content_items: Vec<AcpToolContentItem>,
+    pub(crate) content_items: Vec<AcpToolContent>,
     pub(crate) paths: Vec<String>,
 }

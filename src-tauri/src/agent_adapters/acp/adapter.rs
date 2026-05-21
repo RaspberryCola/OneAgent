@@ -19,6 +19,7 @@ use crate::{
         AgentCapabilities, AgentProfile, AttachmentInput, ExternalSession, McpServerConfig,
         SessionConfigOption,
     },
+    storage::mappers::enum_text,
 };
 
 use super::live_session::AcpLiveSession;
@@ -216,7 +217,7 @@ impl AgentAdapter for AcpAdapter {
                             serde_json::from_value(result_value).unwrap_or_default();
                         if let Some(stop_reason) = prompt_result.stop_reason {
                             events.push(RuntimeStreamEvent::StateChanged {
-                                status: stop_reason,
+                                status: enum_text(&stop_reason),
                             });
                         }
                         break;

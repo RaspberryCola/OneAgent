@@ -80,7 +80,7 @@ export function CollapsibleContent({
         <div className="flex justify-center mt-2">
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded-pill bg-pure-white border border-light-gray text-[12px] font-medium text-pure-black transition-none cursor-pointer hover:bg-snow"
+            className="flex items-center gap-1.5 px-4 py-1.5 rounded-interactive bg-pure-white border border-light-gray text-[12px] font-medium text-pure-black transition-none cursor-pointer hover:bg-snow"
             type="button"
           >
             {isCollapsed ? (

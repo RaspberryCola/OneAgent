@@ -13,8 +13,9 @@ use crate::{
     agent_adapters::{AdapterError, AdapterResult, AgentSessionHandle, RuntimeStreamEvent},
     domain::{
         AcpSessionModeState, AcpSessionModels, AgentProfile, AttachmentInput, McpServerConfig,
-        PermissionDecisionKind, SessionConfigOption,
+        PermissionDecisionKind, PermissionOptionKind, SessionConfigOption,
     },
+    storage::mappers::enum_text,
 };
 
 use super::parser::{
@@ -36,7 +37,7 @@ use super::types::{
 #[derive(Debug, Clone)]
 pub(crate) struct PermissionOption {
     pub(crate) option_id: String,
-    pub(crate) kind: String,
+    pub(crate) kind: PermissionOptionKind,
 }
 
 /// A pending permission request awaiting user decision.
@@ -641,7 +642,7 @@ async fn run_turn_loop(
                         serde_json::from_value(result_value).unwrap_or_default();
                     if let Some(stop_reason) = prompt_result.stop_reason {
                         let _ = event_tx.send(RuntimeStreamEvent::StateChanged {
-                            status: stop_reason,
+                            status: enum_text(&stop_reason),
                         });
                     }
                     let _ = event_tx.send(RuntimeStreamEvent::TurnFinished { turn_id });

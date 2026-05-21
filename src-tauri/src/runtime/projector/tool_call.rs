@@ -3,7 +3,8 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::domain::{
-    MessageKind, MessageProjection, MessageRole, ToolCallProjection, ToolCallStatus,
+    AcpToolCallLocations, MessageKind, MessageProjection, MessageRole, ToolCallProjection,
+    ToolCallStatus, ToolKind,
 };
 use crate::runtime::{Runtime, RuntimeResult};
 
@@ -22,8 +23,8 @@ fn has_meaningful_json(value: &serde_json::Value) -> bool {
     }
 }
 
-fn is_generic_kind(kind: &str) -> bool {
-    kind.trim().is_empty() || kind.eq_ignore_ascii_case("other")
+fn is_generic_kind(kind: &ToolKind) -> bool {
+    matches!(kind, ToolKind::Other)
 }
 
 impl Runtime {
@@ -34,14 +35,14 @@ impl Runtime {
         turn_id: &str,
         tool_call_id: String,
         title: String,
-        kind: String,
-        status: String,
+        kind: ToolKind,
+        status: ToolCallStatus,
         raw_input: serde_json::Value,
         raw_output: serde_json::Value,
         content: serde_json::Value,
         diffs: serde_json::Value,
         terminal_ids: serde_json::Value,
-        locations: serde_json::Value,
+        locations: AcpToolCallLocations,
     ) -> RuntimeResult<()> {
         self.finalize_thinking_stream(conversation_id, turn_id)?;
         self.finalize_text_stream(conversation_id, turn_id)?;
@@ -63,7 +64,7 @@ impl Runtime {
                 .as_ref()
                 .map(|call| call.kind.clone())
                 .filter(|v| !is_generic_kind(v))
-                .unwrap_or_else(|| "other".to_string())
+                .unwrap_or(ToolKind::Other)
         } else {
             kind
         };
@@ -85,25 +86,18 @@ impl Runtime {
             tool_call_id,
             title: merged_title,
             kind: merged_kind,
-            status: match status.as_str() {
-                "running" => ToolCallStatus::Running,
-                "waiting_permission" => ToolCallStatus::WaitingPermission,
-                "completed" => ToolCallStatus::Completed,
-                "failed" => ToolCallStatus::Failed,
-                "cancelled" => ToolCallStatus::Cancelled,
-                _ => ToolCallStatus::Declared,
-            },
+            status: status.clone(),
             raw_input_json: merged_raw_input,
             raw_output_json: raw_output,
             content_json: content,
             diffs_json: diffs.clone(),
             terminal_ids_json: terminal_ids,
-            locations_json: locations,
+            locations_json: serde_json::to_value(&locations).unwrap_or_default(),
             started_at: existing
                 .as_ref()
                 .and_then(|call| call.started_at)
                 .or(Some(now)),
-            ended_at: matches!(status.as_str(), "completed" | "failed" | "cancelled")
+            ended_at: matches!(status, ToolCallStatus::Completed | ToolCallStatus::Failed | ToolCallStatus::Cancelled)
                 .then_some(now),
         };
         self.db.upsert_tool_call(&call)?;

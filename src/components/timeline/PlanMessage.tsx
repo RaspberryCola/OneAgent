@@ -40,7 +40,7 @@ export function PlanMessage({ entries }: PlanMessageProps) {
 
   return (
     <div 
-      className="w-full border border-light-gray rounded-xl bg-snow p-[10px] flex flex-col shadow-sm cursor-pointer hover:bg-gray-50 transition-colors"
+      className="w-full border border-light-gray rounded-container bg-snow p-[10px] flex flex-col shadow-sm cursor-pointer hover:bg-gray-50 transition-colors"
       onClick={() => setIsCollapsed(!isCollapsed)}
     >
       {!isCollapsed && (

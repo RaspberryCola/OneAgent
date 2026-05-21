@@ -146,12 +146,16 @@ pub enum MessageKind {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolCallStatus {
+    #[serde(alias = "pending")]
     Declared,
+    #[serde(alias = "in_progress")]
     Running,
     WaitingPermission,
     Completed,
     Failed,
     Cancelled,
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -162,6 +166,76 @@ pub enum PermissionDecisionKind {
     RejectOnce,
     RejectAlways,
     Cancelled,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolKind {
+    Read,
+    Edit,
+    Delete,
+    Move,
+    Search,
+    Execute,
+    Think,
+    Fetch,
+    SwitchMode,
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StopReason {
+    EndTurn,
+    MaxTokens,
+    MaxTurnRequests,
+    Refusal,
+    #[serde(other)]
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionOptionKind {
+    AllowOnce,
+    AllowAlways,
+    RejectOnce,
+    RejectAlways,
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanEntryStatus {
+    #[default]
+    Pending,
+    InProgress,
+    Completed,
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanEntryPriority {
+    High,
+    Medium,
+    #[default]
+    Low,
+    #[serde(other)]
+    Unknown,
+}
+
+/// Typed locations for a tool call.
+/// Serializes to `{"terminals": [...], "paths": [...]}`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AcpToolCallLocations {
+    #[serde(default)]
+    pub terminals: Vec<String>,
+    #[serde(default)]
+    pub paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -296,7 +370,7 @@ pub struct ToolCallProjection {
     pub turn_id: String,
     pub tool_call_id: String,
     pub title: String,
-    pub kind: String,
+    pub kind: ToolKind,
     pub status: ToolCallStatus,
     pub raw_input_json: serde_json::Value,
     pub raw_output_json: serde_json::Value,

@@ -67,7 +67,7 @@ export function SearchOverlay({
           {isSearching && <Loader2 className="w-4 h-4 animate-spin text-stone" />}
           <button
             onClick={onClose}
-            className="p-1 rounded-pill hover:bg-snow text-stone transition-colors"
+            className="p-1 rounded-interactive hover:bg-snow text-stone transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -102,7 +102,7 @@ export function SearchOverlay({
                           {result.title || "Untitled Chat"}
                         </span>
                         {result.origin === "worker_task" && (
-                          <span className="px-2 py-0.5 rounded-pill bg-light-gray/60 text-[9px] font-medium uppercase tracking-tight text-near-black">
+                          <span className="px-2 py-0.5 rounded-interactive bg-light-gray/60 text-[9px] font-medium uppercase tracking-tight text-near-black">
                             Task
                           </span>
                         )}
@@ -134,11 +134,11 @@ export function SearchOverlay({
         <div className="p-3 bg-snow border-t border-light-gray flex items-center justify-between text-[11px] text-silver">
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1">
-              <span className="px-1.5 py-0.5 bg-pure-white border border-light-gray rounded-md text-stone">ESC</span>
+              <span className="px-1.5 py-0.5 bg-pure-white border border-light-gray rounded-interactive text-stone">ESC</span>
               to close
             </span>
             <span className="flex items-center gap-1">
-              <span className="px-1.5 py-0.5 bg-pure-white border border-light-gray rounded-md text-stone">ENTER</span>
+              <span className="px-1.5 py-0.5 bg-pure-white border border-light-gray rounded-interactive text-stone">ENTER</span>
               to select
             </span>
           </div>

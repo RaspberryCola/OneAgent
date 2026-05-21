@@ -29,7 +29,7 @@ export function AgentSettingsPane({
               }`}
             >
               <div className="flex items-center gap-3">
-                <div className={`w-8 h-8 rounded-md flex items-center justify-center border border-light-gray/50 transition-colors p-1.5 ${
+                <div className={`w-8 h-8 rounded-interactive flex items-center justify-center border border-light-gray/50 transition-colors p-1.5 ${
                   agent.availability !== 'unavailable' ? 'bg-pure-white' : 'bg-snow opacity-50'
                 }`}>
                   {renderAgentLogo(agent, 'w-full h-full object-contain')}
@@ -43,7 +43,7 @@ export function AgentSettingsPane({
               </div>
 
               <div className="flex items-center gap-3">
-                <span className={`flex items-center gap-1 px-2 py-0.5 rounded-pill text-[9px] font-medium uppercase tracking-wide ${
+                <span className={`flex items-center gap-1 px-2 py-0.5 rounded-interactive text-[9px] font-medium uppercase tracking-wide ${
                   agent.availability === 'ready'
                     ? 'bg-light-gray/40 text-near-black'
                     : agent.availability === 'degraded'
