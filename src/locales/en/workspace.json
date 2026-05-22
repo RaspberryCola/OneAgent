@@ -1,0 +1,14 @@
+{
+  "workspace": "Workspace",
+  "default": "Default",
+  "addNewWorkspace": "Add Workspace",
+  "noWorkspacesAvailable": "No workspaces available",
+  "build": "Build",
+  "fileTree": "File Tree",
+  "changes": "Changes",
+  "diff": "Diff",
+  "refresh": "Refresh",
+  "loading": "Loading...",
+  "noChanges": "No changes",
+  "openFile": "Open file"
+}

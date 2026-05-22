@@ -51,7 +51,7 @@ describe('useModeSelector', () => {
     vi.mocked(useAppStore).mockReturnValue({
       activeConversationId: null,
       activeAgentProfileId: 'agent-1',
-      activeWorkspace: { id: 'ws-1', name: 'Test Workspace', cwd: '/test', display_name: 'Test', trusted: true, created_at: '2024-01-01', updated_at: '2024-01-01' } as Types.Workspace,
+      activeWorkspace: { id: 'ws-1', name: 'Test Workspace', cwd: '/test', display_name: 'Test', trusted: true, archived: false, created_at: '2024-01-01', updated_at: '2024-01-01' } as Types.Workspace,
       activeConversationState: null,
       setMode: mockSetMode,
     } as any);
@@ -101,7 +101,7 @@ describe('useModeSelector', () => {
       vi.mocked(useAppStore).mockReturnValue({
         activeConversationId: 'conv-1',
         activeAgentProfileId: 'agent-1',
-        activeWorkspace: { id: 'ws-1', name: 'Test', cwd: '/test', display_name: 'Test', trusted: true, created_at: '2024-01-01', updated_at: '2024-01-01' } as Types.Workspace,
+        activeWorkspace: { id: 'ws-1', name: 'Test', cwd: '/test', display_name: 'Test', trusted: true, archived: false, created_at: '2024-01-01', updated_at: '2024-01-01' } as Types.Workspace,
         activeConversationState: { modes: conversationModes } as any,
         setMode: mockSetMode,
       } as any);
@@ -136,7 +136,7 @@ describe('useModeSelector', () => {
       vi.mocked(useAppStore).mockReturnValue({
         activeConversationId: 'conv-1',
         activeAgentProfileId: 'agent-1',
-        activeWorkspace: { id: 'ws-1', name: 'Test', cwd: '/test', display_name: 'Test', trusted: true, created_at: '2024-01-01', updated_at: '2024-01-01' } as Types.Workspace,
+        activeWorkspace: { id: 'ws-1', name: 'Test', cwd: '/test', display_name: 'Test', trusted: true, archived: false, created_at: '2024-01-01', updated_at: '2024-01-01' } as Types.Workspace,
         activeConversationState: { modes: conversationModes } as any,
         setMode: mockSetMode,
       } as any);
@@ -215,7 +215,7 @@ describe('useModeSelector', () => {
         vi.mocked(useAppStore).mockReturnValue({
           activeConversationId: null,
           activeAgentProfileId: null,
-          activeWorkspace: { id: 'ws-1', name: 'Test', cwd: '/test', display_name: 'Test', trusted: true, created_at: '2024-01-01', updated_at: '2024-01-01' } as Types.Workspace,
+          activeWorkspace: { id: 'ws-1', name: 'Test', cwd: '/test', display_name: 'Test', trusted: true, archived: false, created_at: '2024-01-01', updated_at: '2024-01-01' } as Types.Workspace,
           activeConversationState: null,
           setMode: mockSetMode,
         } as any);
@@ -243,7 +243,7 @@ describe('useModeSelector', () => {
         vi.mocked(useAppStore).mockReturnValue({
           activeConversationId: 'conv-1',
           activeAgentProfileId: 'agent-1',
-          activeWorkspace: { id: 'ws-1', name: 'Test', cwd: '/test', display_name: 'Test', trusted: true, created_at: '2024-01-01', updated_at: '2024-01-01' } as Types.Workspace,
+          activeWorkspace: { id: 'ws-1', name: 'Test', cwd: '/test', display_name: 'Test', trusted: true, archived: false, created_at: '2024-01-01', updated_at: '2024-01-01' } as Types.Workspace,
           activeConversationState: { modes: conversationModes } as any,
           setMode: mockSetMode,
         } as any);
@@ -416,7 +416,7 @@ describe('useModeSelector', () => {
       vi.mocked(useAppStore).mockReturnValue({
         activeConversationId: 'conv-1',
         activeAgentProfileId: 'agent-1',
-        activeWorkspace: { id: 'ws-1', name: 'Test', cwd: '/test', display_name: 'Test', trusted: true, created_at: '2024-01-01', updated_at: '2024-01-01' } as Types.Workspace,
+        activeWorkspace: { id: 'ws-1', name: 'Test', cwd: '/test', display_name: 'Test', trusted: true, archived: false, created_at: '2024-01-01', updated_at: '2024-01-01' } as Types.Workspace,
         activeConversationState: null,
         setMode: mockSetMode,
       } as any);
@@ -451,7 +451,7 @@ describe('useModeSelector', () => {
       vi.mocked(useAppStore).mockReturnValue({
         activeConversationId: 'conv-1',
         activeAgentProfileId: 'agent-1',
-        activeWorkspace: { id: 'ws-1', name: 'Test', cwd: '/test', display_name: 'Test', trusted: true, created_at: '2024-01-01', updated_at: '2024-01-01' } as Types.Workspace,
+        activeWorkspace: { id: 'ws-1', name: 'Test', cwd: '/test', display_name: 'Test', trusted: true, archived: false, created_at: '2024-01-01', updated_at: '2024-01-01' } as Types.Workspace,
         activeConversationState: { modes: conversationModes } as any,
         setMode: mockSetMode,
       } as any);
@@ -470,7 +470,7 @@ describe('useModeSelector', () => {
       vi.mocked(useAppStore).mockReturnValue({
         activeConversationId: 'conv-1',
         activeAgentProfileId: 'agent-1',
-        activeWorkspace: { id: 'ws-1', name: 'Test', cwd: '/test', display_name: 'Test', trusted: true, created_at: '2024-01-01', updated_at: '2024-01-01' } as Types.Workspace,
+        activeWorkspace: { id: 'ws-1', name: 'Test', cwd: '/test', display_name: 'Test', trusted: true, archived: false, created_at: '2024-01-01', updated_at: '2024-01-01' } as Types.Workspace,
         activeConversationState: { modes: conversationModes } as any,
         setMode: mockSetMode,
       } as any);

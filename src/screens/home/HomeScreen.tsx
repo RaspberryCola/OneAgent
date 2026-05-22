@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
 import type { ClipboardEvent, DragEvent, KeyboardEvent, ReactNode } from 'react';
 import type { AttachmentState, ModelSelectorState } from '../../hooks';
 import type * as Types from '../../lib/backend/types';
@@ -80,6 +81,8 @@ export function HomeScreen({
   onKeyDown,
   availableCommands,
 }: HomeScreenProps) {
+  const { t } = useTranslation("common");
+  
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-4 pb-32 w-full max-w-3xl mx-auto overflow-y-auto overflow-x-hidden">
       <div className="flex flex-col items-center mb-10 gap-8 w-full">
@@ -134,7 +137,7 @@ export function HomeScreen({
         </div>
         {availableAgentsCount === 0 && (
           <div className="text-small text-stone text-center max-w-xl">
-            No available agent is ready yet. Claude Code can run from the bundled bridge when resources are present, or native ACP agents can be detected from your PATH.
+            {t("agentUnavailable")}
           </div>
         )}
       </div>

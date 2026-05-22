@@ -1,0 +1,16 @@
+{
+  "closeSidebar": "Close Sidebar",
+  "newChat": "New Chat",
+  "search": "Search",
+  "workspaces": "Workspaces",
+  "noWorkspaces": "No workspaces",
+  "settings": "Settings",
+  "signOut": "Sign Out",
+  "logout": "Logout",
+  "noConversations": "No conversations",
+  "archive": "Archive",
+  "moreActions": "More actions",
+  "openWorkspace": "Open workspace",
+  "deleteConversation": "Delete conversation",
+  "cancelDelete": "Cancel delete"
+}

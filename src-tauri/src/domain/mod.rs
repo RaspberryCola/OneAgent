@@ -279,6 +279,7 @@ pub struct Workspace {
     pub cwd: String,
     pub display_name: String,
     pub trusted: bool,
+    pub archived: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

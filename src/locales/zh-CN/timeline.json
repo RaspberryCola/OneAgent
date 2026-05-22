@@ -1,0 +1,9 @@
+{
+  "expand": "展开",
+  "collapse": "收起",
+  "userMessage": "你",
+  "agentMessage": "Agent",
+  "statusMessage": "状态",
+  "errorMessage": "错误",
+  "planMessage": "计划"
+}

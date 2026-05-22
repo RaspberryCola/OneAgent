@@ -39,6 +39,10 @@ impl WorkspaceAppService {
         Ok(self.db.open_workspace(&cwd)?)
     }
 
+    pub fn archive_workspace(&self, workspace_id: &str) -> ApplicationResult<()> {
+        Ok(self.db.archive_workspace(workspace_id)?)
+    }
+
     pub fn list_workspace_mcp(
         &self,
         workspace_id: &str,

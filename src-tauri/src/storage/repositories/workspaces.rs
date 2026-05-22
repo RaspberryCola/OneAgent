@@ -20,8 +20,9 @@ impl<'a> WorkspaceRepository<'a> {
 
     pub fn list(&self) -> StorageResult<Vec<Workspace>> {
         let conn = self.conn;
-        let mut stmt =
-            conn.prepare("SELECT id, cwd, display_name, trusted, created_at, updated_at FROM workspaces ORDER BY updated_at DESC")?;
+        let mut stmt = conn.prepare(
+            "SELECT id, cwd, display_name, archived, trusted, created_at, updated_at FROM workspaces WHERE archived = 0 ORDER BY updated_at DESC"
+        )?;
         let rows = stmt.query_map([], read_workspace)?;
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(StorageError::from)
@@ -36,19 +37,28 @@ impl<'a> WorkspaceRepository<'a> {
             .unwrap_or_else(|| cwd.to_string());
         let existing = self
             .conn
-            
+
             .query_row(
-                "SELECT id, cwd, display_name, trusted, created_at, updated_at FROM workspaces WHERE cwd = ?1",
+                "SELECT id, cwd, display_name, archived, trusted, created_at, updated_at FROM workspaces WHERE cwd = ?1",
                 params![cwd],
                 read_workspace,
             )
             .optional()?;
         if let Some(mut workspace) = existing {
             workspace.updated_at = now;
-            self.conn.execute(
-                "UPDATE workspaces SET updated_at = ?2 WHERE id = ?1",
-                params![workspace.id, now.to_rfc3339()],
-            )?;
+            // Auto-unarchive if workspace was archived
+            if workspace.archived {
+                workspace.archived = false;
+                self.conn.execute(
+                    "UPDATE workspaces SET archived = 0, updated_at = ?2 WHERE id = ?1",
+                    params![workspace.id, now.to_rfc3339()],
+                )?;
+            } else {
+                self.conn.execute(
+                    "UPDATE workspaces SET updated_at = ?2 WHERE id = ?1",
+                    params![workspace.id, now.to_rfc3339()],
+                )?;
+            }
             return Ok(workspace);
         }
         let workspace = Workspace {
@@ -56,15 +66,17 @@ impl<'a> WorkspaceRepository<'a> {
             cwd: cwd.to_string(),
             display_name,
             trusted: true,
+            archived: false,
             created_at: now,
             updated_at: now,
         };
         self.conn.execute(
-            "INSERT INTO workspaces (id, cwd, display_name, trusted, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO workspaces (id, cwd, display_name, archived, trusted, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 workspace.id,
                 workspace.cwd,
                 workspace.display_name,
+                workspace.archived as i64,
                 workspace.trusted as i64,
                 workspace.created_at.to_rfc3339(),
                 workspace.updated_at.to_rfc3339()
@@ -75,13 +87,22 @@ impl<'a> WorkspaceRepository<'a> {
 
     pub fn get(&self, workspace_id: &str) -> StorageResult<Workspace> {
         self.conn
-            
+
             .query_row(
-                "SELECT id, cwd, display_name, trusted, created_at, updated_at FROM workspaces WHERE id = ?1",
+                "SELECT id, cwd, display_name, archived, trusted, created_at, updated_at FROM workspaces WHERE id = ?1",
                 params![workspace_id],
                 read_workspace,
             )
             .map_err(|_| StorageError::NotFound(format!("workspace {workspace_id}")))
+    }
+
+    pub fn archive(&self, workspace_id: &str) -> StorageResult<()> {
+        let now = Utc::now();
+        self.conn.execute(
+            "UPDATE workspaces SET archived = 1, updated_at = ?2 WHERE id = ?1",
+            params![workspace_id, now.to_rfc3339()],
+        )?;
+        Ok(())
     }
 }
 

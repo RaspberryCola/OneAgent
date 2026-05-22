@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowUp, Paperclip, Square } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import type * as Types from '../../lib/backend/types';
 import type {
@@ -73,6 +74,7 @@ export function Composer({
   onStop,
   availableCommands,
 }: ComposerProps) {
+  const { t } = useTranslation("composer");
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const [isModeMenuOpen, setIsModeMenuOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -171,7 +173,7 @@ export function Composer({
         onSetUsageIntent={onSetAttachmentUsageIntent}
       />
       {isDragging && (
-        <div className="px-3 pt-2 text-[11px] text-stone">Drop files to attach</div>
+        <div className="px-3 pt-2 text-[11px] text-stone">{t("dropFilesToAttach")}</div>
       )}
 
       <textarea
@@ -183,7 +185,7 @@ export function Composer({
         onDragEnter={handleDragEnterEvent}
         onDragLeave={handleDragLeaveEvent}
         onDragOver={handleDragOverEvent}
-        placeholder={isCompact ? 'Message...' : 'Message Agent...'}
+        placeholder={isCompact ? t("messagePlaceholder") : t("messageAgentPlaceholder")}
         className={`w-full bg-transparent ${isCompact ? 'px-4 py-3 min-h-[72px] max-h-[200px]' : 'p-5 min-h-[90px] max-h-[400px]'} text-caption resize-none focus:outline-none placeholder:text-silver leading-relaxed`}
         rows={isCompact ? 2 : 3}
       />
@@ -193,7 +195,7 @@ export function Composer({
           <button
             type="button"
             className={`${isCompact ? 'p-1.5' : 'p-2'} text-stone hover:text-pure-black rounded-interactive hover:bg-light-gray/50 transition-colors shrink-0`}
-            title="Add Attachment"
+            title={t("addAttachment")}
             onClick={onAttachClick}
           >
             <Paperclip className={isCompact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
@@ -217,12 +219,12 @@ export function Composer({
                     />
                   )}
                   <span className={`relative z-10 transition-colors duration-200 ${isVisionMode ? 'text-pure-white' : 'text-stone hover:text-pure-black'}`}>
-                    Read Images
+                    {t("readImages")}
                   </span>
                 </button>
                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-pure-white border border-light-gray text-pure-black text-[11px] rounded-interactive shadow-[0_4px_12px_rgba(0,0,0,0.08)] opacity-0 pointer-events-none group-hover/read:opacity-100 transition-opacity duration-150 whitespace-nowrap z-[60] flex flex-col gap-0.5 items-center">
-                  <span className="font-medium">Images will be analyzed by the AI model</span>
-                  <span className="text-[10px] text-stone">Requires a vision-capable model</span>
+                  <span className="font-medium">{t("imagesAnalyzedByAI")}</span>
+                  <span className="text-[10px] text-stone">{t("requiresVisionModel")}</span>
                   <div className="absolute -bottom-[5px] left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-pure-white border-b border-r border-light-gray rotate-45" />
                 </div>
               </div>
@@ -243,11 +245,11 @@ export function Composer({
                     />
                   )}
                   <span className={`relative z-10 transition-colors duration-200 ${!isVisionMode ? 'text-pure-white' : 'text-stone hover:text-pure-black'}`}>
-                    As Files
+                    {t("asFiles")}
                   </span>
                 </button>
                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-pure-white border border-light-gray text-pure-black text-[11px] rounded-interactive shadow-[0_4px_12px_rgba(0,0,0,0.08)] opacity-0 pointer-events-none group-hover/file:opacity-100 transition-opacity duration-150 whitespace-nowrap z-[60] flex flex-col items-center">
-                  <span className="font-medium">Images will be sent as file attachments only</span>
+                  <span className="font-medium">{t("imagesAsFiles")}</span>
                   <div className="absolute -bottom-[5px] left-1/2 -translate-x-1/2 w-2.5 h-2.5 bg-pure-white border-b border-r border-light-gray rotate-45" />
                 </div>
               </div>

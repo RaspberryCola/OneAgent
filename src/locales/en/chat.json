@@ -1,0 +1,41 @@
+{
+  "permission": {
+    "allowedOnce": "Allowed once",
+    "alwaysAllowed": "Always allowed",
+    "rejectedOnce": "Rejected once",
+    "alwaysRejected": "Always rejected",
+    "cancelled": "Cancelled",
+    "resolved": "Resolved",
+    "allowOnce": "Allow Once",
+    "alwaysAllow": "Always Allow",
+    "rejectOnce": "Reject Once",
+    "alwaysReject": "Always Reject",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "needsPermission": "Needs permission:",
+    "toolAction": "Tool action"
+  },
+  "toolCall": {
+    "toolCall": "Tool Call",
+    "fileEdit": "File Edit",
+    "fileRead": "File Read",
+    "fileWrite": "File Write",
+    "bash": "Bash",
+    "textSearch": "Text Search",
+    "fileMatch": "File Match",
+    "webSearch": "Web Search",
+    "mcpTool": "MCP Tool",
+    "input": "Input",
+    "output": "Output",
+    "terminal": "Terminal",
+    "waiting": "Waiting",
+    "running": "Running",
+    "success": "Success",
+    "error": "Error",
+    "cancelled": "Cancelled"
+  },
+  "message": {
+    "copy": "Copy",
+    "copied": "Copied!"
+  }
+}

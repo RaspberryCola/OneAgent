@@ -56,6 +56,10 @@ impl Database {
         WorkspaceRepository::new(&self.conn.lock()).get(workspace_id)
     }
 
+    pub fn archive_workspace(&self, workspace_id: &str) -> StorageResult<()> {
+        WorkspaceRepository::new(&self.conn.lock()).archive(workspace_id)
+    }
+
     pub fn create_conversation(
         &self,
         workspace_id: &str,

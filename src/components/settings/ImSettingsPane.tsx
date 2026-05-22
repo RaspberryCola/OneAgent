@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
   QrCode,
-  MessageSquare,
   Play,
   Square,
   Check,
@@ -11,7 +10,6 @@ import {
   UserCheck,
   Key,
   X,
-  MessageCircle,
   HelpCircle,
   Copy,
   Globe,
@@ -20,6 +18,7 @@ import type * as Types from '../../lib/backend/types';
 import * as commands from '../../lib/backend/commands';
 import * as events from '../../lib/backend/events';
 import { IS_TAURI } from '../../lib/backend/transport';
+import { SettingSelect } from './SettingSelect';
 
 interface ImSettingsPaneProps {
   webuiEnabled: boolean;
@@ -45,6 +44,7 @@ export function ImSettingsPane({
   const [wxBotToken, setWxBotToken] = useState('');
   const [wxBaseUrl, setWxBaseUrl] = useState('');
   const [wxScanMode, setWxScanMode] = useState(false);
+  const [wxSubTab, setWxSubTab] = useState<'scan' | 'manual'>('scan');
   const [weixinQrUrl, setWeixinQrUrl] = useState<string | null>(null);
   const [weixinScanStep, setWeixinScanStep] = useState<'idle' | 'qr' | 'scanned' | 'done'>('idle');
   const [weixinError, setWeixinError] = useState<string | null>(null);
@@ -69,6 +69,76 @@ export function ImSettingsPane({
     await navigator.clipboard.writeText(text);
     setWebuiCopied(text);
     setTimeout(() => setWebuiCopied(null), 2000);
+  };
+
+  // Workspaces & Agents lists
+  const [workspaces, setWorkspaces] = useState<Types.Workspace[]>([]);
+  const [agents, setAgents] = useState<Types.AgentProfile[]>([]);
+
+  // WeChat Routing State
+  const [wxWorkspaceId, setWxWorkspaceId] = useState('');
+  const [wxAgentProfileId, setWxAgentProfileId] = useState('');
+
+  // Lark Routing State
+  const [larkWorkspaceId, setLarkWorkspaceId] = useState('');
+  const [larkAgentProfileId, setLarkAgentProfileId] = useState('');
+
+  // Sync routing configuration from backend plugin info — only on mount
+  useEffect(() => {
+    const wx = plugins.find((p) => p.platform === 'weixin');
+    if (wx) {
+      setWxWorkspaceId(wx.workspace_id || '');
+      setWxAgentProfileId(wx.agent_profile_id || '');
+    }
+    const lark = plugins.find((p) => p.platform === 'lark');
+    if (lark) {
+      setLarkWorkspaceId(lark.workspace_id || '');
+      setLarkAgentProfileId(lark.agent_profile_id || '');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Load workspaces and agents on mount
+  useEffect(() => {
+    const loadWorkspacesAndAgents = async () => {
+      try {
+        const wsList = await commands.listWorkspaces();
+        setWorkspaces(wsList);
+        const agentList = await commands.listAgentProfiles();
+        setAgents(agentList.filter((a) => a.enabled));
+      } catch (err) {
+        console.error('Failed to load workspaces or agents:', err);
+      }
+    };
+    loadWorkspacesAndAgents();
+  }, []);
+
+  const handleUpdateWeixinConfig = async (wsId: string, agentId: string) => {
+    setWxWorkspaceId(wsId);
+    setWxAgentProfileId(agentId);
+    const wx = plugins.find((p) => p.platform === 'weixin');
+    if (wx?.enabled) {
+      try {
+        await commands.updateImPluginConfig('weixin', wsId || undefined, agentId || undefined);
+        await refreshPlugins();
+      } catch (err: any) {
+        setError(err.message || 'Failed to update WeChat configuration');
+      }
+    }
+  };
+
+  const handleUpdateLarkConfig = async (wsId: string, agentId: string) => {
+    setLarkWorkspaceId(wsId);
+    setLarkAgentProfileId(agentId);
+    const lark = plugins.find((p) => p.platform === 'lark');
+    if (lark?.enabled) {
+      try {
+        await commands.updateImPluginConfig('lark', wsId || undefined, agentId || undefined);
+        await refreshPlugins();
+      } catch (err: any) {
+        setError(err.message || 'Failed to update Feishu configuration');
+      }
+    }
   };
 
   // Fetch plugins status
@@ -127,7 +197,9 @@ export function ImSettingsPane({
               accountId: payload.account_id,
               botToken: payload.bot_token,
               baseUrl: wxBaseUrl || undefined,
-            })
+            }),
+            wxWorkspaceId || undefined,
+            wxAgentProfileId || undefined
           );
           // Stop WeChat login process
           await commands.stopWeixinLogin();
@@ -160,7 +232,7 @@ export function ImSettingsPane({
       if (unlistenDone) unlistenDone();
       if (unlistenAuth) unlistenAuth();
     };
-  }, [wxBaseUrl]);
+  }, [wxBaseUrl, wxWorkspaceId, wxAgentProfileId]);
 
   // WeChat Actions
   const handleStartWeixinLogin = async () => {
@@ -201,7 +273,9 @@ export function ImSettingsPane({
           accountId: wxAccountId,
           botToken: wxBotToken,
           baseUrl: wxBaseUrl || undefined,
-        })
+        }),
+        wxWorkspaceId || undefined,
+        wxAgentProfileId || undefined
       );
       await refreshPlugins();
     } catch (err: any) {
@@ -239,7 +313,9 @@ export function ImSettingsPane({
           encryptKey: larkEncryptKey || undefined,
           verificationToken: larkVerificationToken || undefined,
           domain: larkDomain,
-        })
+        }),
+        larkWorkspaceId || undefined,
+        larkAgentProfileId || undefined
       );
       await refreshPlugins();
     } catch (err: any) {
@@ -286,11 +362,11 @@ export function ImSettingsPane({
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'connected':
-        return 'bg-green text-pure-white';
+        return 'bg-pure-black text-pure-white';
       case 'connecting':
-        return 'bg-yellow text-pure-black';
+        return 'bg-light-gray text-near-black';
       case 'error':
-        return 'bg-rose-500 text-pure-white';
+        return 'bg-mid-gray text-pure-white';
       default:
         return 'bg-stone text-pure-white';
     }
@@ -298,14 +374,14 @@ export function ImSettingsPane({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex gap-1 border-b border-light-gray pb-px mb-5">
+      <div className="flex gap-1 bg-snow rounded-interactive p-1 mb-5 w-fit">
         {IS_TAURI && (
           <button
             onClick={() => setSelectedTab('webui')}
-            className={`px-3 py-1.5 text-[12px] font-medium border-b-2 -mb-px transition-colors ${
+            className={`px-3 py-1.5 text-[12px] font-medium rounded-interactive transition-colors ${
               selectedTab === 'webui'
-                ? 'border-pure-black text-pure-black font-semibold'
-                : 'border-transparent text-stone hover:text-pure-black'
+                ? 'bg-light-gray text-near-black'
+                : 'bg-transparent text-stone hover:text-pure-black'
             }`}
           >
             WebUI Access
@@ -313,41 +389,41 @@ export function ImSettingsPane({
         )}
         <button
           onClick={() => setSelectedTab('weixin')}
-          className={`px-3 py-1.5 text-[12px] font-medium border-b-2 -mb-px transition-colors ${
+          className={`px-3 py-1.5 text-[12px] font-medium rounded-interactive transition-colors ${
             selectedTab === 'weixin'
-              ? 'border-pure-black text-pure-black font-semibold'
-              : 'border-transparent text-stone hover:text-pure-black'
+              ? 'bg-light-gray text-near-black'
+              : 'bg-transparent text-stone hover:text-pure-black'
           }`}
         >
           WeChat Bot
         </button>
         <button
           onClick={() => setSelectedTab('lark')}
-          className={`px-3 py-1.5 text-[12px] font-medium border-b-2 -mb-px transition-colors ${
+          className={`px-3 py-1.5 text-[12px] font-medium rounded-interactive transition-colors ${
             selectedTab === 'lark'
-              ? 'border-pure-black text-pure-black font-semibold'
-              : 'border-transparent text-stone hover:text-pure-black'
+              ? 'bg-light-gray text-near-black'
+              : 'bg-transparent text-stone hover:text-pure-black'
           }`}
         >
           Feishu Bot
         </button>
         <button
           onClick={() => setSelectedTab('pairing')}
-          className={`px-3 py-1.5 text-[12px] font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${
+          className={`px-3 py-1.5 text-[12px] font-medium rounded-interactive transition-colors flex items-center gap-1.5 ${
             selectedTab === 'pairing'
-              ? 'border-pure-black text-pure-black font-semibold'
-              : 'border-transparent text-stone hover:text-pure-black'
+              ? 'bg-light-gray text-near-black'
+              : 'bg-transparent text-stone hover:text-pure-black'
           }`}
         >
           Pairing Codes
           {pendingPairings.length > 0 && (
-            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+            <span className="w-1.5 h-1.5 rounded-full bg-pure-black animate-pulse" />
           )}
         </button>
       </div>
 
       {error && (
-        <div className="flex gap-3 p-3 rounded-container bg-rose-50 border border-rose-500/20 text-rose-800 text-[11px] leading-relaxed">
+        <div className="flex gap-3 p-3 rounded-container bg-light-gray/20 border border-light-gray text-near-black text-[11px] leading-relaxed">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
           <div>{error}</div>
         </div>
@@ -402,7 +478,7 @@ export function ImSettingsPane({
                           onClick={() => handleWebuiCopy(url)}
                           className="flex items-center gap-1 px-2 py-1.5 rounded-interactive text-[10px] font-medium border border-light-gray text-stone hover:bg-snow hover:text-pure-black bg-pure-white transition-colors shrink-0"
                         >
-                          {webuiCopied === url ? <Check className="w-3 h-3 text-green" /> : <Copy className="w-3 h-3" />}
+                          {webuiCopied === url ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                         </button>
                       </div>
                     ))}
@@ -430,7 +506,7 @@ export function ImSettingsPane({
                       onClick={() => handleWebuiCopy(webuiPassword)}
                       className="flex items-center gap-1 px-2 py-1.5 rounded-interactive text-[10px] font-medium border border-light-gray text-stone hover:bg-snow hover:text-pure-black bg-pure-white transition-colors shrink-0"
                     >
-                      {webuiCopied === webuiPassword ? <Check className="w-3 h-3 text-green" /> : <Copy className="w-3 h-3" />}
+                      {webuiCopied === webuiPassword ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                     </button>
                   </div>
                 </div>
@@ -446,14 +522,14 @@ export function ImSettingsPane({
           {weixinPlugin?.enabled ? (
             <section className="space-y-3">
               <div className="border border-light-gray/60 rounded-container p-4 bg-pure-white space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <MessageSquare className="w-4 h-4 text-stone" />
-                    <span className="font-display font-medium text-[13px] text-pure-black">WeChat Bot</span>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded-interactive text-[9px] font-medium uppercase tracking-wide ${getStatusColor(weixinPlugin.status)}`}>
-                    {weixinPlugin.status}
-                  </span>
+                <div className="flex items-center gap-2">
+                  <span className="font-display font-medium text-[13px] text-pure-black">WeChat Bot</span>
+                  <span className={`w-2 h-2 rounded-full ${
+                    weixinPlugin.status === 'connected' ? 'bg-green' :
+                    weixinPlugin.status === 'connecting' ? 'bg-yellow animate-pulse' :
+                    weixinPlugin.status === 'error' ? 'bg-rose-500' :
+                    'bg-stone'
+                  }`} />
                 </div>
                 <p className="text-[11px] text-stone leading-relaxed">
                   WeChat Personal Bot integration is active. The sidecar handles user interaction via iLink Bot APIs.
@@ -462,7 +538,7 @@ export function ImSettingsPane({
                   <button
                     onClick={handleStopWeixin}
                     disabled={loading}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-interactive text-[11px] font-medium transition-colors border border-rose-500/40 text-rose-500 hover:bg-rose-50 bg-pure-white"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-interactive text-[11px] font-medium transition-colors border border-mid-gray text-mid-gray hover:bg-snow bg-pure-white"
                   >
                     <Square className="w-3 h-3" />
                     <span>Stop WeChat Bot</span>
@@ -472,70 +548,94 @@ export function ImSettingsPane({
             </section>
           ) : (
             <section className="space-y-4">
-              {wxScanMode ? (
-                <div className="border border-light-gray/60 rounded-container p-6 bg-pure-white flex flex-col items-center justify-center space-y-4">
-                  <span className="font-display font-medium text-[13px] text-pure-black">WeChat Scan Login</span>
-                  
-                  {weixinError && (
-                    <div className="w-full flex gap-3 p-3 rounded-container bg-rose-50 border border-rose-500/20 text-rose-800 text-[11px] leading-relaxed">
-                      <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                      <div>{weixinError}</div>
-                    </div>
-                  )}
-
-                  {weixinQrUrl ? (
-                    <div className="p-2 border border-light-gray bg-pure-white rounded-container">
-                      <img src={weixinQrUrl} alt="WeChat Login QR Code" className="w-48 h-48" />
-                    </div>
-                  ) : (
-                    <div className="w-48 h-48 border border-dashed border-light-gray rounded-container flex flex-col items-center justify-center text-stone text-[11px] gap-2 bg-snow">
-                      <RefreshCw className="w-4 h-4 animate-spin text-silver" />
-                      <span>Generating QR Code...</span>
-                    </div>
-                  )}
-
-                  <div className="text-center space-y-1">
-                    <span className="text-[12px] font-medium text-pure-black">
-                      {weixinScanStep === 'idle' && 'Initializing login bridge...'}
-                      {weixinScanStep === 'qr' && 'Please scan this code using your phone\'s WeChat app.'}
-                      {weixinScanStep === 'scanned' && 'Scan detected! Please confirm login on your mobile WeChat app.'}
-                      {weixinScanStep === 'done' && 'Login successful! Setting up bot channel...'}
-                    </span>
-                    <p className="text-[10px] text-silver leading-relaxed max-w-sm">
-                      WeChat Bot operates using Tencent iLink API. The QR code links your personal WeChat bot assistant.
-                    </p>
-                  </div>
-
+              {/* Single card with tab switcher inside */}
+              <div className="border border-light-gray/60 rounded-container bg-pure-white">
+                {/* Tab switcher */}
+                <div className="flex gap-1 px-3 py-2 border-b border-light-gray/40">
                   <button
-                    onClick={handleCancelWeixinLogin}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-interactive text-[11px] font-medium border border-light-gray text-stone hover:bg-snow hover:text-pure-black bg-pure-white"
+                    onClick={() => setWxSubTab('scan')}
+                    title="Log in to WeChat Bot by scanning a dynamic QR code"
+                    className={`px-3 py-1.5 text-[12px] font-medium rounded-interactive transition-colors ${
+                      wxSubTab === 'scan'
+                        ? 'bg-light-gray text-near-black'
+                        : 'bg-transparent text-stone hover:text-pure-black'
+                    }`}
                   >
-                    <X className="w-3.5 h-3.5" />
-                    <span>Cancel Login</span>
+                    Scan Login
+                  </button>
+                  <button
+                    onClick={() => setWxSubTab('manual')}
+                    title="Enter iLink Bot Account ID and Token manually"
+                    className={`px-3 py-1.5 text-[12px] font-medium rounded-interactive transition-colors ${
+                      wxSubTab === 'manual'
+                        ? 'bg-light-gray text-near-black'
+                        : 'bg-transparent text-stone hover:text-pure-black'
+                    }`}
+                  >
+                    Manual Configuration
                   </button>
                 </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="border border-light-gray/60 rounded-container p-4 bg-pure-white space-y-4">
-                    <div className="flex flex-col gap-1">
-                      <span className="font-display font-medium text-[13px] text-pure-black">Scan Login</span>
-                      <span className="text-[11px] text-stone">Log in to WeChat Bot using your phone by scanning a dynamic QR code.</span>
-                    </div>
-                    <button
-                      onClick={handleStartWeixinLogin}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-interactive text-[11px] font-medium bg-pure-black text-pure-white border border-pure-black hover:bg-near-black"
-                    >
-                      <QrCode className="w-3.5 h-3.5" />
-                      <span>Start WeChat Scan Login</span>
-                    </button>
+
+                {/* Scan Login Panel */}
+                {wxSubTab === 'scan' && (
+                  <div className="p-4">
+                    {wxScanMode ? (
+                      <div className="flex flex-col items-center justify-center space-y-4">
+                        {weixinError && (
+                          <div className="w-full flex gap-3 p-3 rounded-container bg-light-gray/20 border border-light-gray text-near-black text-[11px] leading-relaxed">
+                            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                            <div>{weixinError}</div>
+                          </div>
+                        )}
+
+                        {weixinQrUrl ? (
+                          <div className="p-2 border border-light-gray bg-pure-white rounded-container">
+                            <img src={weixinQrUrl} alt="WeChat Login QR Code" className="w-48 h-48" />
+                          </div>
+                        ) : (
+                          <div className="w-48 h-48 border border-dashed border-light-gray rounded-container flex flex-col items-center justify-center text-stone text-[11px] gap-2 bg-snow">
+                            <RefreshCw className="w-4 h-4 animate-spin text-silver" />
+                            <span>Generating QR Code...</span>
+                          </div>
+                        )}
+
+                        <div className="text-center space-y-1">
+                          <span className="text-[12px] font-medium text-pure-black">
+                            {weixinScanStep === 'idle' && 'Initializing login bridge...'}
+                            {weixinScanStep === 'qr' && 'Please scan this code using your phone\'s WeChat app.'}
+                            {weixinScanStep === 'scanned' && 'Scan detected! Please confirm login on your mobile WeChat app.'}
+                            {weixinScanStep === 'done' && 'Login successful! Setting up bot channel...'}
+                          </span>
+                          <p className="text-[10px] text-silver leading-relaxed max-w-sm">
+                            WeChat Bot operates using Tencent iLink API. The QR code links your personal WeChat bot assistant.
+                          </p>
+                        </div>
+
+                        <button
+                          onClick={handleCancelWeixinLogin}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-interactive text-[11px] font-medium border border-light-gray text-stone hover:bg-snow hover:text-pure-black bg-pure-white"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          <span>Cancel Login</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <div>
+                        <button
+                          onClick={handleStartWeixinLogin}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-interactive text-[11px] font-medium bg-pure-black text-pure-white border border-pure-black hover:bg-near-black"
+                        >
+                          <QrCode className="w-3.5 h-3.5" />
+                          <span>Start WeChat Scan Login</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
+                )}
 
-                  <div className="border border-light-gray/60 rounded-container p-4 bg-pure-white space-y-4">
-                    <div className="flex flex-col gap-1">
-                      <span className="font-display font-medium text-[13px] text-pure-black">Manual Configuration</span>
-                      <span className="text-[11px] text-stone">If you already have your iLink Bot Account ID and Token, you can enter them directly.</span>
-                    </div>
-
+                {/* Manual Configuration Panel */}
+                {wxSubTab === 'manual' && (
+                  <div className="p-4 space-y-3">
                     <form onSubmit={handleSaveWeixinManual} className="space-y-3">
                       <div className="grid grid-cols-2 gap-3">
                         <div className="flex flex-col gap-1">
@@ -585,10 +685,40 @@ export function ImSettingsPane({
                       </div>
                     </form>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </section>
           )}
+
+          {/* Session Routing Configuration — moved to bottom */}
+          <div className="border border-light-gray/60 rounded-container p-4 bg-pure-white space-y-4">
+            <div className="flex flex-col gap-1 border-b border-light-gray/40 pb-2 mb-1">
+              <span className="font-display font-medium text-[13px] text-pure-black">Session Routing Configuration</span>
+              <span className="text-[11px] text-stone">Specify which Workspace and Agent Profile will handle incoming WeChat messages on this channel.</span>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <SettingSelect
+                value={wxWorkspaceId}
+                onChange={(v) => handleUpdateWeixinConfig(v, wxAgentProfileId)}
+                placeholder="Default Workspace (First Available)"
+                label="Workspace"
+                options={[
+                  { value: '', label: 'Default Workspace (First Available)' },
+                  ...workspaces.map((ws) => ({ value: ws.id, label: ws.display_name || ws.cwd })),
+                ]}
+              />
+              <SettingSelect
+                value={wxAgentProfileId}
+                onChange={(v) => handleUpdateWeixinConfig(wxWorkspaceId, v)}
+                placeholder="Default Agent (First Enabled)"
+                label="Agent Profile"
+                options={[
+                  { value: '', label: 'Default Agent (First Enabled)' },
+                  ...agents.map((a) => ({ value: a.id, label: a.name })),
+                ]}
+              />
+            </div>
+          </div>
         </div>
       )}
 
@@ -597,14 +727,14 @@ export function ImSettingsPane({
         <div className="space-y-4">
           {larkPlugin?.enabled ? (
             <div className="border border-light-gray/60 rounded-container p-4 bg-pure-white space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <MessageCircle className="w-4 h-4 text-stone" />
-                  <span className="font-display font-medium text-[13px] text-pure-black">Feishu Bot</span>
-                </div>
-                <span className={`px-2 py-0.5 rounded-interactive text-[9px] font-medium uppercase tracking-wide ${getStatusColor(larkPlugin.status)}`}>
-                  {larkPlugin.status}
-                </span>
+              <div className="flex items-center gap-2">
+                <span className="font-display font-medium text-[13px] text-pure-black">Feishu Bot</span>
+                <span className={`w-2 h-2 rounded-full ${
+                  larkPlugin.status === 'connected' ? 'bg-green' :
+                  larkPlugin.status === 'connecting' ? 'bg-yellow animate-pulse' :
+                  larkPlugin.status === 'error' ? 'bg-rose-500' :
+                  'bg-stone'
+                }`} />
               </div>
               <p className="text-[11px] text-stone leading-relaxed">
                 Feishu / Lark WebSocket plugin is active. The sidecar listens for message packets directly from Lark servers.
@@ -613,7 +743,7 @@ export function ImSettingsPane({
                 <button
                   onClick={handleStopLark}
                   disabled={loading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-interactive text-[11px] font-medium transition-colors border border-rose-500/40 text-rose-500 hover:bg-rose-50 bg-pure-white"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-interactive text-[11px] font-medium transition-colors border border-mid-gray text-mid-gray hover:bg-snow bg-pure-white"
                 >
                   <Square className="w-3 h-3" />
                   <span>Stop Feishu Bot</span>
@@ -701,6 +831,36 @@ export function ImSettingsPane({
               </form>
             </div>
           )}
+
+          {/* Session Routing Configuration */}
+          <div className="border border-light-gray/60 rounded-container p-4 bg-pure-white space-y-4">
+            <div className="flex flex-col gap-1 border-b border-light-gray/40 pb-2 mb-1">
+              <span className="font-display font-medium text-[13px] text-pure-black">Session Routing Configuration</span>
+              <span className="text-[11px] text-stone">Specify which Workspace and Agent Profile will handle incoming Feishu messages on this channel.</span>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <SettingSelect
+                value={larkWorkspaceId}
+                onChange={(v) => handleUpdateLarkConfig(v, larkAgentProfileId)}
+                placeholder="Default Workspace (First Available)"
+                label="Workspace"
+                options={[
+                  { value: '', label: 'Default Workspace (First Available)' },
+                  ...workspaces.map((ws) => ({ value: ws.id, label: ws.display_name || ws.cwd })),
+                ]}
+              />
+              <SettingSelect
+                value={larkAgentProfileId}
+                onChange={(v) => handleUpdateLarkConfig(larkWorkspaceId, v)}
+                placeholder="Default Agent (First Enabled)"
+                label="Agent Profile"
+                options={[
+                  { value: '', label: 'Default Agent (First Enabled)' },
+                  ...agents.map((a) => ({ value: a.id, label: a.name })),
+                ]}
+              />
+            </div>
+          </div>
         </div>
       )}
 
@@ -716,13 +876,9 @@ export function ImSettingsPane({
             </div>
 
             {pairingMessage && (
-              <div className={`flex gap-3 p-3 rounded-container text-[11px] leading-relaxed border ${
-                pairingMessageType === 'success'
-                  ? 'bg-emerald-50 border-emerald-600/20 text-emerald-900'
-                  : 'bg-rose-50 border-rose-500/20 text-rose-800'
-              }`}>
+              <div className="flex gap-3 p-3 rounded-container bg-light-gray/20 border border-light-gray text-near-black text-[11px] leading-relaxed">
                 {pairingMessageType === 'success' ? (
-                  <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-green" />
+                  <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                 ) : (
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                 )}
@@ -776,18 +932,18 @@ export function ImSettingsPane({
                         {req.display_name} ({req.platform_user_id})
                       </span>
                       <span className="text-[10px] text-silver">
-                        Platform: <span className="font-semibold text-stone uppercase">{req.platform_type}</span>
+                        Platform: <span className="font-medium text-stone uppercase">{req.platform_type}</span>
                       </span>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className="font-mono text-[13px] font-bold text-pure-black tracking-widest bg-snow border border-light-gray/40 px-2 py-0.5 rounded-interactive">
+                      <span className="font-mono text-[13px] font-medium text-pure-black tracking-widest bg-snow border border-light-gray/40 px-2 py-0.5 rounded-interactive">
                         {req.code}
                       </span>
                       <button
                         onClick={() => handleApprovePairing(req.code)}
                         className="flex items-center gap-1 px-2.5 py-1 rounded-interactive text-[10px] font-medium border border-light-gray text-stone hover:bg-snow hover:text-pure-black bg-pure-white transition-colors"
                       >
-                        <Check className="w-3 h-3 text-green" />
+                        <Check className="w-3 h-3" />
                         <span>Approve</span>
                       </button>
                     </div>

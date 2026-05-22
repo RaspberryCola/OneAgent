@@ -1,0 +1,16 @@
+{
+  "closeSidebar": "关闭侧边栏",
+  "newChat": "新对话",
+  "search": "搜索",
+  "workspaces": "工作区",
+  "noWorkspaces": "无工作区",
+  "settings": "设置",
+  "signOut": "退出登录",
+  "logout": "登出",
+  "noConversations": "无对话",
+  "archive": "归档",
+  "moreActions": "更多操作",
+  "openWorkspace": "打开工作区",
+  "deleteConversation": "删除对话",
+  "cancelDelete": "取消删除"
+}

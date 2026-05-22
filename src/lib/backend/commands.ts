@@ -34,6 +34,10 @@ export async function openWorkspace(cwd: string): Promise<Types.Workspace> {
   return invoke('open_workspace', { cwd });
 }
 
+export async function archiveWorkspace(workspaceId: string): Promise<void> {
+  return invoke('archive_workspace', { workspaceId });
+}
+
 export async function getOrCreateDefaultWorkspace(): Promise<Types.Workspace> {
   return invoke('get_or_create_default_workspace');
 }
@@ -167,8 +171,12 @@ export async function listImPlugins(): Promise<Types.ImPluginInfo[]> {
   return invoke('list_im_plugins');
 }
 
-export async function startImPlugin(platform: string, sidecarPath: string, credentialsJson: string): Promise<void> {
-  return invoke('start_im_plugin', { platform, sidecarPath, credentialsJson });
+export async function startImPlugin(platform: string, sidecarPath: string, credentialsJson: string, workspaceId?: string, agentProfileId?: string): Promise<void> {
+  return invoke('start_im_plugin', { platform, sidecarPath, credentialsJson, workspaceId, agentProfileId });
+}
+
+export async function updateImPluginConfig(platform: string, workspaceId?: string, agentProfileId?: string): Promise<void> {
+  return invoke('update_im_plugin_config', { platform, workspaceId, agentProfileId });
 }
 
 export async function stopImPlugin(platform: string): Promise<void> {

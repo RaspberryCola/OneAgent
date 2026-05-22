@@ -1,0 +1,33 @@
+{
+  "title": "Settings",
+  "tabs": {
+    "general": "General",
+    "agents": "Agents",
+    "mcp": "MCP",
+    "imChannels": "Channel"
+  },
+  "close": "Close",
+  "display": "Display",
+  "alwaysShowThinking": "Always Show Model Thinking Content",
+  "alwaysShowThinkingDesc": "When enabled, all thinking blocks are expanded by default, including completed conversations",
+  "agents": {
+    "title": "Agents",
+    "ready": "Ready",
+    "degraded": "Degraded",
+    "unavailable": "Unavailable",
+    "detectionNote": "Agent discovery status shows available AI coding agents detected from your system PATH"
+  },
+  "language": {
+    "title": "Language",
+    "description": "Choose your preferred language for the interface",
+    "english": "English",
+    "chinese": "中文"
+  },
+  "webui": {
+    "title": "Web UI",
+    "enable": "Enable Web UI",
+    "password": "Password",
+    "port": "Port",
+    "urls": "URLs"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "workspace": "工作区",
+  "default": "默认",
+  "addNewWorkspace": "添加工作区",
+  "noWorkspacesAvailable": "无可用工作区",
+  "build": "构建",
+  "fileTree": "文件树",
+  "changes": "更改",
+  "diff": "差异",
+  "refresh": "刷新",
+  "loading": "加载中...",
+  "noChanges": "无更改",
+  "openFile": "打开文件"
+}

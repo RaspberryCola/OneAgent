@@ -163,9 +163,10 @@ When agents request permissions (file operations, commands, etc.), the runtime:
 
 ## Notes
 
-- Default workspace is at `~/.oneagent`
+- Default workspace is at `~/.oneagent/workspace/`
+- Global skills are at `~/.oneagent/skills/`
+- Application data (database, keys, auth config) is stored in system directories (e.g., `~/Library/Application Support/oneagent/` on macOS)
 - Agent profiles are auto-discovered on startup from installed tools
-- The database is SQLite, stored alongside the workspace
 - MCP servers are configured per-workspace
 - Skills are discovered from `.claude/skills/` directories
 

@@ -1,0 +1,20 @@
+{
+  "messagePlaceholder": "Message...",
+  "messageAgentPlaceholder": "Message Agent...",
+  "addAttachment": "Add Attachment",
+  "dropFilesToAttach": "Drop files to attach",
+  "readImages": "Read Images",
+  "asFiles": "As Files",
+  "imagesAnalyzedByAI": "Images will be analyzed by the AI model",
+  "requiresVisionModel": "Requires a vision-capable model",
+  "imagesAsFiles": "Images will be sent as file attachments only",
+  "send": "Send",
+  "stop": "Stop",
+  "modelSelector": {
+    "title": "Model",
+    "auto": "Auto"
+  },
+  "modeSelector": {
+    "title": "Mode"
+  }
+}

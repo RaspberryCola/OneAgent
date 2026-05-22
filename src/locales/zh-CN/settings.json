@@ -1,0 +1,33 @@
+{
+  "title": "设置",
+  "tabs": {
+    "general": "常规",
+    "agents": "Agent",
+    "mcp": "MCP",
+    "imChannels": "消息渠道"
+  },
+  "close": "关闭",
+  "display": "显示",
+  "alwaysShowThinking": "始终显示模型思考内容",
+  "alwaysShowThinkingDesc": "启用后,所有思考块默认展开,包括已完成的对话",
+  "agents": {
+    "title": "Agent",
+    "ready": "就绪",
+    "degraded": "降级",
+    "unavailable": "不可用",
+    "detectionNote": "Agent 发现状态显示从系统 PATH 检测到的可用 AI 编程 Agent"
+  },
+  "language": {
+    "title": "语言",
+    "description": "选择界面首选语言",
+    "english": "English",
+    "chinese": "中文"
+  },
+  "webui": {
+    "title": "Web UI",
+    "enable": "启用 Web UI",
+    "password": "密码",
+    "port": "端口",
+    "urls": "URLs"
+  }
+}

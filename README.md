@@ -105,7 +105,7 @@ npm run tauri build
 ## Usage
 
 ### First Launch
-1. On startup, OneAgent creates a default workspace at `~/.oneagent`
+1. On startup, OneAgent creates a default workspace at `~/.oneagent/workspace/`
 2. The app automatically discovers available agent profiles
 
 ### Create a Session

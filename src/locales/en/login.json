@@ -1,0 +1,10 @@
+{
+  "title": "OneAgent",
+  "subtitle": "Enter password to access your agentic workspace",
+  "passwordLabel": "Password",
+  "passwordPlaceholder": "••••••••",
+  "invalidPassword": "Invalid password. Please try again.",
+  "failedToConnect": "Failed to login. Connection error.",
+  "connecting": "Connecting...",
+  "signIn": "Sign In"
+}

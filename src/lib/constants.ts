@@ -6,6 +6,7 @@ export const STORAGE_KEYS = {
   MODEL_SELECTION_CACHE: 'oneagent.model-selection-cache.v1',
   MODE_CACHE: 'oneagent.mode-metadata-cache.v1',
   MODE_SELECTION_CACHE: 'oneagent.mode-selection-cache.v1',
+  AGENT_USAGE: 'oneagent.agent-usage.v1',
 } as const;
 
 // Polling / Sync Configuration

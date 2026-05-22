@@ -1,0 +1,41 @@
+{
+  "permission": {
+    "allowedOnce": "允许一次",
+    "alwaysAllowed": "始终允许",
+    "rejectedOnce": "拒绝一次",
+    "alwaysRejected": "始终拒绝",
+    "cancelled": "已取消",
+    "resolved": "已解决",
+    "allowOnce": "允许一次",
+    "alwaysAllow": "始终允许",
+    "rejectOnce": "拒绝一次",
+    "alwaysReject": "始终拒绝",
+    "cancel": "取消",
+    "confirm": "确认",
+    "needsPermission": "需要权限:",
+    "toolAction": "工具操作"
+  },
+  "toolCall": {
+    "toolCall": "工具调用",
+    "fileEdit": "文件编辑",
+    "fileRead": "文件读取",
+    "fileWrite": "文件写入",
+    "bash": "Bash",
+    "textSearch": "文本搜索",
+    "fileMatch": "文件匹配",
+    "webSearch": "网络搜索",
+    "mcpTool": "MCP 工具",
+    "input": "输入",
+    "output": "输出",
+    "terminal": "终端",
+    "waiting": "等待中",
+    "running": "运行中",
+    "success": "成功",
+    "error": "错误",
+    "cancelled": "已取消"
+  },
+  "message": {
+    "copy": "复制",
+    "copied": "已复制!"
+  }
+}

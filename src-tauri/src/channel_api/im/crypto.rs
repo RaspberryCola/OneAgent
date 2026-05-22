@@ -10,15 +10,45 @@ use std::{
     path::PathBuf,
 };
 
+/// Get the secret key path in the system application data directory
 fn get_secret_key_path() -> PathBuf {
-    let mut path = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    path.push(".oneagent");
+    let mut path = dirs::data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("."));
+    path.push("oneagent");
+    path.push("keys");
     let _ = fs::create_dir_all(&path);
     path.push("secret.key");
     path
 }
 
+/// Migrate secret key from legacy location (~/.oneagent/secret.key) to new location
+/// Returns true if migration was performed
+fn migrate_secret_key_if_needed() -> bool {
+    let new_path = get_secret_key_path();
+    if new_path.exists() {
+        return false; // New location already has key
+    }
+
+    let old_path = dirs::home_dir()
+        .map(|h| h.join(".oneagent").join("secret.key"))
+        .filter(|p| p.exists());
+
+    if let Some(old) = old_path {
+        tracing::info!("Migrating secret key from {:?} to {:?}", old, new_path);
+        if let Err(e) = fs::copy(&old, &new_path) {
+            tracing::warn!("Failed to migrate secret key: {}", e);
+            return false;
+        }
+        tracing::info!("Secret key migration completed successfully");
+        return true;
+    }
+    false
+}
+
 fn get_or_create_key() -> std::io::Result<[u8; 32]> {
+    // Try to migrate from legacy location first
+    migrate_secret_key_if_needed();
+
     let key_path = get_secret_key_path();
     if key_path.exists() {
         let mut file = File::open(&key_path)?;

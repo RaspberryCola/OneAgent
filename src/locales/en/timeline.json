@@ -1,0 +1,9 @@
+{
+  "expand": "Expand",
+  "collapse": "Collapse",
+  "userMessage": "You",
+  "agentMessage": "Agent",
+  "statusMessage": "Status",
+  "errorMessage": "Error",
+  "planMessage": "Plan"
+}

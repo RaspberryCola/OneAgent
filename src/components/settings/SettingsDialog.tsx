@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { Settings, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import type * as Types from '../../lib/backend/types';
@@ -41,6 +42,8 @@ export function SettingsDialog({
   webuiInfo,
   onToggleWebuiEnabled,
 }: SettingsDialogProps) {
+  const { t } = useTranslation("settings");
+  
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -66,7 +69,7 @@ export function SettingsDialog({
           <aside className="w-[200px] bg-snow flex flex-col p-4 border-r border-light-gray/50">
             <div className="mb-4 px-2 font-display text-[14px] font-medium tracking-tight flex items-center gap-2">
               <Settings className="w-3.5 h-3.5" />
-              <span>Settings</span>
+              <span>{t("title")}</span>
             </div>
             <nav className="space-y-0.5 flex-1">
               <button
@@ -75,7 +78,7 @@ export function SettingsDialog({
                   settingsTab === 'general' ? 'bg-light-gray/60 text-pure-black' : 'text-stone hover:bg-light-gray/30'
                 }`}
               >
-                General
+                {t("tabs.general")}
               </button>
               <button
                 onClick={() => onSelectTab('agents')}
@@ -83,7 +86,7 @@ export function SettingsDialog({
                   settingsTab === 'agents' ? 'bg-light-gray/60 text-pure-black' : 'text-stone hover:bg-light-gray/30'
                 }`}
               >
-                Agents
+                {t("tabs.agents")}
               </button>
               <button
                 onClick={() => onSelectTab('mcp')}
@@ -99,7 +102,7 @@ export function SettingsDialog({
                   settingsTab === 'im' ? 'bg-light-gray/60 text-pure-black' : 'text-stone hover:bg-light-gray/30'
                 }`}
               >
-                IM Channels
+                {t("tabs.imChannels")}
               </button>
             </nav>
             <div className="mt-4 pt-4 border-t border-light-gray/50">
@@ -108,7 +111,7 @@ export function SettingsDialog({
                 className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-interactive text-[12px] font-medium text-stone hover:bg-light-gray/30 transition-colors"
               >
                 <X className="w-3.5 h-3.5" />
-                <span>Close</span>
+                <span>{t("close")}</span>
               </button>
             </div>
           </aside>

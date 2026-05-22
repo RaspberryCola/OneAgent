@@ -9,7 +9,7 @@ use tauri_plugin_dialog::DialogExt;
 pub mod web;
 pub mod im;
 
-pub use im::{list_im_plugins, start_im_plugin, stop_im_plugin, approve_im_pairing, start_weixin_login, stop_weixin_login};
+pub use im::{list_im_plugins, start_im_plugin, stop_im_plugin, approve_im_pairing, start_weixin_login, stop_weixin_login, update_im_plugin_config};
 
 use crate::{
     domain::{BackendError, *},
@@ -127,7 +127,18 @@ pub async fn open_workspace(
         .map_err(BackendError::from)
 }
 
-/// Get or create the default workspace at ~/.oneagent
+#[tauri::command]
+pub async fn archive_workspace(
+    state: State<'_, AppState>,
+    workspace_id: String,
+) -> Result<(), BackendError> {
+    state
+        .gateway
+        .archive_workspace(&workspace_id)
+        .map_err(BackendError::from)
+}
+
+/// Get or create the default workspace at ~/.oneagent/workspace/
 #[tauri::command]
 pub async fn get_or_create_default_workspace(
     state: State<'_, AppState>,
@@ -140,8 +151,21 @@ pub async fn get_or_create_default_workspace(
         )
     })?;
 
-    // Create ~/.oneagent directory
-    let default_workspace_dir = home_dir.join(".oneagent");
+    // Create ~/.oneagent/workspace directory
+    let oneagent_root = home_dir.join(".oneagent");
+    let default_workspace_dir = oneagent_root.join("workspace");
+
+    // Ensure ~/.oneagent root exists (for skills directory)
+    if !oneagent_root.exists() {
+        std::fs::create_dir_all(&oneagent_root).map_err(|e| {
+            BackendError::new(
+                ErrorCode::InvalidWorkspacePath,
+                format!("Failed to create oneagent root directory: {e}"),
+            )
+        })?;
+    }
+
+    // Create workspace subdirectory
     if !default_workspace_dir.exists() {
         std::fs::create_dir_all(&default_workspace_dir).map_err(|e| {
             BackendError::new(

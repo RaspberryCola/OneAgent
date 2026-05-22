@@ -36,28 +36,61 @@ impl ImSessionManager {
                 return Ok(id);
             }
 
-            // 2. We need to create a new conversation. Find an enabled agent profile.
+            // 2. Query configuration from im_plugins to check for custom workspace/agent bindings
+            let mut stmt = conn
+                .prepare("SELECT config_json FROM im_plugins WHERE plugin_type = ?1 LIMIT 1")
+                .map_err(|e| e.to_string())?;
+            
+            let config_json_str: Option<String> = stmt
+                .query_row([platform], |row| row.get(0))
+                .ok();
+
+            // 3. Find default enabled agent profile
             let mut stmt = conn
                 .prepare("SELECT id FROM agent_profiles WHERE enabled = 1 LIMIT 1")
                 .map_err(|e| e.to_string())?;
             
-            let agent_profile_id: String = stmt
+            let default_agent_profile_id: String = stmt
                 .query_row([], |row| row.get(0))
                 .map_err(|_| "No enabled agent profile found. Please configure an agent first.".to_string())?;
 
-            // 3. Find a workspace
+            // 4. Find default workspace
             let mut stmt = conn
                 .prepare("SELECT id FROM workspaces LIMIT 1")
                 .map_err(|e| e.to_string())?;
             
-            let workspace_id: String = stmt
+            let default_workspace_id: String = stmt
                 .query_row([], |row| row.get(0))
                 .map_err(|_| "No workspace found. Please bootstrap a workspace first.".to_string())?;
 
-            (workspace_id, agent_profile_id)
+            let mut final_workspace_id = default_workspace_id;
+            let mut final_agent_profile_id = default_agent_profile_id;
+
+            if let Some(config_str) = config_json_str {
+                if let Ok(config_json) = serde_json::from_str::<serde_json::Value>(&config_str) {
+                    if let Some(w_id) = config_json.get("workspace_id").and_then(|v| v.as_str()) {
+                        let mut check_stmt = conn
+                            .prepare("SELECT 1 FROM workspaces WHERE id = ?1")
+                            .map_err(|e| e.to_string())?;
+                        if check_stmt.exists([w_id]).unwrap_or(false) {
+                            final_workspace_id = w_id.to_string();
+                        }
+                    }
+                    if let Some(a_id) = config_json.get("agent_profile_id").and_then(|v| v.as_str()) {
+                        let mut check_stmt = conn
+                            .prepare("SELECT 1 FROM agent_profiles WHERE id = ?1")
+                            .map_err(|e| e.to_string())?;
+                        if check_stmt.exists([a_id]).unwrap_or(false) {
+                            final_agent_profile_id = a_id.to_string();
+                        }
+                    }
+                }
+            }
+
+            (final_workspace_id, final_agent_profile_id)
         };
 
-        // 4. Create conversation via gateway
+        // 5. Create conversation via gateway
         let input = CreateConversationInput {
             workspace_id,
             agent_profile_id,

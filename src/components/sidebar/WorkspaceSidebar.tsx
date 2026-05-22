@@ -1,4 +1,5 @@
 import { PanelLeftClose, Plus, Search, Settings, LogOut } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type * as Types from '../../lib/backend/types';
 import { WorkspaceConversationGroup } from './WorkspaceConversationGroup';
 
@@ -24,6 +25,7 @@ interface WorkspaceSidebarProps {
   onSelectConversation: (conversationId: string) => void;
   onToggleDeleteConversation: (conversationId: string) => void;
   onCancelDeleteConversation: (conversationId: string) => void;
+  onArchiveWorkspace: (workspaceId: string) => void;
   onOpenSettings: () => void;
   onLogout?: () => void;
 }
@@ -50,9 +52,12 @@ export function WorkspaceSidebar({
   onSelectConversation,
   onToggleDeleteConversation,
   onCancelDeleteConversation,
+  onArchiveWorkspace,
   onOpenSettings,
   onLogout,
 }: WorkspaceSidebarProps) {
+  const { t } = useTranslation("sidebar");
+  
   return (
     <>
       {isMobileSidebarOpen && (
@@ -76,7 +81,7 @@ export function WorkspaceSidebar({
               <button
                 onClick={onCloseDesktopSidebar}
                 className="hidden md:flex p-1 text-stone hover:text-pure-black rounded-interactive hover:bg-light-gray/50 transition-colors"
-                title="Close Sidebar"
+                title={t("closeSidebar")}
               >
                 <PanelLeftClose className="w-[18px] h-[18px]" />
               </button>
@@ -96,14 +101,14 @@ export function WorkspaceSidebar({
                 }`}
               >
                 <Plus className="w-3.5 h-3.5 shrink-0" />
-                <span className="text-caption truncate w-full block">New Chat</span>
+                <span className="text-caption truncate w-full block">{t("newChat")}</span>
               </button>
               <button
                 onClick={onOpenSearch}
                 className="w-full text-left px-3 py-1.5 rounded-container flex items-center gap-2.5 transition-colors min-w-0 text-near-black hover:bg-light-gray/60"
               >
                 <Search className="w-3.5 h-3.5 shrink-0" />
-                <span className="text-caption truncate w-full block">Search</span>
+                <span className="text-caption truncate w-full block">{t("search")}</span>
               </button>
             </div>
           </div>
@@ -111,14 +116,14 @@ export function WorkspaceSidebar({
           <div className="px-3 shrink-0">
             <div className="px-3 mb-0.5 mt-2 flex items-center justify-between gap-2">
               <span className="text-[10px] font-medium text-stone uppercase tracking-widest opacity-80">
-                Workspaces
+                {t("workspaces")}
               </span>
               <button
                 type="button"
                 onClick={onOpenWorkspacePicker}
                 className="rounded-container p-1.5 text-stone transition-colors hover:bg-light-gray/60 hover:text-pure-black"
-                title="Open workspace"
-                aria-label="Open workspace"
+                title={t("openWorkspace")}
+                aria-label={t("openWorkspace")}
               >
                 <Plus className="h-3.5 w-3.5" />
               </button>
@@ -127,7 +132,7 @@ export function WorkspaceSidebar({
 
           <div className="flex-1 overflow-y-auto px-3 pb-4 no-scrollbar">
             <div className="space-y-1">
-              {workspaces.length === 0 && <div className="px-2 py-1 text-[13px] text-silver">No workspaces</div>}
+              {workspaces.length === 0 && <div className="px-2 py-1 text-[13px] text-silver">{t("noWorkspaces")}</div>}
               {workspaces.map((workspace) => (
                 <WorkspaceConversationGroup
                   key={workspace.id}
@@ -145,6 +150,7 @@ export function WorkspaceSidebar({
                   onSelectConversation={onSelectConversation}
                   onToggleDeleteConversation={onToggleDeleteConversation}
                   onCancelDeleteConversation={onCancelDeleteConversation}
+                  onArchiveWorkspace={onArchiveWorkspace}
                 />
               ))}
             </div>
@@ -156,7 +162,7 @@ export function WorkspaceSidebar({
               className="w-full flex items-center gap-2.5 px-3 py-1.5 text-small rounded-container hover:bg-light-gray/60 transition-colors text-near-black text-left"
             >
               <Settings className="w-3.5 h-3.5 shrink-0" />
-              Settings
+              {t("settings")}
             </button>
             {onLogout && (
               <button
@@ -164,7 +170,7 @@ export function WorkspaceSidebar({
                 className="w-full flex items-center gap-2.5 px-3 py-1.5 text-small rounded-container hover:bg-light-gray/60 hover:text-rose-600 transition-colors text-near-black text-left"
               >
                 <LogOut className="w-3.5 h-3.5 shrink-0" />
-                Sign Out
+                {t("signOut")}
               </button>
             )}
           </div>

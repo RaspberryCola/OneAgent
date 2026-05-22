@@ -1,0 +1,20 @@
+{
+  "messagePlaceholder": "输入消息...",
+  "messageAgentPlaceholder": "给 Agent 发消息...",
+  "addAttachment": "添加附件",
+  "dropFilesToAttach": "拖放文件附件",
+  "readImages": "读取图片",
+  "asFiles": "作为文件",
+  "imagesAnalyzedByAI": "图片将被 AI 模型分析",
+  "requiresVisionModel": "需要支持视觉的模型",
+  "imagesAsFiles": "图片将作为文件附件发送",
+  "send": "发送",
+  "stop": "停止",
+  "modelSelector": {
+    "title": "模型",
+    "auto": "自动"
+  },
+  "modeSelector": {
+    "title": "模式"
+  }
+}

@@ -47,6 +47,7 @@ export interface Workspace {
   cwd: string;
   display_name: string;
   trusted: boolean;
+  archived: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -452,5 +453,7 @@ export interface ImPluginInfo {
   platform: string;
   enabled: boolean;
   status: string;
+  workspace_id?: string | null;
+  agent_profile_id?: string | null;
 }
 

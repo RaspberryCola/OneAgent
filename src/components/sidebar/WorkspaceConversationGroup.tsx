@@ -1,4 +1,5 @@
-import { Folder, FolderOpen, SquarePen } from 'lucide-react';
+import { useState } from 'react';
+import { Folder, FolderOpen, SquarePen, MoreVertical, Archive } from 'lucide-react';
 import type * as Types from '../../lib/backend/types';
 import { SidebarItem } from './SidebarItem';
 
@@ -17,6 +18,7 @@ interface WorkspaceConversationGroupProps {
   onSelectConversation: (conversationId: string) => void;
   onToggleDeleteConversation: (conversationId: string) => void;
   onCancelDeleteConversation: (conversationId: string) => void;
+  onArchiveWorkspace: (workspaceId: string) => void;
 }
 
 export function WorkspaceConversationGroup({
@@ -34,8 +36,10 @@ export function WorkspaceConversationGroup({
   onSelectConversation,
   onToggleDeleteConversation,
   onCancelDeleteConversation,
+  onArchiveWorkspace,
 }: WorkspaceConversationGroupProps) {
   const hasConversations = conversations.length > 0;
+  const [showMenu, setShowMenu] = useState(false);
 
   return (
     <div className="space-y-0.5">
@@ -43,7 +47,7 @@ export function WorkspaceConversationGroup({
         <button
           type="button"
           onClick={() => onToggleExpand(workspace.id)}
-          className="w-full text-left px-3 py-1 pr-10 rounded-container flex items-center gap-2.5 transition-colors min-w-0 text-near-black hover:bg-light-gray/50"
+          className="w-full text-left px-3 py-1 pr-20 rounded-container flex items-center gap-2.5 transition-colors min-w-0 text-near-black hover:bg-light-gray/50"
         >
           {isExpanded ? (
             <FolderOpen className="w-3.5 h-3.5 shrink-0 text-stone" />
@@ -52,18 +56,61 @@ export function WorkspaceConversationGroup({
           )}
           <span className="text-caption truncate flex-1 min-w-0">{getWorkspaceLabel(workspace)}</span>
         </button>
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            onStartWorkspaceChat(workspace);
-          }}
-          className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-container p-1.5 text-stone opacity-0 transition-all hover:bg-light-gray/60 hover:text-pure-black focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
-          title={`New chat in ${getWorkspaceLabel(workspace)}`}
-          aria-label={`New chat in ${getWorkspaceLabel(workspace)}`}
-        >
-          <SquarePen className="h-3.5 w-3.5" />
-        </button>
+        {/* Action buttons on the right */}
+        <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onStartWorkspaceChat(workspace);
+            }}
+            className="rounded-container p-1.5 text-stone opacity-0 transition-all hover:bg-light-gray/60 hover:text-pure-black focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
+            title={`New chat in ${getWorkspaceLabel(workspace)}`}
+            aria-label={`New chat in ${getWorkspaceLabel(workspace)}`}
+          >
+            <SquarePen className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setShowMenu(!showMenu);
+            }}
+            className="rounded-container p-1.5 text-stone opacity-0 transition-all hover:bg-light-gray/60 hover:text-pure-black focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
+            title="More actions"
+            aria-label="More actions"
+          >
+            <MoreVertical className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        {/* Dropdown menu */}
+        {showMenu && (
+          <>
+            {/* Backdrop to close menu */}
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setShowMenu(false)}
+            />
+            {/* Menu content */}
+            <div
+              className="absolute right-0 top-full mt-1 z-50 bg-pure-white border border-light-gray rounded-container shadow-lg min-w-[140px]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  onArchiveWorkspace(workspace.id);
+                  setShowMenu(false);
+                }}
+                className="w-full text-left px-3 py-2 flex items-center gap-2.5 text-small text-near-black hover:bg-light-gray/60 transition-colors rounded-container"
+              >
+                <Archive className="w-3.5 h-3.5 shrink-0 text-stone" />
+                <span>Archive</span>
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       {isExpanded && (

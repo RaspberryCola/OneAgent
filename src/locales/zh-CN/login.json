@@ -1,0 +1,10 @@
+{
+  "title": "OneAgent",
+  "subtitle": "输入密码访问你的 Agent 工作区",
+  "passwordLabel": "密码",
+  "passwordPlaceholder": "••••••••",
+  "invalidPassword": "密码无效,请重试。",
+  "failedToConnect": "登录失败。连接错误。",
+  "connecting": "连接中...",
+  "signIn": "登录"
+}

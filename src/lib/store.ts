@@ -19,6 +19,8 @@ import {
   mergeToolCall,
   mergeTerminal,
   mergePendingPermission,
+  recordAgentUsage,
+  getSortedAgentProfiles,
   type TimelineItem,
 } from './utils';
 import { SYNC_CONFIG } from './constants';
@@ -184,6 +186,7 @@ interface AppState {
   switchWorkspace: (workspace: Types.Workspace) => Promise<void>;
   pickWorkspace: () => Promise<Types.Workspace | null>;
   refreshWorkspaces: () => Promise<void>;
+  archiveWorkspace: (workspaceId: string) => Promise<void>;
 
   // Settings Actions
   setAlwaysExpandThinking: (value: boolean) => void;
@@ -236,7 +239,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       // 1. Load all workspaces from backend
       const allWorkspaces = await API.listWorkspaces();
 
-      // 2. Get or create the default workspace at ~/.oneagent
+      // 2. Get or create the default workspace at ~/.oneagent/workspace/
       const defaultWorkspace = await API.getOrCreateDefaultWorkspace();
 
       // Ensure default workspace is in the list
@@ -268,16 +271,17 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       }
 
+      const sortedProfiles = getSortedAgentProfiles(bootstrapData.agent_profiles);
       set({
         workspaces,
         activeWorkspace: bootstrapData.workspace,
         workspaceConversations,
         conversations: bootstrapData.conversations,
-        agentProfiles: bootstrapData.agent_profiles,
+        agentProfiles: sortedProfiles,
         discoveredSessions: bootstrapData.discovered_sessions,
         mcpServers: bootstrapData.mcp,
         skills: bootstrapData.skills,
-        activeAgentProfileId: bootstrapData.agent_profiles.length > 0 ? bootstrapData.agent_profiles[0].id : null,
+        activeAgentProfileId: sortedProfiles.length > 0 ? sortedProfiles[0].id : null,
         activeConversationState: null,
         isInitializing: false,
         isAuthenticated: true,
@@ -295,10 +299,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         set((state) => {
           const nextProfiles =
             profilesResult.status === 'fulfilled' ? profilesResult.value : state.agentProfiles;
+          const sortedProfiles = getSortedAgentProfiles(nextProfiles);
           const nextActiveAgentProfileId =
-            state.activeAgentProfileId ?? nextProfiles[0]?.id ?? null;
+            state.activeAgentProfileId ?? sortedProfiles[0]?.id ?? null;
           return {
-            agentProfiles: nextProfiles,
+            agentProfiles: sortedProfiles,
             agentDiscoveryStatus:
               discoveryResult.status === 'fulfilled' ? discoveryResult.value : state.agentDiscoveryStatus,
             activeAgentProfileId: nextActiveAgentProfileId,
@@ -347,14 +352,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       nextUnread.delete(id);
     }
 
-    set({
+    if (selectedConversation) {
+      recordAgentUsage(selectedConversation.agent_profile_id);
+    }
+
+    set((state) => ({
       activeConversationId: id,
-      activeAgentProfileId: selectedConversation?.agent_profile_id ?? get().activeAgentProfileId,
+      activeAgentProfileId: selectedConversation?.agent_profile_id ?? state.activeAgentProfileId,
       activeConversationState: null,
       activeTimeline: null,
       activeTimelineItems: [],
       unreadCompletedConversations: nextUnread,
-    });
+      agentProfiles: getSortedAgentProfiles(state.agentProfiles),
+    }));
 
     if (id) {
       try {
@@ -369,17 +379,18 @@ export const useAppStore = create<AppState>((set, get) => ({
             const workspaceConversations = new Map(state.workspaceConversations);
             workspaceConversations.set(selectedEntry.workspaceId, bootstrapData.conversations);
 
+            const sortedProfiles = getSortedAgentProfiles(bootstrapData.agent_profiles);
             return {
               activeWorkspace: bootstrapData.workspace,
               workspaceConversations,
               conversations: bootstrapData.conversations,
-              agentProfiles: bootstrapData.agent_profiles,
+              agentProfiles: sortedProfiles,
               discoveredSessions: bootstrapData.discovered_sessions,
               mcpServers: bootstrapData.mcp,
               skills: bootstrapData.skills,
               activeAgentProfileId:
                 selectedConversation?.agent_profile_id
-                ?? bootstrapData.agent_profiles[0]?.id
+                ?? sortedProfiles[0]?.id
                 ?? state.activeAgentProfileId,
             };
           });
@@ -412,7 +423,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setActiveAgentProfile: (id: string | null) => {
-    set({ activeAgentProfileId: id });
+    if (id) {
+      recordAgentUsage(id);
+    }
+    set((state) => ({
+      activeAgentProfileId: id,
+      agentProfiles: getSortedAgentProfiles(state.agentProfiles),
+    }));
   },
 
   ensureAgentCapabilities: async (profileId: string) => {
@@ -446,6 +463,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.error("No active agent profile selected");
       return;
     }
+
+    recordAgentUsage(state.activeAgentProfileId);
 
     // Separate model overrides from other config overrides
     const modeOverrides = sessionConfigOverrides.filter(
@@ -485,6 +504,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         workspaceConversations: newWorkspaceConversations,
         conversations: [pendingConversation, ...s.conversations],
         activeConversationId: pendingConversationId,
+        agentProfiles: getSortedAgentProfiles(s.agentProfiles),
         activeConversationState: {
           conversation: pendingConversation,
           runtime: {
@@ -940,18 +960,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       const nextWorkspaces = isNewWorkspace ? [...existingWorkspaces, workspace] : existingWorkspaces;
 
       // 保留用户之前选择的 Agent（如果在新工作区中存在）
+      const sortedProfiles = getSortedAgentProfiles(bootstrapData.agent_profiles);
       const prevAgentProfileId = get().activeAgentProfileId;
-      const prevAgentExists = bootstrapData.agent_profiles.some(p => p.id === prevAgentProfileId);
+      const prevAgentExists = sortedProfiles.some(p => p.id === prevAgentProfileId);
       const nextActiveAgentProfileId = prevAgentExists
         ? prevAgentProfileId
-        : (bootstrapData.agent_profiles.length > 0 ? bootstrapData.agent_profiles[0].id : null);
+        : (sortedProfiles.length > 0 ? sortedProfiles[0].id : null);
 
       set({
         workspaces: nextWorkspaces,
         activeWorkspace: bootstrapData.workspace,
         workspaceConversations,
         conversations: bootstrapData.conversations,
-        agentProfiles: bootstrapData.agent_profiles,
+        agentProfiles: sortedProfiles,
         discoveredSessions: bootstrapData.discovered_sessions,
         mcpServers: bootstrapData.mcp,
         skills: bootstrapData.skills,
@@ -985,6 +1006,31 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ workspaces });
     } catch (error) {
       console.error('Failed to refresh workspaces', error);
+    }
+  },
+
+  archiveWorkspace: async (workspaceId: string) => {
+    try {
+      await API.archiveWorkspace(workspaceId);
+      set((state) => {
+        const nextWorkspaces = state.workspaces.filter(w => w.id !== workspaceId);
+        const isActiveWorkspace = state.activeWorkspace?.id === workspaceId;
+
+        // If archiving the active workspace, clear related state
+        if (isActiveWorkspace) {
+          return {
+            workspaces: nextWorkspaces,
+            activeWorkspace: null,
+            activeConversationId: null,
+            activeConversationState: null,
+            activeTimeline: null,
+            activeTimelineItems: [],
+          };
+        }
+        return { workspaces: nextWorkspaces };
+      });
+    } catch (error) {
+      console.error('Failed to archive workspace', error);
     }
   },
 

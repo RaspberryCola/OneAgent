@@ -1,0 +1,12 @@
+{
+  "searchConversations": "Search conversations...",
+  "typeToSearch": "Type to search your conversations",
+  "noResults": "No conversations found for \"{{query}}\"",
+  "untitledChat": "Untitled Chat",
+  "task": "Task",
+  "agent": "Agent",
+  "escToClose": "ESC to close",
+  "enterToSelect": "ENTER to select",
+  "resultsCount_one": "{{count}} result",
+  "resultsCount_other": "{{count}} results"
+}

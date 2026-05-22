@@ -97,6 +97,8 @@ export default {
       "bg-rose-50",
       "text-rose-500",
       "text-rose-800",
+      "rounded-t-container",
+      "rounded-t-interactive",
     ],
     plugins: [],
 };

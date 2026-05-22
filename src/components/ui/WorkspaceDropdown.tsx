@@ -14,8 +14,7 @@ interface WorkspaceDropdownProps {
 function getWorkspaceLabel(workspace: Types.Workspace | null | undefined): string {
   if (!workspace) return "Workspace";
   const normalizedPath = workspace.cwd.replace(/\\/g, "/");
-  const basename = normalizedPath.split("/").filter(Boolean).at(-1) ?? "";
-  if (workspace.display_name === ".oneagent" || basename === ".oneagent") {
+  if (normalizedPath.includes(".oneagent/workspace")) {
     return "Default";
   }
   return workspace.display_name;

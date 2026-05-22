@@ -217,6 +217,11 @@ impl<'a> MigrationManager<'a> {
             "channel_chat_id",
             "ALTER TABLE conversations ADD COLUMN channel_chat_id TEXT",
         )?;
+        self.ensure_column(
+            "workspaces",
+            "archived",
+            "ALTER TABLE workspaces ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
+        )?;
         self.conn.lock().execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS im_authorized_users (

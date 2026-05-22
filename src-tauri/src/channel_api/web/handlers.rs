@@ -199,6 +199,16 @@ struct StartImPluginInput {
     platform: String,
     sidecar_path: String,
     credentials_json: String,
+    workspace_id: Option<String>,
+    agent_profile_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateImPluginConfigInput {
+    platform: String,
+    workspace_id: Option<String>,
+    agent_profile_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -286,7 +296,13 @@ pub async fn invoke_handler(
             "get_or_create_default_workspace" => {
                 // Get the home directory
                 let home_dir = dirs::home_dir().ok_or("Could not determine home directory")?;
-                let default_workspace_dir = home_dir.join(".oneagent");
+                let oneagent_root = home_dir.join(".oneagent");
+                let default_workspace_dir = oneagent_root.join("workspace");
+                // Ensure oneagent root exists (for skills)
+                if !oneagent_root.exists() {
+                    std::fs::create_dir_all(&oneagent_root).map_err(|e| e.to_string())?;
+                }
+                // Create workspace subdirectory
                 if !default_workspace_dir.exists() {
                     std::fs::create_dir_all(&default_workspace_dir).map_err(|e| e.to_string())?;
                 }
@@ -511,6 +527,18 @@ pub async fn invoke_handler(
                     input.platform,
                     input.sidecar_path,
                     input.credentials_json,
+                    input.workspace_id,
+                    input.agent_profile_id,
+                ).await.map_err(|e| e.to_string())?;
+                Ok(json!({ "status": "ok" }))
+            }
+            "update_im_plugin_config" => {
+                let input: UpdateImPluginConfigInput = serde_json::from_value(params).map_err(|e| e.to_string())?;
+                crate::channel_api::im::update_im_plugin_config_impl(
+                    gateway,
+                    input.platform,
+                    input.workspace_id,
+                    input.agent_profile_id,
                 ).await.map_err(|e| e.to_string())?;
                 Ok(json!({ "status": "ok" }))
             }

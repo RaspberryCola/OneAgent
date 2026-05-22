@@ -1,8 +1,10 @@
 import React, { useState } from "react";
 import { Loader2, KeyRound } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { useAppStore } from "../lib/store";
 
 export function LoginScreen() {
+  const { t } = useTranslation("login");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -19,10 +21,10 @@ export function LoginScreen() {
     try {
       const success = await login(password);
       if (!success) {
-        setError("Invalid password. Please try again.");
+        setError(t("invalidPassword"));
       }
     } catch (err: any) {
-      setError(err.message || "Failed to login. Connection error.");
+      setError(err.message || t("failedToConnect"));
     } finally {
       setIsSubmitting(false);
     }
@@ -36,10 +38,10 @@ export function LoginScreen() {
             <KeyRound className="w-6 h-6" />
           </div>
           <h1 className="text-card font-medium text-pure-black tracking-tight font-display mb-1">
-            OneAgent
+            {t("title")}
           </h1>
           <p className="text-caption text-stone text-center">
-            Enter password to access your agentic workspace
+            {t("subtitle")}
           </p>
         </div>
 
@@ -49,14 +51,14 @@ export function LoginScreen() {
               htmlFor="password" 
               className="block text-small font-medium text-near-black mb-1.5"
             >
-              Password
+              {t("passwordLabel")}
             </label>
             <input
               id="password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
+              placeholder={t("passwordPlaceholder")}
               disabled={isSubmitting}
               className="w-full rounded-interactive border border-border-light bg-snow px-3.5 py-2 text-chat text-pure-black placeholder:text-silver focus:border-pure-black focus:bg-pure-white focus:outline-none disabled:opacity-50"
               autoFocus
@@ -77,10 +79,10 @@ export function LoginScreen() {
             {isSubmitting ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Connecting...
+                {t("connecting")}
               </>
             ) : (
-              "Sign In"
+              t("signIn")
             )}
           </button>
         </form>

@@ -73,6 +73,10 @@ impl Gateway {
         Ok(self.app.workspaces.open_workspace(cwd)?)
     }
 
+    pub fn archive_workspace(&self, workspace_id: &str) -> GatewayResult<()> {
+        Ok(self.app.workspaces.archive_workspace(workspace_id)?)
+    }
+
     pub fn list_conversations(
         &self,
         workspace_id: &str,

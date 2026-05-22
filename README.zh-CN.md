@@ -105,7 +105,7 @@ npm run tauri build
 ## 使用说明
 
 ### 首次启动
-1. 启动后会默认创建 `~/.oneagent` 工作区
+1. 启动后会默认创建 `~/.oneagent/workspace/` 工作区
 2. 应用自动发现可用 Agent Profile
 
 ### 新建会话

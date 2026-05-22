@@ -32,12 +32,18 @@ pub struct AuthService {
 
 impl AuthService {
     pub fn new() -> Self {
-        let home_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        let config_dir = home_dir.join(".oneagent");
+        // Use system config directory for auth configuration
+        let config_dir = dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("oneagent")
+            .join("config");
         if !config_dir.exists() {
             let _ = fs::create_dir_all(&config_dir);
         }
         let config_path = config_dir.join("web_auth.json");
+
+        // Migrate from legacy location if needed
+        Self::migrate_from_legacy_if_needed(&config_path);
 
         // Ensure config exists and has a persisted jwt_secret
         Self::ensure_initialized_at(&config_path);
@@ -47,6 +53,28 @@ impl AuthService {
         Self {
             jwt_secret,
             config_path,
+        }
+    }
+
+    /// Migrate auth config from legacy location (~/.oneagent/web_auth.json) to new location
+    fn migrate_from_legacy_if_needed(new_path: &PathBuf) {
+        if new_path.exists() {
+            return; // New location already has config
+        }
+
+        let old_path = dirs::home_dir()
+            .map(|h| h.join(".oneagent").join("web_auth.json"))
+            .filter(|p| p.exists());
+
+        if let Some(old) = old_path {
+            tracing::info!("Migrating auth config from {:?} to {:?}", old, new_path);
+            if let Ok(content) = fs::read_to_string(&old) {
+                if let Err(e) = fs::write(new_path, &content) {
+                    tracing::warn!("Failed to migrate auth config: {}", e);
+                    return;
+                }
+                tracing::info!("Auth config migration completed successfully");
+            }
         }
     }
 

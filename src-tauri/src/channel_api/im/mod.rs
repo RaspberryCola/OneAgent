@@ -4,6 +4,7 @@ pub mod session;
 pub mod auth;
 pub mod crypto;
 pub mod throttle;
+pub mod weixin_native;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -28,7 +29,7 @@ pub struct ImChannelManager {
     pub plugins: Arc<RwLock<HashMap<String, Arc<dyn ImPlugin>>>>,
     session_manager: ImSessionManager,
     active_throttles: Arc<Mutex<HashMap<String, StreamThrottle>>>,
-    pub active_login_bridge: Arc<Mutex<Option<Arc<SidecarBridge>>>>,
+    pub active_login_bridge: Arc<Mutex<Option<Arc<weixin_native::WeChatNativePlugin>>>>,
 }
 
 impl ImChannelManager {
@@ -131,11 +132,16 @@ impl ImChannelManager {
         let _ = self.stop_plugin(platform).await;
 
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let plugin = SidecarBridge::new(platform.to_string(), sidecar_path.to_string(), tx);
         
-        plugin.start(credentials).await?;
-        
-        let plugin_arc = Arc::new(plugin) as Arc<dyn ImPlugin>;
+        let plugin_arc: Arc<dyn ImPlugin> = if platform == "weixin" {
+            let plugin = weixin_native::WeChatNativePlugin::new(tx);
+            plugin.start(credentials).await?;
+            Arc::new(plugin) as Arc<dyn ImPlugin>
+        } else {
+            let plugin = SidecarBridge::new(platform.to_string(), sidecar_path.to_string(), tx);
+            plugin.start(credentials).await?;
+            Arc::new(plugin) as Arc<dyn ImPlugin>
+        };
         self.plugins.write().insert(platform.to_string(), plugin_arc.clone());
         
         // Spawn task to handle incoming events from this sidecar
@@ -347,6 +353,8 @@ pub struct ImPluginInfo {
     pub platform: String,
     pub enabled: bool,
     pub status: String,
+    pub workspace_id: Option<String>,
+    pub agent_profile_id: Option<String>,
 }
 
 // Tauri commands implementation helper functions
@@ -363,20 +371,24 @@ pub async fn list_im_plugins_impl(
         .map_err(|e| crate::domain::BackendError::new(crate::domain::ErrorCode::StorageError, e.to_string()))?;
     if !table_check.exists([]).unwrap_or(false) {
         return Ok(vec![
-            ImPluginInfo { platform: "weixin".to_string(), enabled: false, status: "disconnected".to_string() },
-            ImPluginInfo { platform: "lark".to_string(), enabled: false, status: "disconnected".to_string() },
-            ImPluginInfo { platform: "dingtalk".to_string(), enabled: false, status: "disconnected".to_string() },
-            ImPluginInfo { platform: "telegram".to_string(), enabled: false, status: "disconnected".to_string() },
+            ImPluginInfo { platform: "weixin".to_string(), enabled: false, status: "disconnected".to_string(), workspace_id: None, agent_profile_id: None },
+            ImPluginInfo { platform: "lark".to_string(), enabled: false, status: "disconnected".to_string(), workspace_id: None, agent_profile_id: None },
+            ImPluginInfo { platform: "dingtalk".to_string(), enabled: false, status: "disconnected".to_string(), workspace_id: None, agent_profile_id: None },
+            ImPluginInfo { platform: "telegram".to_string(), enabled: false, status: "disconnected".to_string(), workspace_id: None, agent_profile_id: None },
         ]);
     }
 
     let mut stmt = conn
-        .prepare("SELECT plugin_type, enabled FROM im_plugins")
+        .prepare("SELECT plugin_type, enabled, config_json FROM im_plugins")
         .map_err(|e| crate::domain::BackendError::new(crate::domain::ErrorCode::StorageError, e.to_string()))?;
 
     let rows = stmt
         .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i32>(1)? != 0))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i32>(1)? != 0,
+                row.get::<_, Option<String>>(2)?,
+            ))
         })
         .map_err(|e| crate::domain::BackendError::new(crate::domain::ErrorCode::StorageError, e.to_string()))?;
 
@@ -384,7 +396,7 @@ pub async fn list_im_plugins_impl(
     let plugins = im_manager.plugins.read();
     
     for row in rows {
-        if let Ok((platform, enabled)) = row {
+        if let Ok((platform, enabled, config_opt)) = row {
             let status = if let Some(p) = plugins.get(&platform) {
                 match p.status() {
                     plugin::PluginStatus::Disconnected => "disconnected",
@@ -395,7 +407,17 @@ pub async fn list_im_plugins_impl(
             } else {
                 "disconnected".to_string()
             };
-            list.push(ImPluginInfo { platform, enabled, status });
+            
+            let mut workspace_id = None;
+            let mut agent_profile_id = None;
+            if let Some(config_str) = config_opt {
+                if let Ok(config_json) = serde_json::from_str::<Value>(&config_str) {
+                    workspace_id = config_json.get("workspace_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    agent_profile_id = config_json.get("agent_profile_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                }
+            }
+            
+            list.push(ImPluginInfo { platform, enabled, status, workspace_id, agent_profile_id });
         }
     }
     
@@ -407,6 +429,8 @@ pub async fn list_im_plugins_impl(
                 platform: default.to_string(),
                 enabled: false,
                 status: "disconnected".to_string(),
+                workspace_id: None,
+                agent_profile_id: None,
             });
         }
     }
@@ -420,14 +444,43 @@ pub async fn start_im_plugin_impl(
     platform: String,
     sidecar_path: String,
     credentials_json: String,
+    workspace_id: Option<String>,
+    agent_profile_id: Option<String>,
 ) -> Result<(), crate::domain::BackendError> {
     let encrypted_creds = crypto::encrypt(&credentials_json)
         .map_err(|e| crate::domain::BackendError::new(crate::domain::ErrorCode::InvalidInput, e))?;
 
-    let config_json = json!({ "sidecar_path": sidecar_path }).to_string();
+    // Try to load existing config to preserve other parameters (e.g. workspace_id if not specified)
+    let db = &gateway.db;
+    let mut existing_config = Value::Null;
+    {
+        let conn = db.conn.lock();
+        let config_str: Option<String> = conn.query_row(
+            "SELECT config_json FROM im_plugins WHERE plugin_type = ?1",
+            [&platform],
+            |row| row.get(0)
+        ).ok().flatten();
+        if let Some(s) = config_str {
+            if let Ok(v) = serde_json::from_str::<Value>(&s) {
+                existing_config = v;
+            }
+        }
+    }
+
+    let final_workspace_id = workspace_id.or_else(|| {
+        existing_config.get("workspace_id").and_then(|v| v.as_str()).map(String::from)
+    });
+    let final_agent_profile_id = agent_profile_id.or_else(|| {
+        existing_config.get("agent_profile_id").and_then(|v| v.as_str()).map(String::from)
+    });
+
+    let config_json = json!({
+        "sidecar_path": sidecar_path,
+        "workspace_id": final_workspace_id,
+        "agent_profile_id": final_agent_profile_id,
+    }).to_string();
     let now = Utc::now().timestamp();
 
-    let db = &gateway.db;
     {
         let conn = db.conn.lock();
         conn.execute(
@@ -445,6 +498,60 @@ pub async fn start_im_plugin_impl(
         .start_plugin(&platform, &sidecar_path, creds_val)
         .await
         .map_err(|e| crate::domain::BackendError::new(crate::domain::ErrorCode::AdapterSpawnFailed, e))?;
+
+    Ok(())
+}
+
+pub async fn update_im_plugin_config_impl(
+    gateway: &Gateway,
+    platform: String,
+    workspace_id: Option<String>,
+    agent_profile_id: Option<String>,
+) -> Result<(), crate::domain::BackendError> {
+    let db = &gateway.db;
+    let conn = db.conn.lock();
+
+    let mut stmt = conn
+        .prepare("SELECT credentials_json, config_json FROM im_plugins WHERE plugin_type = ?1")
+        .map_err(|e| crate::domain::BackendError::new(crate::domain::ErrorCode::StorageError, e.to_string()))?;
+
+    let existing: Option<(String, Option<String>)> = stmt
+        .query_row([&platform], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .ok();
+
+    let now = Utc::now().timestamp();
+    if let Some((_, config_opt)) = existing {
+        let mut config_val = if let Some(config_str) = config_opt {
+            serde_json::from_str::<Value>(&config_str).unwrap_or(json!({}))
+        } else {
+            json!({})
+        };
+
+        config_val["workspace_id"] = workspace_id.map(|id| Value::String(id)).unwrap_or(Value::Null);
+        config_val["agent_profile_id"] = agent_profile_id.map(|id| Value::String(id)).unwrap_or(Value::Null);
+
+        let config_str = config_val.to_string();
+        conn.execute(
+            "UPDATE im_plugins SET config_json = ?1, updated_at = ?2 WHERE plugin_type = ?3",
+            rusqlite::params![config_str, now, &platform],
+        )
+        .map_err(|e| crate::domain::BackendError::new(crate::domain::ErrorCode::StorageError, e.to_string()))?;
+    } else {
+        // Create new row with empty credentials
+        let config_val = json!({
+            "workspace_id": workspace_id,
+            "agent_profile_id": agent_profile_id,
+            "sidecar_path": "./im-sidecar/dist/index.js",
+        });
+        conn.execute(
+            "INSERT INTO im_plugins (id, plugin_type, name, enabled, credentials_json, config_json, created_at, updated_at)
+             VALUES (?1, ?2, ?2, 0, ?3, ?4, ?5, ?5)",
+            rusqlite::params![platform, platform, "", config_val.to_string(), now],
+        )
+        .map_err(|e| crate::domain::BackendError::new(crate::domain::ErrorCode::StorageError, e.to_string()))?;
+    }
 
     Ok(())
 }
@@ -493,7 +600,7 @@ pub async fn approve_im_pairing_impl(
 pub async fn start_weixin_login_impl(
     gateway: &Arc<Gateway>,
     im_manager: &ImChannelManager,
-    sidecar_path: String,
+    _sidecar_path: String,
 ) -> Result<(), crate::domain::BackendError> {
     // 1. Stop active WeChat plugin if running
     let _ = im_manager.stop_plugin("weixin").await;
@@ -502,25 +609,21 @@ pub async fn start_weixin_login_impl(
     {
         let mut active_opt = im_manager.active_login_bridge.lock().await;
         if let Some(bridge) = active_opt.take() {
-            let _ = bridge.stop().await;
+            let _ = bridge.stop_login().await;
         }
     }
 
-    // 3. Create a temporary SidecarBridge
+    // 3. Create a temporary WeChatNativePlugin
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let bridge = Arc::new(SidecarBridge::new("weixin".to_string(), sidecar_path.to_string(), tx));
+    let bridge = Arc::new(weixin_native::WeChatNativePlugin::new(tx));
 
-    // 4. Start the sidecar (with empty object for config)
-    bridge.start(json!({})).await
-        .map_err(|e| crate::domain::BackendError::new(crate::domain::ErrorCode::AdapterSpawnFailed, e))?;
-
-    // 5. Store in active_login_bridge
+    // 4. Store in active_login_bridge
     {
         let mut active_opt = im_manager.active_login_bridge.lock().await;
         *active_opt = Some(bridge.clone());
     }
 
-    // 6. Spawn event handling task
+    // 5. Spawn event handling task
     let self_mgr = gateway.clone();
     tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
@@ -542,9 +645,9 @@ pub async fn start_weixin_login_impl(
         }
     });
 
-    // 7. Call weixin.start_login
-    bridge.call("weixin.start_login", json!({})).await
-        .map_err(|e| crate::domain::BackendError::new(crate::domain::ErrorCode::AdapterError, e))?;
+    // 6. Start the native login process
+    bridge.start_login().await
+        .map_err(|e| crate::domain::BackendError::new(crate::domain::ErrorCode::AdapterSpawnFailed, e))?;
 
     Ok(())
 }
@@ -554,8 +657,7 @@ pub async fn stop_weixin_login_impl(
 ) -> Result<(), crate::domain::BackendError> {
     let mut active_opt = im_manager.active_login_bridge.lock().await;
     if let Some(bridge) = active_opt.take() {
-        let _ = bridge.call("weixin.stop_login", json!({})).await;
-        let _ = bridge.stop().await;
+        let _ = bridge.stop_login().await;
     }
     Ok(())
 }
@@ -574,8 +676,20 @@ pub async fn start_im_plugin(
     platform: String,
     sidecar_path: String,
     credentials_json: String,
+    workspace_id: Option<String>,
+    agent_profile_id: Option<String>,
 ) -> Result<(), crate::domain::BackendError> {
-    start_im_plugin_impl(&state.gateway, &state.im_manager, platform, sidecar_path, credentials_json).await
+    start_im_plugin_impl(&state.gateway, &state.im_manager, platform, sidecar_path, credentials_json, workspace_id, agent_profile_id).await
+}
+
+#[tauri::command]
+pub async fn update_im_plugin_config(
+    state: tauri::State<'_, AppState>,
+    platform: String,
+    workspace_id: Option<String>,
+    agent_profile_id: Option<String>,
+) -> Result<(), crate::domain::BackendError> {
+    update_im_plugin_config_impl(&state.gateway, platform, workspace_id, agent_profile_id).await
 }
 
 #[tauri::command]
