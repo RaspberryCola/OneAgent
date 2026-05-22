@@ -161,6 +161,8 @@ export interface Conversation {
   created_at: string;
   updated_at: string;
   last_event_seq: number;
+  source?: string;
+  channel_chat_id?: string | null;
 }
 
 export interface AgentSessionBinding {

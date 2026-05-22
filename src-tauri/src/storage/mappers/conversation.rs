@@ -14,5 +14,7 @@ pub fn read_conversation(row: &Row<'_>) -> rusqlite::Result<Conversation> {
         created_at: parse_dt(row.get::<_, String>(6)?)?,
         updated_at: parse_dt(row.get::<_, String>(7)?)?,
         last_event_seq: row.get(8)?,
+        source: row.get::<_, String>(9).unwrap_or_else(|_| "oneagent".to_string()),
+        channel_chat_id: row.get::<_, Option<String>>(10).unwrap_or(None),
     })
 }

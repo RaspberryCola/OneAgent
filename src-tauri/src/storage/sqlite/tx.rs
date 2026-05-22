@@ -476,6 +476,8 @@ mod tests {
             created_at: now,
             updated_at: now,
             last_event_seq: 0,
+            source: "oneagent".to_string(),
+            channel_chat_id: None,
         }
     }
 
@@ -632,6 +634,8 @@ mod tests {
             created_at: now,
             updated_at: now,
             last_event_seq: 0,
+            source: "oneagent".to_string(),
+            channel_chat_id: None,
         };
         let binding = build_binding(&conversation.id);
         let messages = vec![MessageProjection {
@@ -744,6 +748,8 @@ mod tests {
             created_at: now,
             updated_at: now,
             last_event_seq: 0,
+            source: "oneagent".to_string(),
+            channel_chat_id: None,
         };
         let task = TaskRun {
             id: "task_1".to_string(),

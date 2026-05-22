@@ -124,6 +124,7 @@ export function WorkspaceConversationGroup({
                   title={conversation.title || 'Untitled Chat'}
                   agentCommand={agent?.command ?? conversation.agent_profile_id}
                   status={conversation.status}
+                  imSource={conversation.source && conversation.source !== 'oneagent' ? conversation.source : undefined}
                   renderAgentLogo={renderAgentLogo}
                   unread={unreadCompletedConversations.has(conversation.id)}
                   active={activeConversationId === conversation.id}

@@ -39,6 +39,8 @@ impl<'a> ConversationRepository<'a> {
             created_at: now,
             updated_at: now,
             last_event_seq: 0,
+            source: "oneagent".to_string(),
+            channel_chat_id: None,
         };
         self.conn.execute(
             r#"
@@ -78,9 +80,9 @@ impl<'a> ConversationRepository<'a> {
         include_tasks: bool,
     ) -> StorageResult<Vec<Conversation>> {
         let sql = if include_tasks {
-            "SELECT id, workspace_id, agent_profile_id, origin, status, title, created_at, updated_at, last_event_seq FROM conversations WHERE workspace_id = ?1 ORDER BY updated_at DESC"
+            "SELECT id, workspace_id, agent_profile_id, origin, status, title, created_at, updated_at, last_event_seq, source, channel_chat_id FROM conversations WHERE workspace_id = ?1 ORDER BY updated_at DESC"
         } else {
-            "SELECT id, workspace_id, agent_profile_id, origin, status, title, created_at, updated_at, last_event_seq FROM conversations WHERE workspace_id = ?1 AND origin != 'worker_task' ORDER BY updated_at DESC"
+            "SELECT id, workspace_id, agent_profile_id, origin, status, title, created_at, updated_at, last_event_seq, source, channel_chat_id FROM conversations WHERE workspace_id = ?1 AND origin != 'worker_task' ORDER BY updated_at DESC"
         };
         let conn = self.conn;
         let mut stmt = conn.prepare(sql)?;
@@ -97,12 +99,12 @@ impl<'a> ConversationRepository<'a> {
     ) -> StorageResult<Vec<Conversation>> {
         let search_pattern = format!("%{}%", query);
         let sql = if include_tasks {
-            "SELECT id, workspace_id, agent_profile_id, origin, status, title, created_at, updated_at, last_event_seq \
+            "SELECT id, workspace_id, agent_profile_id, origin, status, title, created_at, updated_at, last_event_seq, source, channel_chat_id \
              FROM conversations \
              WHERE workspace_id = ?1 AND title LIKE ?2 \
              ORDER BY updated_at DESC"
         } else {
-            "SELECT id, workspace_id, agent_profile_id, origin, status, title, created_at, updated_at, last_event_seq \
+            "SELECT id, workspace_id, agent_profile_id, origin, status, title, created_at, updated_at, last_event_seq, source, channel_chat_id \
              FROM conversations \
              WHERE workspace_id = ?1 AND origin != 'worker_task' AND title LIKE ?2 \
              ORDER BY updated_at DESC"
@@ -118,7 +120,7 @@ impl<'a> ConversationRepository<'a> {
         self.conn
             
             .query_row(
-                "SELECT id, workspace_id, agent_profile_id, origin, status, title, created_at, updated_at, last_event_seq FROM conversations WHERE id = ?1",
+                "SELECT id, workspace_id, agent_profile_id, origin, status, title, created_at, updated_at, last_event_seq, source, channel_chat_id FROM conversations WHERE id = ?1",
                 params![conversation_id],
                 read_conversation,
             )

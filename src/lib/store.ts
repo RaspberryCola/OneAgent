@@ -1137,19 +1137,27 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       set((state) => {
         const newWorkspaceConversations = new Map(state.workspaceConversations);
-        // Update in the specific workspace's conversation list
-        for (const [wsId, conversations] of newWorkspaceConversations) {
-          const updated = conversations.map(c =>
-            c.id === payload.conversation_id ? { ...c, status: payload.state.conversation.status } : c
-          );
-          if (updated.length !== conversations.length || updated.some((c, i) => c.status !== conversations[i].status)) {
-            newWorkspaceConversations.set(wsId, updated);
+        const targetWsId = payload.state.conversation.workspace_id;
+        const currentConvs = newWorkspaceConversations.get(targetWsId) ?? [];
+
+        let found = false;
+        let updatedConvs = currentConvs.map(c => {
+          if (c.id === payload.conversation_id) {
+            found = true;
+            return payload.state.conversation;
           }
+          return c;
+        });
+
+        if (!found) {
+          updatedConvs = [payload.state.conversation, ...currentConvs];
         }
-        // Also update current conversations if visible
-        const updatedConversations = state.conversations.map(c =>
-          c.id === payload.conversation_id ? { ...c, status: payload.state.conversation.status } : c
-        );
+        // Keep conversations sorted by updated_at descending
+        updatedConvs.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+        newWorkspaceConversations.set(targetWsId, updatedConvs);
+
+        const isTargetActiveWs = state.activeWorkspace?.id === targetWsId;
+        const updatedConversations = isTargetActiveWs ? updatedConvs : state.conversations;
 
         // Track running conversations and detect completion
         const nextRunning = new Set(state.runningConversations);

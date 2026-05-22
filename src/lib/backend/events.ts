@@ -126,3 +126,12 @@ export function onImUserAuthorized(handler: (payload: ImUserAuthorizedPayload) =
   return listen<ImUserAuthorizedPayload>('im:user_authorized', (event) => handler(event.payload));
 }
 
+export type ImPluginConfigChangedPayload = {
+  platform: string;
+  workspace_id?: string | null;
+  agent_profile_id?: string | null;
+};
+
+export function onImPluginConfigChanged(handler: (payload: ImPluginConfigChangedPayload) => void): Promise<UnlistenFn> {
+  return listen<ImPluginConfigChangedPayload>('im:plugin_config_changed', (event) => handler(event.payload));
+}

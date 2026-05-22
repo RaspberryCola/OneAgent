@@ -1,10 +1,11 @@
-import { Bot, Trash2, X } from "lucide-react";
+import { Bot, Trash2, X, MessageCircle } from "lucide-react";
 import type * as Types from "../../lib/backend/types";
 
 type SidebarItemProps = {
   title: string;
   agentCommand?: string;
   status?: Types.Conversation["status"];
+  imSource?: string;
   unread?: boolean;
   active?: boolean;
   onClick?: () => void;
@@ -18,6 +19,7 @@ export function SidebarItem({
   title,
   agentCommand,
   status,
+  imSource,
   unread = false,
   active = false,
   onClick,
@@ -51,6 +53,12 @@ export function SidebarItem({
           )}
         </div>
         <span className={`text-small truncate flex-1 ${active ? "text-pure-black font-medium" : "text-near-black"}`}>{title}</span>
+        {imSource && (
+          <span className="shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 text-[9px] font-medium leading-none" title={`via ${imSource}`}>
+            <MessageCircle className="w-2.5 h-2.5" />
+            {imSource === 'weixin' ? 'WX' : imSource === 'lark' ? 'Lark' : imSource.slice(0, 4).toUpperCase()}
+          </span>
+        )}
       </button>
       {onDelete && (
         deletePending ? (

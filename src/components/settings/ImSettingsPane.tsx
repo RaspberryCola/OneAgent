@@ -83,7 +83,7 @@ export function ImSettingsPane({
   const [larkWorkspaceId, setLarkWorkspaceId] = useState('');
   const [larkAgentProfileId, setLarkAgentProfileId] = useState('');
 
-  // Sync routing configuration from backend plugin info — only on mount
+  // Sync routing configuration from backend plugin info
   useEffect(() => {
     const wx = plugins.find((p) => p.platform === 'weixin');
     if (wx) {
@@ -95,8 +95,7 @@ export function ImSettingsPane({
       setLarkWorkspaceId(lark.workspace_id || '');
       setLarkAgentProfileId(lark.agent_profile_id || '');
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [plugins]);
 
   // Load workspaces and agents on mount
   useEffect(() => {
@@ -116,28 +115,22 @@ export function ImSettingsPane({
   const handleUpdateWeixinConfig = async (wsId: string, agentId: string) => {
     setWxWorkspaceId(wsId);
     setWxAgentProfileId(agentId);
-    const wx = plugins.find((p) => p.platform === 'weixin');
-    if (wx?.enabled) {
-      try {
-        await commands.updateImPluginConfig('weixin', wsId || undefined, agentId || undefined);
-        await refreshPlugins();
-      } catch (err: any) {
-        setError(err.message || 'Failed to update WeChat configuration');
-      }
+    try {
+      await commands.updateImPluginConfig('weixin', wsId || undefined, agentId || undefined);
+      await refreshPlugins();
+    } catch (err: any) {
+      setError(err.message || 'Failed to update WeChat configuration');
     }
   };
 
   const handleUpdateLarkConfig = async (wsId: string, agentId: string) => {
     setLarkWorkspaceId(wsId);
     setLarkAgentProfileId(agentId);
-    const lark = plugins.find((p) => p.platform === 'lark');
-    if (lark?.enabled) {
-      try {
-        await commands.updateImPluginConfig('lark', wsId || undefined, agentId || undefined);
-        await refreshPlugins();
-      } catch (err: any) {
-        setError(err.message || 'Failed to update Feishu configuration');
-      }
+    try {
+      await commands.updateImPluginConfig('lark', wsId || undefined, agentId || undefined);
+      await refreshPlugins();
+    } catch (err: any) {
+      setError(err.message || 'Failed to update Feishu configuration');
     }
   };
 
@@ -167,6 +160,7 @@ export function ImSettingsPane({
     let unlistenScanned: (() => void) | null = null;
     let unlistenDone: (() => void) | null = null;
     let unlistenAuth: (() => void) | null = null;
+    let unlistenConfig: (() => void) | null = null;
 
     const setupListeners = async () => {
       unlistenPairing = await events.onImPairingRequested((payload) => {
@@ -221,6 +215,10 @@ export function ImSettingsPane({
         );
         refreshPlugins();
       });
+
+      unlistenConfig = await events.onImPluginConfigChanged(() => {
+        refreshPlugins();
+      });
     };
 
     setupListeners();
@@ -231,6 +229,7 @@ export function ImSettingsPane({
       if (unlistenScanned) unlistenScanned();
       if (unlistenDone) unlistenDone();
       if (unlistenAuth) unlistenAuth();
+      if (unlistenConfig) unlistenConfig();
     };
   }, [wxBaseUrl, wxWorkspaceId, wxAgentProfileId]);
 

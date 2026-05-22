@@ -189,14 +189,139 @@ impl ImChannelManager {
                                 }
                             }
                         } else {
-                            // Authorized
-                            if let Ok(conversation_id) = session_mgr.get_or_create_conversation(&msg.platform, &msg.chat_id).await {
-                                let text = match msg.content {
-                                    MessageContent::Text(t) => t,
-                                    MessageContent::Command(c) => format!("/{}", c),
-                                    MessageContent::Action(a) => a,
+                            // Authorized — extract text and check for commands
+                            let text = match &msg.content {
+                                MessageContent::Text(t) => t.clone(),
+                                MessageContent::Command(c) => format!("/{}", c),
+                                MessageContent::Action(a) => a.clone(),
+                            };
+
+                            let trimmed = text.trim();
+
+                            // Check for system commands (starting with /)
+                            if trimmed.starts_with('/') {
+                                let (cmd, args) = match trimmed[1..].split_once(char::is_whitespace) {
+                                    Some((c, a)) => (c.to_lowercase(), a.trim().to_string()),
+                                    None => (trimmed[1..].to_lowercase(), String::new()),
                                 };
-                                let _ = self_mgr.send_user_message(&conversation_id, &text, vec![]).await;
+
+                                let reply = match cmd.as_str() {
+                                    "new" => {
+                                        match session_mgr.archive_and_create_new(&msg.platform, &msg.chat_id, None).await {
+                                            Ok(_) => "✅ 已创建新对话。\n\nNew conversation created.".to_string(),
+                                            Err(e) => format!("❌ 创建新对话失败: {}\n\nFailed to create new conversation: {}", e, e),
+                                        }
+                                    }
+                                    "help" => {
+                                        "📋 可用命令 / Available Commands:\n\n\
+                                         /new — 创建新对话 / Start a new conversation\n\
+                                         /status — 查看当前状态 / View current status\n\
+                                         /switch — 列出可用工作区 / List workspaces\n\
+                                         /switch <name> — 切换工作区 / Switch workspace\n\
+                                         /help — 显示此帮助 / Show this help".to_string()
+                                    }
+                                    "status" => {
+                                        match session_mgr.get_channel_status(&msg.platform, &msg.chat_id) {
+                                            Ok((conv_id, ws_name, agent_name)) => {
+                                                format!(
+                                                    "📊 当前状态 / Current Status\n\n\
+                                                     平台 / Platform: {}\n\
+                                                     工作区 / Workspace: {}\n\
+                                                     Agent: {}\n\
+                                                     会话 / Conversation: {}",
+                                                    msg.platform, ws_name, agent_name, &conv_id[..8.min(conv_id.len())]
+                                                )
+                                            }
+                                            Err(_) => "⚠️ 当前没有活跃的对话。\n\nNo active conversation. Send any message to start one.".to_string(),
+                                        }
+                                    }
+                                    "switch" => {
+                                        if args.is_empty() {
+                                            // List available workspaces
+                                            match session_mgr.list_available_workspaces() {
+                                                Ok(workspaces) if workspaces.is_empty() => {
+                                                    "⚠️ 没有可用的工作区。\n\nNo workspaces available.".to_string()
+                                                }
+                                                Ok(workspaces) => {
+                                                    let mut reply = "📂 可用工作区 / Available Workspaces:\n\n".to_string();
+                                                    for (_, name) in &workspaces {
+                                                        reply.push_str(&format!("• {}\n", name));
+                                                    }
+                                                    reply.push_str("\n使用 /switch <名称> 切换\nUse /switch <name> to switch");
+                                                    reply
+                                                }
+                                                Err(e) => format!("❌ 获取工作区列表失败: {}\n\nFailed to list workspaces: {}", e, e),
+                                            }
+                                        } else {
+                                            // Switch to specified workspace by display_name
+                                            match session_mgr.list_available_workspaces() {
+                                                Ok(workspaces) => {
+                                                    let target = args.to_lowercase();
+                                                    let found = workspaces.iter().find(|(_, name)| name.to_lowercase() == target);
+                                                    match found {
+                                                        Some((ws_id, ws_name)) => {
+                                                            match session_mgr.switch_workspace(&msg.platform, &msg.chat_id, ws_id).await {
+                                                                Ok(_) => format!("✅ 已切换到工作区: {}\n\nSwitched to workspace: {}", ws_name, ws_name),
+                                                                Err(e) => format!("❌ 切换工作区失败: {}\n\nFailed to switch workspace: {}", e, e),
+                                                            }
+                                                        }
+                                                        None => {
+                                                            // Try partial match
+                                                            let partial: Vec<_> = workspaces.iter()
+                                                                .filter(|(_, name)| name.to_lowercase().contains(&target))
+                                                                .collect();
+                                                            if partial.len() == 1 {
+                                                                let (ws_id, ws_name) = partial[0];
+                                                                match session_mgr.switch_workspace(&msg.platform, &msg.chat_id, ws_id).await {
+                                                                    Ok(_) => format!("✅ 已切换到工作区: {}\n\nSwitched to workspace: {}", ws_name, ws_name),
+                                                                    Err(e) => format!("❌ 切换工作区失败: {}\n\nFailed to switch workspace: {}", e, e),
+                                                                }
+                                                            } else if partial.is_empty() {
+                                                                format!("⚠️ 找不到工作区 \"{}\"\n\nWorkspace \"{}\" not found. Use /switch to list all.", args, args)
+                                                            } else {
+                                                                let mut reply = format!("⚠️ 找到多个匹配的工作区 / Multiple matches for \"{}\":\n\n", args);
+                                                                for (_, name) in &partial {
+                                                                    reply.push_str(&format!("• {}\n", name));
+                                                                }
+                                                                reply.push_str("\n请使用精确名称。\nPlease use an exact name.");
+                                                                reply
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                Err(e) => format!("❌ 获取工作区列表失败: {}\n\nFailed to list workspaces: {}", e, e),
+                                            }
+                                        }
+                                    }
+                                    _ => {
+                                        // Not a system command — forward to agent as normal message
+                                        if let Ok(conversation_id) = session_mgr.get_or_create_conversation(&msg.platform, &msg.chat_id, Some(&text)).await {
+                                            let _ = self_mgr.send_user_message(&conversation_id, &text, vec![]).await;
+                                        }
+                                        String::new() // No reply needed, agent will respond
+                                    }
+                                };
+
+                                // Send command response back to user (if non-empty)
+                                if !reply.is_empty() {
+                                    let p_opt = {
+                                        let plugins = plugins_ref.read();
+                                        plugins.get(&msg.platform).cloned()
+                                    };
+                                    if let Some(p) = p_opt {
+                                        let out_msg = OutgoingMessage {
+                                            text: reply,
+                                            buttons: None,
+                                            is_streaming_update: false,
+                                        };
+                                        let _ = p.send_message(&msg.chat_id, out_msg).await;
+                                    }
+                                }
+                            } else {
+                                // Regular message — forward to agent
+                                if let Ok(conversation_id) = session_mgr.get_or_create_conversation(&msg.platform, &msg.chat_id, Some(&text)).await {
+                                    let _ = self_mgr.send_user_message(&conversation_id, &text, vec![]).await;
+                                }
                             }
                         }
                     }
@@ -529,8 +654,8 @@ pub async fn update_im_plugin_config_impl(
             json!({})
         };
 
-        config_val["workspace_id"] = workspace_id.map(|id| Value::String(id)).unwrap_or(Value::Null);
-        config_val["agent_profile_id"] = agent_profile_id.map(|id| Value::String(id)).unwrap_or(Value::Null);
+        config_val["workspace_id"] = workspace_id.clone().map(|id| Value::String(id)).unwrap_or(Value::Null);
+        config_val["agent_profile_id"] = agent_profile_id.clone().map(|id| Value::String(id)).unwrap_or(Value::Null);
 
         let config_str = config_val.to_string();
         conn.execute(
@@ -541,8 +666,8 @@ pub async fn update_im_plugin_config_impl(
     } else {
         // Create new row with empty credentials
         let config_val = json!({
-            "workspace_id": workspace_id,
-            "agent_profile_id": agent_profile_id,
+            "workspace_id": workspace_id.clone(),
+            "agent_profile_id": agent_profile_id.clone(),
             "sidecar_path": "./im-sidecar/dist/index.js",
         });
         conn.execute(
@@ -552,6 +677,16 @@ pub async fn update_im_plugin_config_impl(
         )
         .map_err(|e| crate::domain::BackendError::new(crate::domain::ErrorCode::StorageError, e.to_string()))?;
     }
+
+    // Broadcast config change so frontend and other parts stay in sync
+    gateway.runtime.event_bus.broadcast(
+        "im:plugin_config_changed",
+        &json!({
+            "platform": platform,
+            "workspace_id": workspace_id,
+            "agent_profile_id": agent_profile_id,
+        }),
+    );
 
     Ok(())
 }

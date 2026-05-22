@@ -1,7 +1,9 @@
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { PanelLeftClose, Plus, Search, Settings, LogOut } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type * as Types from '../../lib/backend/types';
 import { WorkspaceConversationGroup } from './WorkspaceConversationGroup';
+import { STORAGE_KEYS, SIDEBAR_CONFIG } from '../../lib/constants';
 
 interface WorkspaceSidebarProps {
   isMobileSidebarOpen: boolean;
@@ -57,7 +59,58 @@ export function WorkspaceSidebar({
   onLogout,
 }: WorkspaceSidebarProps) {
   const { t } = useTranslation("sidebar");
-  
+
+  // Sidebar width state with persistence
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const stored = localStorage.getItem(STORAGE_KEYS.SIDEBAR_WIDTH_CACHE);
+    if (stored) {
+      const parsed = parseInt(stored, 10);
+      if (parsed >= SIDEBAR_CONFIG.MIN_WIDTH && parsed <= SIDEBAR_CONFIG.MAX_WIDTH) {
+        return parsed;
+      }
+    }
+    return SIDEBAR_CONFIG.DEFAULT_WIDTH;
+  });
+
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCleanupRef = useRef<(() => void) | null>(null);
+
+  // Cleanup drag event listeners on unmount
+  useEffect(() => {
+    return () => { dragCleanupRef.current?.(); };
+  }, []);
+
+  // Drag handler - dragging right increases width
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+
+    const onMouseMove = (e: MouseEvent) => {
+      const delta = e.clientX - startX;
+      const newWidth = Math.min(SIDEBAR_CONFIG.MAX_WIDTH, Math.max(SIDEBAR_CONFIG.MIN_WIDTH, startWidth + delta));
+      setSidebarWidth(newWidth);
+    };
+
+    const onMouseUp = () => {
+      setIsDragging(false);
+      localStorage.setItem(STORAGE_KEYS.SIDEBAR_WIDTH_CACHE, String(sidebarWidth));
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      dragCleanupRef.current = null;
+    };
+
+    dragCleanupRef.current = onMouseUp;
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [sidebarWidth]);
+
   return (
     <>
       {isMobileSidebarOpen && (
@@ -67,12 +120,14 @@ export function WorkspaceSidebar({
       <aside
         className={`
           fixed md:relative inset-y-0 left-0 z-30
-          bg-snow shrink-0 flex flex-col transition-all duration-300 ease-in-out
-          ${isMobileSidebarOpen ? 'translate-x-0 w-[260px] border-r border-light-gray' : '-translate-x-full md:translate-x-0'}
-          ${isDesktopSidebarOpen ? 'md:w-[260px]' : 'md:w-0 md:overflow-hidden'}
+          bg-snow shrink-0 flex flex-col
+          ${isDragging ? '' : 'transition-all duration-300 ease-in-out'}
+          ${isMobileSidebarOpen ? 'translate-x-0 border-r border-light-gray' : '-translate-x-full md:translate-x-0'}
+          ${isDesktopSidebarOpen ? '' : 'md:w-0 md:overflow-hidden'}
         `}
+        style={{ width: isDesktopSidebarOpen ? sidebarWidth : undefined }}
       >
-        <div className="w-[260px] h-full flex flex-col">
+        <div className="h-full flex flex-col" style={{ width: sidebarWidth }}>
           <div className="p-3 shrink-0">
             <div className="flex items-center justify-between mb-3 px-2">
               <div className="flex items-center justify-start h-8">
@@ -175,6 +230,14 @@ export function WorkspaceSidebar({
             )}
           </div>
         </div>
+
+        {/* Resize handle - only visible on desktop when sidebar is open */}
+        {isDesktopSidebarOpen && (
+          <div
+            className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-light-gray/60 z-10 hidden md:block"
+            onMouseDown={handleMouseDown}
+          />
+        )}
       </aside>
     </>
   );

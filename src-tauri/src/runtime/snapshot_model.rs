@@ -73,6 +73,8 @@ mod tests {
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
                 last_event_seq: 1,
+                source: "oneagent".to_string(),
+                channel_chat_id: None,
             },
             runtime: ConversationRuntimeState {
                 connection_phase: ConnectionPhase::Ready,

@@ -326,6 +326,10 @@ pub struct Conversation {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub last_event_seq: i64,
+    #[serde(default = "default_conversation_source")]
+    pub source: String,
+    #[serde(default)]
+    pub channel_chat_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -895,6 +899,10 @@ fn default_agent_launch_mode() -> AgentLaunchMode {
 
 fn default_agent_display_source() -> AgentDisplaySource {
     AgentDisplaySource::Native
+}
+
+fn default_conversation_source() -> String {
+    "oneagent".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

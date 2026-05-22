@@ -7,6 +7,14 @@ export const STORAGE_KEYS = {
   MODE_CACHE: 'oneagent.mode-metadata-cache.v1',
   MODE_SELECTION_CACHE: 'oneagent.mode-selection-cache.v1',
   AGENT_USAGE: 'oneagent.agent-usage.v1',
+  SIDEBAR_WIDTH_CACHE: 'oneagent.sidebar-width.v1',
+} as const;
+
+// Sidebar Width Configuration
+export const SIDEBAR_CONFIG = {
+  MIN_WIDTH: 180,
+  MAX_WIDTH: 400,
+  DEFAULT_WIDTH: 260,
 } as const;
 
 // Polling / Sync Configuration

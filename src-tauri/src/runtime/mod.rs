@@ -213,6 +213,8 @@ impl Runtime {
             created_at: now,
             updated_at: now,
             last_event_seq: 0,
+            source: "oneagent".to_string(),
+            channel_chat_id: None,
         };
         let binding = AgentSessionBinding {
             id: Uuid::new_v4().to_string(),
@@ -337,6 +339,8 @@ impl Runtime {
             created_at: now,
             updated_at: now,
             last_event_seq: 0,
+            source: "oneagent".to_string(),
+            channel_chat_id: None,
         };
         let (loaded, managed_session) = match profile.kind {
             AgentKind::Acp => {
@@ -623,6 +627,8 @@ impl Runtime {
             created_at: now,
             updated_at: now,
             last_event_seq: 0,
+            source: "oneagent".to_string(),
+            channel_chat_id: None,
         };
         let task = TaskRun {
             id: Uuid::new_v4().to_string(),
@@ -1328,7 +1334,7 @@ impl Runtime {
         })
     }
 
-    fn emit_conversation_state(&self, conversation_id: &str) -> RuntimeResult<()> {
+    pub(crate) fn emit_conversation_state(&self, conversation_id: &str) -> RuntimeResult<()> {
         let state = self.conversation_state(conversation_id)?;
         self.emit(
             "conversation:state_changed",
@@ -1698,6 +1704,8 @@ mod tests {
             created_at: now,
             updated_at: now,
             last_event_seq: 0,
+            source: "oneagent".to_string(),
+            channel_chat_id: None,
         };
         let binding = AgentSessionBinding {
             id: Uuid::new_v4().to_string(),

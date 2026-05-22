@@ -218,6 +218,11 @@ impl<'a> MigrationManager<'a> {
             "ALTER TABLE conversations ADD COLUMN channel_chat_id TEXT",
         )?;
         self.ensure_column(
+            "conversations",
+            "channel_active",
+            "ALTER TABLE conversations ADD COLUMN channel_active INTEGER NOT NULL DEFAULT 1",
+        )?;
+        self.ensure_column(
             "workspaces",
             "archived",
             "ALTER TABLE workspaces ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
