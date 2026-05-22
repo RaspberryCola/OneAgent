@@ -207,6 +207,52 @@ impl<'a> MigrationManager<'a> {
             "terminal_ids_json",
             "ALTER TABLE tool_call_projections ADD COLUMN terminal_ids_json TEXT NOT NULL DEFAULT '[]'",
         )?;
+        self.ensure_column(
+            "conversations",
+            "source",
+            "ALTER TABLE conversations ADD COLUMN source TEXT NOT NULL DEFAULT 'oneagent'",
+        )?;
+        self.ensure_column(
+            "conversations",
+            "channel_chat_id",
+            "ALTER TABLE conversations ADD COLUMN channel_chat_id TEXT",
+        )?;
+        self.conn.lock().execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS im_authorized_users (
+              id TEXT PRIMARY KEY,
+              platform_user_id TEXT NOT NULL,
+              platform_type TEXT NOT NULL,
+              display_name TEXT,
+              authorized_at INTEGER NOT NULL,
+              UNIQUE(platform_user_id, platform_type)
+            );
+            CREATE TABLE IF NOT EXISTS im_pairing_codes (
+              code TEXT PRIMARY KEY,
+              platform_user_id TEXT NOT NULL,
+              platform_type TEXT NOT NULL,
+              display_name TEXT,
+              requested_at INTEGER NOT NULL,
+              expires_at INTEGER NOT NULL,
+              status TEXT NOT NULL DEFAULT 'pending'
+            );
+            CREATE TABLE IF NOT EXISTS im_plugins (
+              id TEXT PRIMARY KEY,
+              plugin_type TEXT NOT NULL,
+              name TEXT NOT NULL,
+              enabled INTEGER NOT NULL DEFAULT 0,
+              credentials_json TEXT NOT NULL,
+              config_json TEXT,
+              status TEXT,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS system_settings (
+              key TEXT PRIMARY KEY,
+              value TEXT NOT NULL
+            );
+            "#,
+        )?;
         Ok(())
     }
 

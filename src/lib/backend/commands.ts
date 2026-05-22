@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './transport';
 import type * as Types from './types';
 
 // Agent / Workspace
@@ -161,3 +161,47 @@ export async function resizeTerminal(id: string, cols: number, rows: number): Pr
 export async function closeTerminal(id: string): Promise<void> {
   return invoke('close_terminal', { id });
 }
+
+// IM Commands
+export async function listImPlugins(): Promise<Types.ImPluginInfo[]> {
+  return invoke('list_im_plugins');
+}
+
+export async function startImPlugin(platform: string, sidecarPath: string, credentialsJson: string): Promise<void> {
+  return invoke('start_im_plugin', { platform, sidecarPath, credentialsJson });
+}
+
+export async function stopImPlugin(platform: string): Promise<void> {
+  return invoke('stop_im_plugin', { platform });
+}
+
+export async function approveImPairing(code: string): Promise<string> {
+  return invoke('approve_im_pairing', { code });
+}
+
+export async function startWeixinLogin(sidecarPath: string): Promise<void> {
+  return invoke('start_weixin_login', { sidecarPath });
+}
+
+export async function stopWeixinLogin(): Promise<void> {
+  return invoke('stop_weixin_login');
+}
+
+// WebUI Settings
+export async function getWebuiEnabled(): Promise<boolean> {
+  return invoke('get_webui_enabled');
+}
+
+export async function setWebuiEnabled(enabled: boolean): Promise<string | null> {
+  return invoke('set_webui_enabled', { enabled });
+}
+
+export async function getWebuiPassword(): Promise<string | null> {
+  return invoke('get_webui_password');
+}
+
+export async function getWebuiInfo(): Promise<{ port: number; urls: string[] } | null> {
+  return invoke('get_webui_info');
+}
+
+

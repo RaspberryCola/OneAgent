@@ -446,3 +446,11 @@ export interface SearchConversationsInput {
   query: string;
   include_tasks?: boolean;
 }
+
+// IM Plugin Types
+export interface ImPluginInfo {
+  platform: string;
+  enabled: boolean;
+  status: string;
+}
+

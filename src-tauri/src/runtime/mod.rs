@@ -18,6 +18,7 @@ use crate::{
 };
 
 // Re-export types from the types module
+pub mod event_bus;
 pub mod projector;
 pub mod recovery;
 pub mod session_manager;
@@ -35,7 +36,7 @@ pub struct Runtime {
     mcp_registry: McpRegistry,
     skill_registry: SkillRegistry,
     policy_engine: PolicyEngine,
-    emitter: Arc<Mutex<Option<EventEmitter>>>,
+    pub event_bus: Arc<event_bus::EventBus>,
     session_manager: SessionManager,
     runtime_states: Arc<Mutex<HashMap<String, ConversationRuntimeState>>>,
     streaming_messages: Arc<Mutex<HashMap<String, ActiveStreamMessage>>>,
@@ -49,7 +50,7 @@ impl Runtime {
             skill_registry: SkillRegistry::new(db.clone()),
             policy_engine: PolicyEngine::new(db.clone()),
             db,
-            emitter: Arc::new(Mutex::new(None)),
+            event_bus: Arc::new(event_bus::EventBus::new()),
             session_manager: SessionManager::new(),
             runtime_states: Arc::new(Mutex::new(HashMap::new())),
             streaming_messages: Arc::new(Mutex::new(HashMap::new())),
@@ -58,7 +59,10 @@ impl Runtime {
     }
 
     pub fn attach_emitter(&self, emitter: EventEmitter) {
-        *self.emitter.lock() = Some(emitter);
+        let sink = Arc::new(event_bus::ClosureEventSink::new(move |event: &str, payload: &Value| {
+            emitter(event, payload.clone());
+        }));
+        self.event_bus.register(sink);
     }
 
     pub fn is_session_in_memory(&self, conversation_id: &str) -> bool {
@@ -1250,10 +1254,8 @@ impl Runtime {
     }
 
     fn emit<S: serde::Serialize>(&self, event: &str, payload: &S) {
-        if let Some(emitter) = self.emitter.lock().clone() {
-            let value = serde_json::to_value(payload).unwrap_or_else(|_| json!({}));
-            emitter(event, value);
-        }
+        let value = serde_json::to_value(payload).unwrap_or_else(|_| json!({}));
+        self.event_bus.broadcast(event, &value);
     }
 
     fn conversation_config_options(&self, conversation_id: &str) -> Vec<SessionConfigOption> {

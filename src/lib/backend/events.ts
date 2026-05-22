@@ -1,4 +1,5 @@
-import { listen, UnlistenFn } from '@tauri-apps/api/event';
+import { listen } from './transport';
+import type { UnlistenFn } from './transport';
 import type { AvailableCommand, MessageProjection, ToolCallProjection, PermissionDecision, ConversationState, SessionConfigOption, AcpSessionModels, AcpSessionModeState, AgentCapabilities, PendingPermissionRequest, TerminalRecord, TaskRun } from './types';
 
 // The backend now emits normalized envelopes, replacing the older raw-payload assumptions.
@@ -30,6 +31,27 @@ export type ConversationConfigUpdatedPayload = {
 export type ConversationCommandsUpdatedPayload = {
   conversation_id: string;
   available_commands: AvailableCommand[];
+};
+
+export type ImPairingRequestedPayload = {
+  code: string;
+  platform_user_id: string;
+  platform_type: string;
+  display_name: string;
+};
+
+export type ImWeixinLoginQrPayload = {
+  qr_url: string;
+};
+
+export type ImWeixinLoginDonePayload = {
+  account_id: string;
+  bot_token: string;
+};
+
+export type ImUserAuthorizedPayload = {
+  platform_user_id: string;
+  platform_type: string;
 };
 
 export function onAgentProfileProbed(handler: (payload: AgentProfileProbedPayload) => void): Promise<UnlistenFn> {
@@ -83,3 +105,24 @@ export function onConversationDeleted(handler: (payload: ConversationDeletedPayl
 export function onConversationCommandsUpdated(handler: (payload: ConversationCommandsUpdatedPayload) => void): Promise<UnlistenFn> {
   return listen<ConversationCommandsUpdatedPayload>('conversation:commands_updated', (event) => handler(event.payload));
 }
+
+export function onImPairingRequested(handler: (payload: ImPairingRequestedPayload) => void): Promise<UnlistenFn> {
+  return listen<ImPairingRequestedPayload>('im:pairing_requested', (event) => handler(event.payload));
+}
+
+export function onImWeixinLoginQr(handler: (payload: ImWeixinLoginQrPayload) => void): Promise<UnlistenFn> {
+  return listen<ImWeixinLoginQrPayload>('im:weixin_login_qr', (event) => handler(event.payload));
+}
+
+export function onImWeixinLoginScanned(handler: () => void): Promise<UnlistenFn> {
+  return listen<Record<string, never>>('im:weixin_login_scanned', () => handler());
+}
+
+export function onImWeixinLoginDone(handler: (payload: ImWeixinLoginDonePayload) => void): Promise<UnlistenFn> {
+  return listen<ImWeixinLoginDonePayload>('im:weixin_login_done', (event) => handler(event.payload));
+}
+
+export function onImUserAuthorized(handler: (payload: ImUserAuthorizedPayload) => void): Promise<UnlistenFn> {
+  return listen<ImUserAuthorizedPayload>('im:user_authorized', (event) => handler(event.payload));
+}
+

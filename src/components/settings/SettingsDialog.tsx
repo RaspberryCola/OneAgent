@@ -6,8 +6,9 @@ import type * as Types from '../../lib/backend/types';
 import { AgentSettingsPane } from './AgentSettingsPane';
 import { GeneralSettingsPane } from './GeneralSettingsPane';
 import { McpSettingsPane } from './McpSettingsPane';
+import { ImSettingsPane } from './ImSettingsPane';
 
-type SettingsTab = 'general' | 'agents' | 'mcp';
+type SettingsTab = 'general' | 'agents' | 'mcp' | 'im';
 
 interface SettingsDialogProps {
   isOpen: boolean;
@@ -19,6 +20,10 @@ interface SettingsDialogProps {
   onSelectTab: (tab: SettingsTab) => void;
   onToggleAlwaysExpandThinking: () => void;
   renderAgentLogo: (agent: Types.AgentDiscoveryStatus, className: string) => ReactNode;
+  webuiEnabled: boolean;
+  webuiPassword: string | null;
+  webuiInfo: { port: number; urls: string[] } | null;
+  onToggleWebuiEnabled: () => Promise<string | null>;
 }
 
 export function SettingsDialog({
@@ -31,6 +36,10 @@ export function SettingsDialog({
   onSelectTab,
   onToggleAlwaysExpandThinking,
   renderAgentLogo,
+  webuiEnabled,
+  webuiPassword,
+  webuiInfo,
+  onToggleWebuiEnabled,
 }: SettingsDialogProps) {
   useEffect(() => {
     if (!isOpen) return;
@@ -84,6 +93,14 @@ export function SettingsDialog({
               >
                 MCP
               </button>
+              <button
+                onClick={() => onSelectTab('im')}
+                className={`w-full text-left px-3 py-1.5 rounded-interactive text-[12px] transition-colors ${
+                  settingsTab === 'im' ? 'bg-light-gray/60 text-pure-black' : 'text-stone hover:bg-light-gray/30'
+                }`}
+              >
+                IM Channels
+              </button>
             </nav>
             <div className="mt-4 pt-4 border-t border-light-gray/50">
               <button
@@ -97,22 +114,33 @@ export function SettingsDialog({
           </aside>
 
           <div className="flex-1 flex flex-col min-w-0 bg-pure-white relative">
-            <div className="flex-1 overflow-y-auto p-6">
-              {settingsTab === 'general' && (
-                <GeneralSettingsPane
-                  alwaysExpandThinking={alwaysExpandThinking}
-                  onToggleAlwaysExpandThinking={onToggleAlwaysExpandThinking}
+            {settingsTab === 'im' ? (
+              <div className="flex-1 overflow-hidden p-6">
+                <ImSettingsPane
+                  webuiEnabled={webuiEnabled}
+                  webuiPassword={webuiPassword}
+                  webuiInfo={webuiInfo}
+                  onToggleWebuiEnabled={onToggleWebuiEnabled}
                 />
-              )}
-              {settingsTab === 'agents' && (
-                <AgentSettingsPane
-                  sortedDiscoveryStatus={sortedDiscoveryStatus}
-                  availableAgentsCount={availableAgentsCount}
-                  renderAgentLogo={renderAgentLogo}
-                />
-              )}
-              {settingsTab === 'mcp' && <McpSettingsPane />}
-            </div>
+              </div>
+            ) : (
+              <div className="flex-1 overflow-y-auto p-6">
+                {settingsTab === 'general' && (
+                  <GeneralSettingsPane
+                    alwaysExpandThinking={alwaysExpandThinking}
+                    onToggleAlwaysExpandThinking={onToggleAlwaysExpandThinking}
+                  />
+                )}
+                {settingsTab === 'agents' && (
+                  <AgentSettingsPane
+                    sortedDiscoveryStatus={sortedDiscoveryStatus}
+                    availableAgentsCount={availableAgentsCount}
+                    renderAgentLogo={renderAgentLogo}
+                  />
+                )}
+                {settingsTab === 'mcp' && <McpSettingsPane />}
+              </div>
+            )}
           </div>
         </div>
       </div>

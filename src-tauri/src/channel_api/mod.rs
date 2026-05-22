@@ -6,6 +6,11 @@ use serde::Deserialize;
 use tauri::State;
 use tauri_plugin_dialog::DialogExt;
 
+pub mod web;
+pub mod im;
+
+pub use im::{list_im_plugins, start_im_plugin, stop_im_plugin, approve_im_pairing, start_weixin_login, stop_weixin_login};
+
 use crate::{
     domain::{BackendError, *},
     gateway::Gateway,
@@ -15,6 +20,8 @@ use crate::{
 pub struct AppState {
     pub gateway: Arc<Gateway>,
     pub terminal_manager: Arc<crate::capability_services::terminal::TerminalManager>,
+    pub im_manager: Arc<im::ImChannelManager>,
+    pub webui_manager: Arc<web::manager::WebUiManager>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -633,4 +640,111 @@ pub async fn close_terminal(
         .close(&id)
         .await
         .map_err(|e| BackendError::new(ErrorCode::RuntimeError, e))
+}
+
+#[tauri::command]
+pub async fn get_webui_enabled(
+    state: State<'_, AppState>,
+) -> Result<bool, BackendError> {
+    let enabled_str = state
+        .gateway
+        .db
+        .get_system_setting("enable_webui")
+        .map_err(crate::gateway::GatewayError::from)
+        .map_err(BackendError::from)?
+        .unwrap_or_else(|| "false".to_string());
+    Ok(enabled_str == "true")
+}
+
+#[tauri::command]
+pub async fn set_webui_enabled(
+    state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+    enabled: bool,
+) -> Result<Option<String>, BackendError> {
+    state
+        .gateway
+        .db
+        .set_system_setting("enable_webui", &enabled.to_string())
+        .map_err(crate::gateway::GatewayError::from)
+        .map_err(BackendError::from)?;
+
+    let mut generated_password = None;
+
+    if enabled {
+        // Pre-generate auth config (including jwt_secret) before starting server,
+        // so both the server and token creation read the same secret.
+        let home_dir = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+        let config_path = home_dir.join(".oneagent").join("web_auth.json");
+        generated_password = web::auth::AuthService::ensure_initialized_at(&config_path);
+        // Force migration of jwt_secret into the config file
+        let _ = web::auth::AuthService::new();
+
+        let port = std::env::var("ONEAGENT_WEB_PORT")
+            .ok()
+            .and_then(|p| p.parse::<u16>().ok())
+            .unwrap_or(19520);
+
+        state.webui_manager.start(
+            state.gateway.clone(),
+            state.terminal_manager.clone(),
+            state.im_manager.clone(),
+            Some(app_handle),
+            port,
+            true,
+        ).await;
+    } else {
+        state.webui_manager.stop().await;
+    }
+
+    Ok(generated_password)
+}
+
+#[tauri::command]
+pub async fn get_webui_password() -> Result<Option<String>, BackendError> {
+    let home_dir = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    let config_path = home_dir.join(".oneagent").join("web_auth.json");
+    Ok(web::auth::AuthService::get_password_at(&config_path))
+}
+
+#[tauri::command]
+pub async fn get_webui_info(
+    state: State<'_, AppState>,
+) -> Result<Option<WebUiInfo>, BackendError> {
+    if !state.webui_manager.is_running().await {
+        return Ok(None);
+    }
+
+    let port: u16 = std::env::var("ONEAGENT_WEB_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(19520);
+
+    // Generate a JWT for auto-login URLs
+    let home_dir = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    let config_path = home_dir.join(".oneagent").join("web_auth.json");
+    let token = web::auth::AuthService::create_token(&config_path)
+        .unwrap_or_default();
+
+    let mut urls = vec![format!("http://127.0.0.1:{}/?token={}", port, token)];
+
+    // Detect LAN IP via UDP socket trick
+    if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+        if socket.connect("8.8.8.8:80").is_ok() {
+            if let Ok(local_addr) = socket.local_addr() {
+                let ip = local_addr.ip();
+                if !ip.is_loopback() {
+                    urls.push(format!("http://{}:{}/?token={}", ip, port, token));
+                }
+            }
+        }
+    }
+
+    Ok(Some(WebUiInfo { port, urls }))
+}
+
+#[derive(serde::Serialize)]
+pub struct WebUiInfo {
+    pub port: u16,
+    pub urls: Vec<String>,
 }

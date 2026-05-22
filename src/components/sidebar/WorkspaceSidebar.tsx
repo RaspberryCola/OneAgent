@@ -1,4 +1,4 @@
-import { PanelLeftClose, Plus, Search, Settings } from 'lucide-react';
+import { PanelLeftClose, Plus, Search, Settings, LogOut } from 'lucide-react';
 import type * as Types from '../../lib/backend/types';
 import { WorkspaceConversationGroup } from './WorkspaceConversationGroup';
 
@@ -25,6 +25,7 @@ interface WorkspaceSidebarProps {
   onToggleDeleteConversation: (conversationId: string) => void;
   onCancelDeleteConversation: (conversationId: string) => void;
   onOpenSettings: () => void;
+  onLogout?: () => void;
 }
 
 export function WorkspaceSidebar({
@@ -50,6 +51,7 @@ export function WorkspaceSidebar({
   onToggleDeleteConversation,
   onCancelDeleteConversation,
   onOpenSettings,
+  onLogout,
 }: WorkspaceSidebarProps) {
   return (
     <>
@@ -148,14 +150,23 @@ export function WorkspaceSidebar({
             </div>
           </div>
 
-          <div className="p-3 shrink-0">
+          <div className="p-3 shrink-0 space-y-1">
             <button
               onClick={onOpenSettings}
-              className="w-full flex items-center gap-2.5 px-3 py-1.5 text-small rounded-container hover:bg-snow transition-colors text-near-black text-left"
+              className="w-full flex items-center gap-2.5 px-3 py-1.5 text-small rounded-container hover:bg-light-gray/60 transition-colors text-near-black text-left"
             >
               <Settings className="w-3.5 h-3.5 shrink-0" />
               Settings
             </button>
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-small rounded-container hover:bg-light-gray/60 hover:text-rose-600 transition-colors text-near-black text-left"
+              >
+                <LogOut className="w-3.5 h-3.5 shrink-0" />
+                Sign Out
+              </button>
+            )}
           </div>
         </div>
       </aside>

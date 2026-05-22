@@ -12,7 +12,7 @@ use std::sync::Arc;
 use capability_services::system_path::{prime_process_path, write_path_diagnostics};
 use channel_api::AppState;
 use gateway::Gateway;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 pub fn bootstrap() -> Arc<Gateway> {
     prime_process_path();
@@ -32,18 +32,65 @@ pub fn run() {
     let gateway = bootstrap();
     let managed_gateway = gateway.clone();
     let terminal_manager = Arc::new(capability_services::terminal::TerminalManager::new());
+    let im_manager = Arc::new(channel_api::im::ImChannelManager::new(gateway.clone()));
+    let webui_manager = Arc::new(channel_api::web::manager::WebUiManager::new());
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             gateway: managed_gateway.clone(),
             terminal_manager,
+            im_manager: im_manager.clone(),
+            webui_manager: webui_manager.clone(),
         })
         .setup(move |app| {
             let handle = app.handle().clone();
+            let handle_for_emitter = handle.clone();
             let emitter = Arc::new(move |event: &str, payload: serde_json::Value| {
-                let _ = handle.emit(event, payload);
+                let _ = handle_for_emitter.emit(event, payload);
             });
             managed_gateway.attach_emitter(emitter);
+
+            // Register IM event sink to the event bus
+            let im_event_sink = Arc::new(channel_api::im::ImChannelEventSink::new(im_manager.clone()));
+            managed_gateway.runtime.event_bus.register(im_event_sink);
+
+            // Initialize IM plugins asynchronously
+            let im_manager_clone = im_manager.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = im_manager_clone.initialize_plugins().await {
+                    tracing::error!("Failed to initialize IM plugins: {}", e);
+                }
+            });
+
+            // Start axum web server if enabled in settings
+            let gateway_clone = managed_gateway.clone();
+            let terminal_manager_clone = app.state::<AppState>().terminal_manager.clone();
+            let im_manager_web = im_manager.clone();
+            let webui_manager_setup = webui_manager.clone();
+            let handle_clone = handle.clone();
+            
+            tauri::async_runtime::spawn(async move {
+                let enabled_str = gateway_clone.db.get_system_setting("enable_webui")
+                    .unwrap_or(None)
+                    .unwrap_or_else(|| "false".to_string());
+
+                if enabled_str == "true" {
+                    let port = std::env::var("ONEAGENT_WEB_PORT")
+                        .ok()
+                        .and_then(|p| p.parse::<u16>().ok())
+                        .unwrap_or(19520);
+                    webui_manager_setup.start(
+                         gateway_clone,
+                         terminal_manager_clone,
+                         im_manager_web,
+                         Some(handle_clone),
+                         port,
+                         true,
+                    ).await;
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -84,7 +131,17 @@ pub fn run() {
             channel_api::spawn_terminal,
             channel_api::write_to_terminal,
             channel_api::resize_terminal,
-            channel_api::close_terminal
+            channel_api::close_terminal,
+            channel_api::im::list_im_plugins,
+            channel_api::im::start_im_plugin,
+            channel_api::im::stop_im_plugin,
+            channel_api::im::approve_im_pairing,
+            channel_api::im::start_weixin_login,
+            channel_api::im::stop_weixin_login,
+            channel_api::get_webui_enabled,
+            channel_api::set_webui_enabled,
+            channel_api::get_webui_password,
+            channel_api::get_webui_info
         ])
         .run(tauri::generate_context!())
         .expect("error while running OneAgent Tauri application");

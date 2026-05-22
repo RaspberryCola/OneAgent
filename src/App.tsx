@@ -3,6 +3,7 @@ import { Bot, Loader2 } from "lucide-react";
 import { AnimatePresence } from "framer-motion";
 import { useAppStore } from "./lib/store";
 import * as API from "./lib/backend/commands";
+import { randomId } from "./lib/utils/randomId";
 import type * as Types from "./lib/backend/types";
 import { SettingsDialog } from "./components/settings/SettingsDialog";
 import { SearchOverlay } from "./components/search/SearchOverlay";
@@ -11,6 +12,8 @@ import { WorkspacePanel } from "./components/workspace/WorkspacePanel";
 import { AppShell } from "./screens/app/AppShell";
 import { ConversationScreen } from "./screens/conversation/ConversationScreen";
 import { HomeScreen } from "./screens/home/HomeScreen";
+import { LoginScreen } from "./screens/LoginScreen";
+import { IS_TAURI } from "./lib/backend/transport";
 import { TerminalPanel } from "./components/terminal/TerminalPanel";
 import { useScrollManager, useAttachmentHandler, useModelSelector, useModeSelector, useWorkspaceFileTree, useGitDiff, useSearch, useConversationComposer } from "./hooks";
 
@@ -182,7 +185,7 @@ export default function App() {
   const [isMobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isDesktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'general' | 'agents' | 'mcp'>('general');
+  const [settingsTab, setSettingsTab] = useState<'general' | 'agents' | 'mcp' | 'im'>('general');
   const [composerNotice, setComposerNotice] = useState<string | null>(null);
   const [pendingDeleteConversationId, setPendingDeleteConversationId] = useState<string | null>(null);
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(new Set());
@@ -201,6 +204,7 @@ export default function App() {
 
   const {
     isInitializing,
+    isAuthenticated,
     init,
     workspaces,
     activeWorkspace,
@@ -224,6 +228,11 @@ export default function App() {
     pickWorkspace,
     alwaysExpandThinking,
     setAlwaysExpandThinking,
+    webuiEnabled,
+    webuiPassword,
+    webuiInfo,
+    setWebuiEnabled,
+    logout,
   } = useAppStore();
 
   const activeAgent = agentProfiles.find((agent) => agent.id === activeAgentProfileId) ?? null;
@@ -433,7 +442,7 @@ export default function App() {
 
   useEffect(() => {
     if (activeWorkspace) {
-      const initialId = crypto.randomUUID();
+      const initialId = randomId();
       setTerminalTabs([
         {
           id: initialId,
@@ -452,7 +461,7 @@ export default function App() {
 
   const handleAddTerminalTab = () => {
     if (!activeWorkspace) return;
-    const newId = crypto.randomUUID();
+    const newId = randomId();
     const newTab = {
       id: newId,
       name: `Terminal ${nextTerminalNum}`,
@@ -483,7 +492,7 @@ export default function App() {
     setIsTerminalOpen((prev) => {
       const next = !prev;
       if (next && terminalTabs.length === 0 && activeWorkspace) {
-        const initialId = crypto.randomUUID();
+        const initialId = randomId();
         setTerminalTabs([
           {
             id: initialId,
@@ -617,6 +626,10 @@ export default function App() {
     );
   }
 
+  if (!isAuthenticated) {
+    return <LoginScreen />;
+  }
+
   return (
     <div className="flex h-screen w-full bg-pure-white font-body text-pure-black selection:bg-light-gray overflow-hidden">
       <input
@@ -685,6 +698,7 @@ export default function App() {
           setPendingDeleteConversationId((current) => (current === conversationId ? null : current));
         }}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onLogout={!IS_TAURI ? logout : undefined}
       />
 
       <AppShell
@@ -832,6 +846,10 @@ export default function App() {
             renderAgentLogo={(agent, className) => (
               <AgentLogo agent={agent} className={className} />
             )}
+            webuiEnabled={webuiEnabled}
+            webuiPassword={webuiPassword}
+            webuiInfo={webuiInfo}
+            onToggleWebuiEnabled={() => setWebuiEnabled(!webuiEnabled)}
           />
         )}
       </AnimatePresence>

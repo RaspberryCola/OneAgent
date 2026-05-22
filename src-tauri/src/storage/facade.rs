@@ -2,8 +2,9 @@ use crate::domain::*;
 use crate::storage::error::StorageResult;
 use crate::storage::repositories::{
     AgentProfileRepository, BindingRepository, ConversationRepository, EventRepository,
-    McpRepository, MessageRepository, PermissionRepository, SkillRepository, SnapshotRepository,
-    TaskRunRepository, TerminalRepository, ToolCallRepository, WorkspaceRepository,
+    McpRepository, MessageRepository, PermissionRepository, SettingsRepository, SkillRepository,
+    SnapshotRepository, TaskRunRepository, TerminalRepository, ToolCallRepository,
+    WorkspaceRepository,
 };
 use crate::storage::Database;
 
@@ -297,5 +298,13 @@ impl Database {
 
     pub fn list_skills(&self) -> StorageResult<Vec<SkillRecord>> {
         SkillRepository::new(&self.conn.lock()).list()
+    }
+
+    pub fn get_system_setting(&self, key: &str) -> StorageResult<Option<String>> {
+        SettingsRepository::new(&self.conn.lock()).get(key)
+    }
+
+    pub fn set_system_setting(&self, key: &str, value: &str) -> StorageResult<()> {
+        SettingsRepository::new(&self.conn.lock()).set(key, value)
     }
 }

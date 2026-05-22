@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type * as Types from './backend/types';
 import * as API from './backend/commands';
 import * as Events from './backend/events';
+import { IS_TAURI, getToken, subscribeAuthState, login as apiLogin, logout as apiLogout } from './backend/transport';
 import {
   readSettingsStorage,
   writeSettingsStorage,
@@ -126,6 +127,7 @@ async function refreshActiveConversation(
 
 interface AppState {
   isInitializing: boolean;
+  isAuthenticated: boolean;
   hasEventSubscriptions: boolean;
 
   // Workspace
@@ -158,6 +160,9 @@ interface AppState {
 
   // User Settings
   alwaysExpandThinking: boolean;
+  webuiEnabled: boolean;
+  webuiPassword: string | null;
+  webuiInfo: { port: number; urls: string[] } | null;
 
   // Actions
   init: () => Promise<void>;
@@ -182,6 +187,10 @@ interface AppState {
 
   // Settings Actions
   setAlwaysExpandThinking: (value: boolean) => void;
+  setWebuiEnabled: (value: boolean) => Promise<string | null>;
+
+  login: (password: string) => Promise<boolean>;
+  logout: () => Promise<void>;
 
   // Event Handlers
   _setupEventSubscriptions: () => void;
@@ -189,6 +198,7 @@ interface AppState {
 
 export const useAppStore = create<AppState>((set, get) => ({
   isInitializing: true,
+  isAuthenticated: IS_TAURI || !!getToken(),
   hasEventSubscriptions: false,
 
   workspaces: [],
@@ -213,8 +223,15 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Initialize settings from localStorage
   alwaysExpandThinking: readSettingsStorage()?.alwaysExpandThinking ?? false,
+  webuiEnabled: false,
+  webuiPassword: null,
+  webuiInfo: null,
 
   init: async () => {
+    if (!IS_TAURI && !getToken()) {
+      set({ isAuthenticated: false, isInitializing: false });
+      return;
+    }
     try {
       // 1. Load all workspaces from backend
       const allWorkspaces = await API.listWorkspaces();
@@ -236,6 +253,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       const workspaceConversations = new Map<string, Types.Conversation[]>();
       workspaceConversations.set(defaultWorkspace.id, bootstrapData.conversations);
 
+      let webuiEnabled = false;
+      let webuiPassword: string | null = null;
+      let webuiInfo: { port: number; urls: string[] } | null = null;
+      if (IS_TAURI) {
+        try {
+          webuiEnabled = await API.getWebuiEnabled();
+          if (webuiEnabled) {
+            webuiPassword = await API.getWebuiPassword();
+            webuiInfo = await API.getWebuiInfo();
+          }
+        } catch (error) {
+          console.error('Failed to get WebUI setting', error);
+        }
+      }
+
       set({
         workspaces,
         activeWorkspace: bootstrapData.workspace,
@@ -248,6 +280,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         activeAgentProfileId: bootstrapData.agent_profiles.length > 0 ? bootstrapData.agent_profiles[0].id : null,
         activeConversationState: null,
         isInitializing: false,
+        isAuthenticated: true,
+        webuiEnabled,
+        webuiPassword,
+        webuiInfo,
       });
 
       // 4. Set up event listeners
@@ -957,6 +993,50 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ alwaysExpandThinking: value });
   },
 
+  setWebuiEnabled: async (value: boolean) => {
+    let generatedPassword: string | null = null;
+    if (IS_TAURI) {
+      try {
+        generatedPassword = await API.setWebuiEnabled(value);
+      } catch (error) {
+        console.error('Failed to set WebUI setting', error);
+        throw error;
+      }
+    }
+    // If enabling, fetch or use the generated password; if disabling, clear it
+    let webuiPassword: string | null = null;
+    let webuiInfo: { port: number; urls: string[] } | null = null;
+    if (value) {
+      webuiPassword = generatedPassword ?? await API.getWebuiPassword();
+      webuiInfo = await API.getWebuiInfo();
+    }
+    set({ webuiEnabled: value, webuiPassword, webuiInfo });
+    return generatedPassword;
+  },
+
+  login: async (password: string) => {
+    const success = await apiLogin(password);
+    if (success) {
+      set({ isAuthenticated: true });
+      await get().init();
+    }
+    return success;
+  },
+
+  logout: async () => {
+    await apiLogout();
+    set({
+      isAuthenticated: false,
+      workspaces: [],
+      activeWorkspace: null,
+      conversations: [],
+      activeConversationId: null,
+      activeConversationState: null,
+      activeTimeline: null,
+      activeTimelineItems: [],
+    });
+  },
+
   _setupEventSubscriptions: () => {
     if (get().hasEventSubscriptions) return;
     set({ hasEventSubscriptions: true });
@@ -1261,3 +1341,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   }
 }));
+
+// Subscribe to auth state updates
+if (typeof window !== 'undefined') {
+  subscribeAuthState((isAuthenticated) => {
+    const store = useAppStore.getState();
+    if (store && store.isAuthenticated !== isAuthenticated) {
+      useAppStore.setState({ isAuthenticated });
+    }
+  });
+}

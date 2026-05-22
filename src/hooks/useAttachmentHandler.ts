@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useMemo } from 'react';
 import * as API from '../lib/backend/commands';
 import type * as Types from '../lib/backend/types';
 import { ATTACHMENT_LIMITS } from '../lib/constants';
+import { randomId } from '../lib/utils/randomId';
 
 export type LocalAttachment = {
   id: string;
@@ -236,7 +237,7 @@ async function materializeAttachment(file: File, source: LocalAttachment['source
   }
   const mimeType = file.type || 'application/octet-stream';
   return {
-    id: crypto.randomUUID(),
+    id: randomId(),
     name: file.name,
     path,
     mimeType,
