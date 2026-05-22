@@ -12,7 +12,7 @@ import { AppShell } from "./screens/app/AppShell";
 import { ConversationScreen } from "./screens/conversation/ConversationScreen";
 import { HomeScreen } from "./screens/home/HomeScreen";
 import { TerminalPanel } from "./components/terminal/TerminalPanel";
-import { useScrollManager, useAttachmentHandler, useModelSelector, useModeSelector, useWorkspaceFileTree, useSearch, useConversationComposer } from "./hooks";
+import { useScrollManager, useAttachmentHandler, useModelSelector, useModeSelector, useWorkspaceFileTree, useGitDiff, useSearch, useConversationComposer } from "./hooks";
 
 const AGENT_LOGOS: Record<string, string> = {
   // providers
@@ -123,12 +123,12 @@ function statusMeta(
     if (runtime.connection_phase === "initializing") {
       return { label: "Initializing", dot: "bg-amber-500", pulse: true };
     }
-    return { label: "Sleep", dot: "bg-stone-400", pulse: false };
+    return { label: "Sleep", dot: "bg-black", pulse: false };
   }
 
   switch (fallbackStatus) {
     case "sleep":
-      return { label: "Sleep", dot: "bg-stone-400", pulse: false };
+      return { label: "Sleep", dot: "bg-black", pulse: false };
     case "initializing":
     case "starting":
       return { label: "Initializing", dot: "bg-amber-500", pulse: true };
@@ -284,6 +284,16 @@ export default function App() {
     workspaceId: activeWorkspace?.id ?? null,
     cwd: activeWorkspace?.cwd ?? null,
     enabled: true,
+  });
+
+  const {
+    data: gitDiffData,
+    isLoading: isGitDiffLoading,
+    error: gitDiffError,
+    refresh: refreshGitDiff,
+  } = useGitDiff({
+    cwd: activeWorkspace?.cwd ?? null,
+    enabled: isWorkspacePanelOpen,
   });
 
   const {
@@ -800,6 +810,10 @@ export default function App() {
             loadingDirs={workspaceLoadingDirs}
             dirErrors={workspaceDirErrors}
             onToggleDirectory={toggleWorkspaceDirectory}
+            gitDiffData={gitDiffData}
+            isGitDiffLoading={isGitDiffLoading}
+            gitDiffError={gitDiffError}
+            onRefreshGitDiff={refreshGitDiff}
           />
         ) : null}
       />

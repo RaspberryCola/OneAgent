@@ -266,6 +266,53 @@ pub async fn list_workspace_files(
 }
 
 #[tauri::command]
+pub async fn git_diff(cwd: String) -> Result<GitDiffResult, BackendError> {
+    let workspace_path = std::path::PathBuf::from(&cwd);
+    if !workspace_path.exists() {
+        return Err(BackendError::new(
+            ErrorCode::InvalidWorkspacePath,
+            format!("Workspace path does not exist: {cwd}"),
+        ));
+    }
+    if !workspace_path.is_dir() {
+        return Err(BackendError::new(
+            ErrorCode::InvalidWorkspacePath,
+            format!("Workspace path is not a directory: {cwd}"),
+        ));
+    }
+
+    async fn git_output(cwd: &str, args: &[&str]) -> Result<String, BackendError> {
+        let o = tokio::process::Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .output()
+            .await
+            .map_err(|e| {
+                BackendError::new(
+                    ErrorCode::RuntimeError,
+                    format!("Failed to run git: {e}"),
+                )
+            })?;
+        if o.status.success() || o.status.code() == Some(1) {
+            // git diff exits 1 when there are differences
+            Ok(String::from_utf8_lossy(&o.stdout).to_string())
+        } else {
+            Err(BackendError::new(
+                ErrorCode::RuntimeError,
+                String::from_utf8_lossy(&o.stderr).to_string(),
+            ))
+        }
+    }
+
+    let (unstaged, staged) = tokio::try_join!(
+        git_output(&cwd, &["diff"]),
+        git_output(&cwd, &["diff", "--cached"])
+    )?;
+
+    Ok(GitDiffResult { unstaged, staged })
+}
+
+#[tauri::command]
 pub async fn list_conversations(
     state: State<'_, AppState>,
     workspace_id: String,

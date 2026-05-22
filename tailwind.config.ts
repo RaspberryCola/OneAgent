@@ -26,6 +26,16 @@ export default {
         silver: "#a3a3a3",
         yellow: "#eab308",
         green: "#22c55e",
+        emerald: {
+          50: "#ecfdf5",
+          600: "#059669",
+          900: "#064e3b",
+        },
+        rose: {
+          50: "#fff1f2",
+          500: "#f43f5e",
+          800: "#9f1239",
+        },
         button: {
           text: {
             dark: "#404040",
@@ -81,6 +91,12 @@ export default {
   safelist: [
       "bg-yellow",
       "bg-green",
+      "bg-emerald-50",
+      "text-emerald-600",
+      "text-emerald-900",
+      "bg-rose-50",
+      "text-rose-500",
+      "text-rose-800",
     ],
     plugins: [],
 };

@@ -59,6 +59,11 @@ export interface WorkspaceFileEntry {
   modified_at?: string | null;
 }
 
+export interface GitDiffResult {
+  unstaged: string;
+  staged: string;
+}
+
 export interface AgentProfile {
   id: string;
   kind: 'acp' | 'compat';

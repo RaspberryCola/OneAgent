@@ -906,3 +906,9 @@ pub struct TimelineResponse {
     #[serde(default)]
     pub terminals: Vec<TerminalRecord>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitDiffResult {
+    pub unstaged: String,
+    pub staged: String,
+}

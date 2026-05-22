@@ -30,6 +30,12 @@ export type {
   UseWorkspaceFileTreeReturn,
 } from './useWorkspaceFileTree';
 
+export { useGitDiff } from './useGitDiff';
+export type {
+  UseGitDiffOptions,
+  UseGitDiffReturn,
+} from './useGitDiff';
+
 export { useSearch } from './useSearch';
 export type { UseSearchOptions, UseSearchReturn } from './useSearch';
 

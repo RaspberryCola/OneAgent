@@ -62,7 +62,7 @@ export function TerminalPanel({
 
   return (
     <div
-      className="border-t border-light-gray bg-snow flex flex-col relative z-20"
+      className="border-t border-light-gray bg-pure-white flex flex-col relative z-20"
       style={{ height: `${height}px`, display: isOpen ? 'flex' : 'none' }}
     >
       {/* Draggable top handle with subtle hover indicator */}
@@ -74,7 +74,7 @@ export function TerminalPanel({
         <div className="w-full h-[2px] bg-transparent group-hover:bg-stone/30 transition-colors" />
       </div>
       {/* Tabs Header bar */}
-      <div className="h-10 px-4 border-b border-light-gray flex items-center justify-between shrink-0 select-none bg-pure-white">
+      <div className="h-10 px-4 flex items-center justify-between shrink-0 select-none bg-pure-white">
         <div className="flex items-center gap-1.5 overflow-x-auto min-w-0">
           {tabs.map((tab) => (
             <div
@@ -122,7 +122,7 @@ export function TerminalPanel({
       </div>
 
       {/* Terminals body */}
-      <div className="flex-1 min-h-0 bg-[#fafafa] text-pure-black border-t border-light-gray/60 relative overflow-hidden">
+      <div className="flex-1 min-h-0 bg-pure-white text-pure-black relative overflow-hidden">
         {tabs.map((tab) => (
           <div
             key={tab.id}
@@ -172,7 +172,7 @@ function SingleTerminalInstance({ id, cwd, isActive }: SingleTerminalInstancePro
       minimumContrastRatio: 4.5,
       scrollback: 5000,
       theme: {
-        background: '#fafafa',
+        background: '#ffffff',
         foreground: '#1c1917',
         cursor: '#78716c',
         selectionBackground: 'rgba(0, 0, 0, 0.08)',

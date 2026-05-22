@@ -1,6 +1,12 @@
-import { Loader2 } from 'lucide-react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { Loader2, FileCode, GitCompareArrows } from 'lucide-react';
 import type * as Types from '../../lib/backend/types';
 import { WorkspaceFileTree } from './WorkspaceFileTree';
+import { DiffPanel } from './DiffPanel';
+
+const MIN_WIDTH = 200;
+const MAX_WIDTH = 600;
+const DEFAULT_WIDTH = 320;
 
 interface WorkspacePanelProps {
   isOpen: boolean;
@@ -13,7 +19,13 @@ interface WorkspacePanelProps {
   loadingDirs: Set<string>;
   dirErrors: Record<string, string>;
   onToggleDirectory: (path: string) => void;
+  gitDiffData: Types.GitDiffResult | null;
+  isGitDiffLoading: boolean;
+  gitDiffError: string | null;
+  onRefreshGitDiff: () => void;
 }
+
+type SidebarTab = 'files' | 'diff';
 
 export function WorkspacePanel({
   isOpen,
@@ -26,42 +38,123 @@ export function WorkspacePanel({
   loadingDirs,
   dirErrors,
   onToggleDirectory,
+  gitDiffData,
+  isGitDiffLoading,
+  gitDiffError,
+  onRefreshGitDiff,
 }: WorkspacePanelProps) {
+  const [activeTab, setActiveTab] = useState<SidebarTab>('files');
+  const [width, setWidth] = useState(DEFAULT_WIDTH);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    return () => { dragCleanupRef.current?.(); };
+  }, []);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+
+    const startX = e.clientX;
+    const startWidth = width;
+
+    const onMouseMove = (e: MouseEvent) => {
+      const delta = startX - e.clientX; // dragging left increases width
+      const newWidth = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + delta));
+      setWidth(newWidth);
+    };
+
+    const onMouseUp = () => {
+      setIsDragging(false);
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      dragCleanupRef.current = null;
+    };
+
+    dragCleanupRef.current = onMouseUp;
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [width]);
+
   return (
     <aside
-      className={`bg-snow transition-all duration-200 ${
-        isOpen ? 'w-[320px]' : 'w-0 overflow-hidden'
-      }`}
+      className={`bg-snow relative flex-shrink-0 ${
+        isDragging ? '' : 'transition-all duration-200'
+      } ${isOpen ? '' : 'w-0 overflow-hidden'}`}
+      style={isOpen ? { width } : undefined}
     >
-      <div className="w-[320px] h-full flex flex-col">
-        <div className="px-4 py-3 border-b border-light-gray/40">
-          <div className="text-[11px] text-stone truncate" title={cwd ?? ''}>
+      {/* resize handle */}
+      <div
+        className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-light-gray/60 z-10"
+        onMouseDown={handleMouseDown}
+      />
+      <div className="h-full flex flex-col" style={isOpen ? { width } : undefined}>
+        <div className="px-4 py-3 border-b border-light-gray/40 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-0.5 shrink-0">
+            <button
+              onClick={() => setActiveTab('files')}
+              className={`p-1.5 rounded-interactive transition-colors ${
+                activeTab === 'files'
+                  ? 'bg-light-gray text-pure-black'
+                  : 'text-stone hover:bg-light-gray/40 hover:text-pure-black'
+              }`}
+              title="Files"
+            >
+              <FileCode className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setActiveTab('diff')}
+              className={`p-1.5 rounded-interactive transition-colors ${
+                activeTab === 'diff'
+                  ? 'bg-light-gray text-pure-black'
+                  : 'text-stone hover:bg-light-gray/40 hover:text-pure-black'
+              }`}
+              title="Diff"
+            >
+              <GitCompareArrows className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <div className="text-[11px] text-stone truncate min-w-0 text-right" title={cwd ?? ''}>
             {cwd ?? 'No active workspace'}
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-3">
-          {isRootLoading ? (
-            <div className="h-full flex items-center justify-center gap-2 text-[12px] text-stone">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span>Loading files...</span>
-            </div>
-          ) : rootError ? (
-            <div className="p-3 rounded-container border border-light-gray/60 bg-snow text-[12px] text-stone">
-              {rootError}
-            </div>
-          ) : rootFiles.length === 0 ? (
-            <div className="p-3 rounded-container border border-light-gray/60 bg-snow text-[12px] text-stone">
-              No files found in this workspace root.
-            </div>
+          {activeTab === 'files' ? (
+            isRootLoading ? (
+              <div className="h-full flex items-center justify-center gap-2 text-[12px] text-stone">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Loading files...</span>
+              </div>
+            ) : rootError ? (
+              <div className="p-3 rounded-container border border-light-gray/60 bg-snow text-[12px] text-stone">
+                {rootError}
+              </div>
+            ) : rootFiles.length === 0 ? (
+              <div className="p-3 rounded-container border border-light-gray/60 bg-snow text-[12px] text-stone">
+                No files found in this workspace root.
+              </div>
+            ) : (
+              <WorkspaceFileTree
+                entries={rootFiles}
+                expandedDirs={expandedDirs}
+                loadingDirs={loadingDirs}
+                dirChildren={dirChildren}
+                dirErrors={dirErrors}
+                onToggleDirectory={onToggleDirectory}
+              />
+            )
           ) : (
-            <WorkspaceFileTree
-              entries={rootFiles}
-              expandedDirs={expandedDirs}
-              loadingDirs={loadingDirs}
-              dirChildren={dirChildren}
-              dirErrors={dirErrors}
-              onToggleDirectory={onToggleDirectory}
+            <DiffPanel
+              data={gitDiffData}
+              isLoading={isGitDiffLoading}
+              error={gitDiffError}
+              onRefresh={onRefreshGitDiff}
             />
           )}
         </div>

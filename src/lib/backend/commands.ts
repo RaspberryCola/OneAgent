@@ -46,6 +46,10 @@ export async function listWorkspaceFiles(cwd: string, directoryPath?: string): P
   return invoke('list_workspace_files', { cwd, directoryPath });
 }
 
+export async function getGitDiff(cwd: string): Promise<Types.GitDiffResult> {
+  return invoke('git_diff', { cwd });
+}
+
 // Conversation / Task
 export async function listConversations(workspaceId: string, filter?: Types.ConversationFilter): Promise<Types.Conversation[]> {
   return invoke('list_conversations', { workspaceId, filter });
