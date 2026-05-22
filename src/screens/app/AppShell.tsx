@@ -55,10 +55,10 @@ export function AppShell({
 }: AppShellProps) {
   return (
     <>
-      <main className="flex-1 flex flex-col min-w-0 h-screen bg-pure-white relative">
+      <main className="flex-1 flex flex-col min-w-0 h-dvh bg-pure-white relative">
         <header className="h-14 flex items-center justify-between px-4 shrink-0 bg-pure-white z-10 w-full">
           <div className="flex items-center gap-3 min-w-0">
-            <button className="md:hidden p-2 shrink-0 text-stone hover:text-pure-black rounded-interactive hover:bg-snow transition-colors" onClick={onOpenMobileSidebar}>
+            <button className="md:hidden p-2.5 shrink-0 text-stone hover:text-pure-black rounded-interactive hover:bg-snow transition-colors min-h-[44px] flex items-center justify-center" onClick={onOpenMobileSidebar}>
               <Menu className="w-5 h-5" />
             </button>
             {!isDesktopSidebarOpen && (
@@ -93,7 +93,7 @@ export function AppShell({
               <button
                 type="button"
                 onClick={onToggleTerminal}
-                className={`p-1 shrink-0 rounded-interactive transition-colors hover:bg-light-gray/50 ${
+                className={`md:min-h-0 min-h-[44px] p-2 shrink-0 rounded-interactive transition-colors hover:bg-light-gray/50 ${
                   isTerminalOpen ? 'text-pure-black' : 'text-stone hover:text-pure-black'
                 }`}
                 title="Toggle terminal"
@@ -107,7 +107,7 @@ export function AppShell({
               <button
                 type="button"
                 onClick={onToggleWorkspacePanel}
-                className={`p-1 shrink-0 rounded-interactive transition-colors hover:bg-light-gray/50 ${
+                className={`md:min-h-0 min-h-[44px] p-2 shrink-0 rounded-interactive transition-colors hover:bg-light-gray/50 ${
                   isWorkspacePanelOpen ? 'text-pure-black' : 'text-stone hover:text-pure-black'
                 }`}
                 title="Toggle workspace panel"

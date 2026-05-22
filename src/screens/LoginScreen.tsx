@@ -31,7 +31,7 @@ export function LoginScreen() {
   };
 
   return (
-    <div className="flex h-screen w-full items-center justify-center bg-snow px-4">
+    <div className="flex h-dvh w-full items-center justify-center bg-snow px-4">
       <div className="w-full max-w-sm rounded-container border border-border-light bg-pure-white p-8 shadow-none">
         <div className="flex flex-col items-center mb-8">
           <div className="flex h-12 w-12 items-center justify-center rounded-interactive bg-pure-black text-pure-white mb-4">

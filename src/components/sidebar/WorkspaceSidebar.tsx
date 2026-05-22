@@ -122,10 +122,10 @@ export function WorkspaceSidebar({
           fixed md:relative inset-y-0 left-0 z-30
           bg-snow shrink-0 flex flex-col
           ${isDragging ? '' : 'transition-all duration-300 ease-in-out'}
-          ${isMobileSidebarOpen ? 'translate-x-0 border-r border-light-gray' : '-translate-x-full md:translate-x-0'}
+          ${isMobileSidebarOpen ? 'translate-x-0 border-r border-light-gray w-full' : '-translate-x-full md:translate-x-0'}
           ${isDesktopSidebarOpen ? '' : 'md:w-0 md:overflow-hidden'}
         `}
-        style={{ width: isDesktopSidebarOpen ? sidebarWidth : undefined }}
+        style={{ width: isMobileSidebarOpen ? undefined : (isDesktopSidebarOpen ? sidebarWidth : undefined) }}
       >
         <div className="h-full flex flex-col" style={{ width: sidebarWidth }}>
           <div className="p-3 shrink-0">
@@ -135,14 +135,14 @@ export function WorkspaceSidebar({
               </div>
               <button
                 onClick={onCloseDesktopSidebar}
-                className="hidden md:flex p-1 text-stone hover:text-pure-black rounded-interactive hover:bg-light-gray/50 transition-colors"
+                className="hidden md:flex p-2 text-stone hover:text-pure-black rounded-interactive hover:bg-light-gray/50 transition-colors"
                 title={t("closeSidebar")}
               >
                 <PanelLeftClose className="w-[18px] h-[18px]" />
               </button>
               <button
                 onClick={onCloseMobileSidebar}
-                className="md:hidden p-1 text-stone hover:text-pure-black rounded-interactive hover:bg-light-gray/50 transition-colors"
+                className="md:hidden p-2.5 text-stone hover:text-pure-black rounded-interactive hover:bg-light-gray/50 transition-colors min-h-[44px] flex items-center justify-center"
               >
                 <PanelLeftClose className="w-[18px] h-[18px]" />
               </button>
@@ -151,7 +151,7 @@ export function WorkspaceSidebar({
             <div className="space-y-0.5">
               <button
                 onClick={onNewChat}
-                className={`w-full text-left px-3 py-1.5 rounded-container flex items-center gap-2.5 transition-colors min-w-0 ${
+                className={`md:min-h-0 min-h-[44px] w-full text-left px-3 py-2 rounded-container flex items-center gap-2.5 transition-colors min-w-0 ${
                   activeConversationId === null ? 'text-pure-black font-medium bg-light-gray' : 'text-near-black hover:bg-light-gray/60'
                 }`}
               >
@@ -160,7 +160,7 @@ export function WorkspaceSidebar({
               </button>
               <button
                 onClick={onOpenSearch}
-                className="w-full text-left px-3 py-1.5 rounded-container flex items-center gap-2.5 transition-colors min-w-0 text-near-black hover:bg-light-gray/60"
+                className="md:min-h-0 min-h-[44px] w-full text-left px-3 py-2 rounded-container flex items-center gap-2.5 transition-colors min-w-0 text-near-black hover:bg-light-gray/60"
               >
                 <Search className="w-3.5 h-3.5 shrink-0" />
                 <span className="text-caption truncate w-full block">{t("search")}</span>
@@ -176,7 +176,7 @@ export function WorkspaceSidebar({
               <button
                 type="button"
                 onClick={onOpenWorkspacePicker}
-                className="rounded-container p-1.5 text-stone transition-colors hover:bg-light-gray/60 hover:text-pure-black"
+                className="md:min-h-0 min-h-[44px] rounded-container p-2 text-stone transition-colors hover:bg-light-gray/60 hover:text-pure-black flex items-center justify-center"
                 title={t("openWorkspace")}
                 aria-label={t("openWorkspace")}
               >
@@ -214,7 +214,7 @@ export function WorkspaceSidebar({
           <div className="p-3 shrink-0 space-y-1">
             <button
               onClick={onOpenSettings}
-              className="w-full flex items-center gap-2.5 px-3 py-1.5 text-small rounded-container hover:bg-light-gray/60 transition-colors text-near-black text-left"
+              className="md:min-h-0 min-h-[44px] w-full flex items-center gap-2.5 px-3 py-2 text-small rounded-container hover:bg-light-gray/60 transition-colors text-near-black text-left"
             >
               <Settings className="w-3.5 h-3.5 shrink-0" />
               {t("settings")}
@@ -222,7 +222,7 @@ export function WorkspaceSidebar({
             {onLogout && (
               <button
                 onClick={onLogout}
-                className="w-full flex items-center gap-2.5 px-3 py-1.5 text-small rounded-container hover:bg-light-gray/60 hover:text-rose-600 transition-colors text-near-black text-left"
+                className="md:min-h-0 min-h-[44px] w-full flex items-center gap-2.5 px-3 py-2 text-small rounded-container hover:bg-light-gray/60 hover:text-rose-600 transition-colors text-near-black text-left"
               >
                 <LogOut className="w-3.5 h-3.5 shrink-0" />
                 {t("signOut")}

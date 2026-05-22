@@ -194,7 +194,7 @@ export function Composer({
         <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
-            className={`${isCompact ? 'p-1.5' : 'p-2'} text-stone hover:text-pure-black rounded-interactive hover:bg-light-gray/50 transition-colors shrink-0`}
+            className={`md:min-h-0 min-h-[44px] ${isCompact ? 'p-2' : 'p-2'} text-stone hover:text-pure-black rounded-interactive hover:bg-light-gray/50 transition-colors shrink-0 flex items-center justify-center`}
             title={t("addAttachment")}
             onClick={onAttachClick}
           >
@@ -282,7 +282,7 @@ export function Composer({
         {isBusy ? (
           <button
             type="button"
-            className={`${isCompact ? 'p-1.5' : 'p-2.5'} rounded-interactive shrink-0 flex items-center justify-center bg-light-gray text-pure-black hover:bg-mid-gray transition-colors`}
+            className={`md:min-h-0 min-h-[44px] ${isCompact ? 'p-2' : 'p-2.5'} rounded-interactive shrink-0 flex items-center justify-center bg-light-gray text-pure-black hover:bg-mid-gray transition-colors`}
             onClick={onStop}
           >
             <Square className={isCompact ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
@@ -290,7 +290,7 @@ export function Composer({
         ) : (
           <button
             type="button"
-            className={`${isCompact ? 'p-1.5' : 'p-2.5'} rounded-interactive transition-colors shrink-0 flex items-center justify-center ${canSend ? 'bg-pure-black text-pure-white' : 'bg-light-gray text-silver'}`}
+            className={`md:min-h-0 min-h-[44px] ${isCompact ? 'p-2' : 'p-2.5'} rounded-interactive transition-colors shrink-0 flex items-center justify-center ${canSend ? 'bg-pure-black text-pure-white' : 'bg-light-gray text-silver'}`}
             disabled={!canSend}
             onClick={onSend}
           >

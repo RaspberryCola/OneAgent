@@ -47,7 +47,7 @@ export function WorkspaceConversationGroup({
         <button
           type="button"
           onClick={() => onToggleExpand(workspace.id)}
-          className="w-full text-left px-3 py-1 pr-20 rounded-container flex items-center gap-2.5 transition-colors min-w-0 text-near-black hover:bg-light-gray/50"
+          className="md:min-h-0 min-h-[44px] w-full text-left px-3 py-2 pr-20 rounded-container flex items-center gap-2.5 transition-colors min-w-0 text-near-black hover:bg-light-gray/50"
         >
           {isExpanded ? (
             <FolderOpen className="w-3.5 h-3.5 shrink-0 text-stone" />
@@ -64,7 +64,7 @@ export function WorkspaceConversationGroup({
               event.stopPropagation();
               onStartWorkspaceChat(workspace);
             }}
-            className="rounded-container p-1.5 text-stone opacity-0 transition-all hover:bg-light-gray/60 hover:text-pure-black focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
+            className="md:min-h-0 min-h-[44px] rounded-container p-2 text-stone opacity-0 transition-all hover:bg-light-gray/60 hover:text-pure-black focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 flex items-center justify-center"
             title={`New chat in ${getWorkspaceLabel(workspace)}`}
             aria-label={`New chat in ${getWorkspaceLabel(workspace)}`}
           >
@@ -76,7 +76,7 @@ export function WorkspaceConversationGroup({
               event.stopPropagation();
               setShowMenu(!showMenu);
             }}
-            className="rounded-container p-1.5 text-stone opacity-0 transition-all hover:bg-light-gray/60 hover:text-pure-black focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
+            className="md:min-h-0 min-h-[44px] rounded-container p-2 text-stone opacity-0 transition-all hover:bg-light-gray/60 hover:text-pure-black focus:opacity-100 focus-visible:opacity-100 group-hover:opacity-100 flex items-center justify-center"
             title="More actions"
             aria-label="More actions"
           >

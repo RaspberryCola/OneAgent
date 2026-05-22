@@ -620,7 +620,7 @@ export default function App() {
 
   if (isInitializing) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-pure-white text-pure-black">
+      <div className="flex h-dvh w-full items-center justify-center bg-pure-white text-pure-black">
         <Loader2 className="w-6 h-6 animate-spin text-stone" />
       </div>
     );
@@ -631,7 +631,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen w-full bg-pure-white font-body text-pure-black selection:bg-light-gray overflow-hidden">
+    <div className="flex h-dvh w-full bg-pure-white font-body text-pure-black selection:bg-light-gray overflow-hidden">
       <input
         ref={fileInputRef as RefObject<HTMLInputElement>}
         type="file"
