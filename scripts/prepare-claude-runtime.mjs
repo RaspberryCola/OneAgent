@@ -24,9 +24,11 @@ function ensureDir(path) {
 
 function run(command, args, options = {}) {
   return new Promise((resolvePromise, rejectPromise) => {
+    // Windows requires shell: true to find .cmd files like npm.cmd
+    const useShell = process.platform === "win32" || options.shell;
     const child = spawn(command, args, {
       stdio: "inherit",
-      shell: false,
+      shell: useShell,
       ...options,
     });
     child.on("exit", (code) => {

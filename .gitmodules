@@ -1,0 +1,3 @@
+[submodule "src-tauri/wechatbot"]
+	path = src-tauri/wechatbot
+	url = https://github.com/corespeed-io/wechatbot.git
