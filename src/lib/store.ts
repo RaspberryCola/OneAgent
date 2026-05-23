@@ -580,15 +580,33 @@ export const useAppStore = create<AppState>((set, get) => ({
         set((s) => {
           const wsConv = new Map(s.workspaceConversations);
           const convs = wsConv.get(activeWsId) ?? [];
-          const updatedConvs = convs.map((conversation) =>
+
+          // Replace pending conversation with real one
+          let updatedConvs = convs.map((conversation) =>
             conversation.id === pendingConversationId ? newConvState.conversation : conversation
           );
+
+          // Deduplicate: remove any duplicate that may have been added via state_changed event
+          // (race condition: event arrives before replacement completes)
+          const realId = newConvState.conversation.id;
+          updatedConvs = updatedConvs.filter((conv, index, self) =>
+            self.findIndex(c => c.id === conv.id) === index
+          );
+
           wsConv.set(activeWsId, updatedConvs);
+
+          // Also deduplicate the conversations list
+          const deduplicatedConversations = s.conversations
+            .map((conversation) =>
+              conversation.id === pendingConversationId ? newConvState.conversation : conversation
+            )
+            .filter((conv, index, self) =>
+              self.findIndex(c => c.id === conv.id) === index
+            );
+
           return {
             workspaceConversations: wsConv,
-            conversations: s.conversations.map((conversation) =>
-              conversation.id === pendingConversationId ? newConvState.conversation : conversation
-            ),
+            conversations: deduplicatedConversations,
             activeConversationId:
               s.activeConversationId === pendingConversationId ? newConvState.conversation.id : s.activeConversationId,
             activeConversationState:
