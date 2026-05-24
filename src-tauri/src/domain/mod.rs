@@ -520,6 +520,12 @@ pub struct AgentPromptCapabilities {
 pub struct AgentSessionCapabilities {
     pub load: bool,
     pub list: bool,
+    #[serde(default)]
+    pub close: bool,   // SDK 0.20.0 稳定化
+    #[serde(default)]
+    pub resume: bool,  // SDK 0.20.0 稳定化
+    #[serde(default)]
+    pub delete: bool,  // SDK 0.22.0 实验性
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

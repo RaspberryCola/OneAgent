@@ -139,12 +139,19 @@ pub fn parse_session_capabilities(result: &Value) -> AgentSessionCapabilities {
         .and_then(Value::as_bool)
         .unwrap_or(false);
 
+    // Helper to parse capability that can be bool or object (like {})
+    fn parse_cap_as_bool(cap: &Value, key: &str) -> bool {
+        cap.get(key)
+            .map(|v| v.as_bool().unwrap_or_else(|| v.is_object()))
+            .unwrap_or(false)
+    }
+
     AgentSessionCapabilities {
         load: load_from_session_caps || load_from_top_level,
-        list: session_capabilities
-            .get("list")
-            .map(|v| v.as_bool().unwrap_or_else(|| v.is_object()))
-            .unwrap_or(false),
+        list: parse_cap_as_bool(&session_capabilities, "list"),
+        close: parse_cap_as_bool(&session_capabilities, "close"),    // SDK 0.20.0
+        resume: parse_cap_as_bool(&session_capabilities, "resume"),  // SDK 0.20.0
+        delete: parse_cap_as_bool(&session_capabilities, "delete"),  // SDK 0.22.0 实验性
     }
 }
 

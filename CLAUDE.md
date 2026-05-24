@@ -120,7 +120,7 @@ Priority for NpmAdapter: bundled Bun > system bunx > system bun x > system npx
 
 The `scripts/prepare-claude-runtime.mjs` script downloads:
 - Bun runtime from GitHub releases into `src-tauri/resources/bundled-bun/{platform}/`
-- `@zed-industries/claude-code-acp` npm package into `src-tauri/resources/external_agents/`
+- `@agentclientprotocol/claude-agent-acp` npm package into `src-tauri/resources/external_agents/`
 
 These are bundled with the app for offline-ready agent execution.
 

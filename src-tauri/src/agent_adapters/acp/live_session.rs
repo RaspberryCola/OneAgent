@@ -28,9 +28,9 @@ use super::permission::{
 use super::process::JsonRpcProcess;
 use super::prompt_codec::build_prompt_blocks_from_message;
 use super::types::{
-    jsonrpc_notification, jsonrpc_request, to_value_or_err, CancelParams, LoadSessionParams,
-    NewSessionParams, PromptParams, PromptResult, SessionResult, SetConfigOptionParams,
-    SetModeParams, SetModelParams,
+    jsonrpc_notification, jsonrpc_request, to_value_or_err, CancelParams, DeleteSessionParams,
+    LoadSessionParams, NewSessionParams, PromptParams, PromptResult, SessionResult,
+    SetConfigOptionParams, SetModeParams, SetModelParams,
 };
 
 /// A permission option offered by the agent.
@@ -75,6 +75,9 @@ pub(crate) enum LiveSessionCommand {
     SetMode {
         mode_id: String,
         resp: oneshot::Sender<AdapterResult<AcpSessionModeState>>,
+    },
+    Delete {
+        resp: oneshot::Sender<AdapterResult<()>>,
     },
     Close,
 }
@@ -369,6 +372,18 @@ impl AcpLiveSession {
             .map_err(|_| AdapterError::Protocol("set mode response dropped".to_string()))?
     }
 
+    /// Delete the session on the agent side (SDK 0.22.0 experimental).
+    /// This sends session/delete to the agent and returns success/failure.
+    pub async fn delete(&self) -> AdapterResult<()> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.command_tx
+            .send(LiveSessionCommand::Delete { resp: resp_tx })
+            .map_err(|_| AdapterError::Protocol("live ACP session stopped".to_string()))?;
+        resp_rx
+            .await
+            .map_err(|_| AdapterError::Protocol("delete response dropped".to_string()))?
+    }
+
     /// Close the session.
     pub fn close(&self) {
         let _ = self.command_tx.send(LiveSessionCommand::Close);
@@ -481,6 +496,16 @@ fn spawn_live_actor(process: JsonRpcProcess, handle: AgentSessionHandle) -> AcpL
                                 })
                             }),
                         Err(e) => Err(AdapterError::Protocol(format!("serialize set_mode params: {e}"))),
+                    };
+                    let _ = resp.send(result);
+                }
+                LiveSessionCommand::Delete { resp } => {
+                    let params = serde_json::to_value(DeleteSessionParams {
+                        session_id: live_handle.remote_session_id.clone(),
+                    });
+                    let result = match params {
+                        Ok(p) => process.request("session/delete", p).await.map(|_| ()),
+                        Err(e) => Err(AdapterError::Protocol(format!("serialize delete params: {e}"))),
                     };
                     let _ = resp.send(result);
                 }
@@ -608,6 +633,16 @@ async fn run_turn_loop(
                     }
                     Some(LiveSessionCommand::RunTurn { completion_tx, .. }) => {
                         let _ = completion_tx.send(Err(AdapterError::Protocol("a prompt turn is already running".to_string())));
+                    }
+                    Some(LiveSessionCommand::Delete { resp }) => {
+                        let params = serde_json::to_value(DeleteSessionParams {
+                            session_id: handle.remote_session_id.clone(),
+                        });
+                        let result = match params {
+                            Ok(p) => process.request("session/delete", p).await.map(|_| ()),
+                            Err(e) => Err(AdapterError::Protocol(format!("serialize delete params: {e}"))),
+                        };
+                        let _ = resp.send(result);
                     }
                     Some(LiveSessionCommand::Close) => {
                         let _ = process.close().await;

@@ -10,9 +10,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
 const resourcesDir = join(repoRoot, "src-tauri", "resources");
 const bundledBunRoot = join(resourcesDir, "bundled-bun");
-const externalAgentsRoot = join(resourcesDir, "external_agents", "claude-agent-acp", "0.26.0");
+const externalAgentsRoot = join(resourcesDir, "external_agents", "claude-agent-acp", "0.37.0");
 const packageName = "@agentclientprotocol/claude-agent-acp";
-const packageVersion = "0.26.0";
+const packageVersion = "0.37.0";
 
 function log(message) {
   console.log(`[prepare-claude-runtime] ${message}`);

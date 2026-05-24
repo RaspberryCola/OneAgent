@@ -10,7 +10,7 @@ use crate::{
 };
 
 pub const CLAUDE_CODE_ACP_PACKAGE: &str = "@agentclientprotocol/claude-agent-acp";
-pub const CLAUDE_CODE_ACP_VERSION: &str = "0.26.0";
+pub const CLAUDE_CODE_ACP_VERSION: &str = "0.37.0";
 pub const CLAUDE_CODE_PRESET_ID: &str = "preset-claude-code-acp";
 pub const CLAUDE_CODE_PRESET_NAME: &str = "Claude Code";
 pub const CLAUDE_CODE_DISPLAY_COMMAND: &str = "claude-agent-acp";

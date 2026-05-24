@@ -130,6 +130,13 @@ pub(crate) struct SetModeParams {
     pub(crate) mode_id: String,
 }
 
+/// Parameters for the `session/delete` JSON-RPC request (SDK 0.22.0 experimental).
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct DeleteSessionParams {
+    #[serde(rename = "sessionId")]
+    pub(crate) session_id: String,
+}
+
 // ---------------------------------------------------------------------------
 // Incoming client request parameter types
 // ---------------------------------------------------------------------------

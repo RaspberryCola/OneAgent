@@ -1,6 +1,5 @@
 import readline from 'readline';
 import { BasePlugin, IncomingMessage, PluginStatus } from './plugins/base.js';
-import { WeixinPlugin } from './plugins/weixin.js';
 import { LarkPlugin } from './plugins/lark.js';
 
 let activePlugin: BasePlugin | null = null;
@@ -71,9 +70,7 @@ async function handleRpcRequest(method: string, params: any): Promise<any> {
         activePlugin = null;
       }
 
-      if (plugin_type === 'weixin') {
-        activePlugin = new WeixinPlugin(emitIncomingMessage, emitStatusChanged, emitError, sendNotification);
-      } else if (plugin_type === 'lark') {
+      if (plugin_type === 'lark') {
         activePlugin = new LarkPlugin(emitIncomingMessage, emitStatusChanged, emitError, sendNotification);
       } else {
         throw new Error(`Unsupported plugin type: ${plugin_type}`);
@@ -113,22 +110,6 @@ async function handleRpcRequest(method: string, params: any): Promise<any> {
         return { status: 'disconnected' };
       }
       return { status: activePlugin.getStatus() };
-    }
-
-    case 'weixin.start_login': {
-      if (!activePlugin || !(activePlugin instanceof WeixinPlugin)) {
-        throw new Error('Weixin plugin is not active');
-      }
-      await activePlugin.startLogin();
-      return null;
-    }
-
-    case 'weixin.stop_login': {
-      if (!activePlugin || !(activePlugin instanceof WeixinPlugin)) {
-        throw new Error('Weixin plugin is not active');
-      }
-      await activePlugin.stopLogin();
-      return null;
     }
 
     default:
