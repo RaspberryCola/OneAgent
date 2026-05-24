@@ -72,6 +72,12 @@ impl JsonRpcProcess {
             command.current_dir(cwd);
         }
         command.envs(resolved.env);
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            command.creation_flags(CREATE_NO_WINDOW);
+        }
         let mut child = command.spawn().map_err(|error| {
             AdapterError::AdapterSpawnFailed(format!(
                 "Failed to spawn {}: {error}",
@@ -421,6 +427,12 @@ impl JsonRpcProcess {
             .stderr(Stdio::piped());
         if let Some(cwd) = cwd {
             child.current_dir(cwd);
+        }
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            child.creation_flags(CREATE_NO_WINDOW);
         }
         let mut spawned = child.spawn()?;
         let stdout = spawned.stdout.take();

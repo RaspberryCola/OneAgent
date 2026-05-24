@@ -313,17 +313,20 @@ pub async fn git_diff(cwd: String) -> Result<GitDiffResult, BackendError> {
     }
 
     async fn git_output(cwd: &str, args: &[&str]) -> Result<String, BackendError> {
-        let o = tokio::process::Command::new("git")
-            .args(args)
-            .current_dir(cwd)
-            .output()
-            .await
-            .map_err(|e| {
-                BackendError::new(
-                    ErrorCode::RuntimeError,
-                    format!("Failed to run git: {e}"),
-                )
-            })?;
+        let mut cmd = tokio::process::Command::new("git");
+        cmd.args(args).current_dir(cwd);
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        let o = cmd.output().await.map_err(|e| {
+            BackendError::new(
+                ErrorCode::RuntimeError,
+                format!("Failed to run git: {e}"),
+            )
+        })?;
         if o.status.success() || o.status.code() == Some(1) {
             // git diff exits 1 when there are differences
             Ok(String::from_utf8_lossy(&o.stdout).to_string())

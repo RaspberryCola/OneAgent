@@ -127,6 +127,12 @@ impl ImPlugin for SidecarBridge {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
 
         let mut child = cmd.spawn().map_err(|e| {
             *self.status.lock() = PluginStatus::Error;
