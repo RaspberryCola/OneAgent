@@ -37,6 +37,8 @@ type ComposerProps = {
   onSetAttachmentUsageIntent: (id: string, usageIntent: 'vision_input' | 'file_resource') => void;
   onSend: () => void;
   onKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onCompositionStart: () => void;
+  onCompositionEnd: () => void;
   canSend: boolean;
   isCompact: boolean;
   isBusy: boolean;
@@ -68,6 +70,8 @@ export function Composer({
   onSetAttachmentUsageIntent,
   onSend,
   onKeyDown,
+  onCompositionStart,
+  onCompositionEnd,
   canSend,
   isCompact,
   isBusy,
@@ -180,6 +184,8 @@ export function Composer({
         value={input}
         onChange={(event) => setInput(event.target.value)}
         onKeyDown={onKeyDown}
+        onCompositionStart={onCompositionStart}
+        onCompositionEnd={onCompositionEnd}
         onPaste={onPaste}
         onDrop={handleDropEvent}
         onDragEnter={handleDragEnterEvent}

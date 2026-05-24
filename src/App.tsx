@@ -416,6 +416,8 @@ export default function App() {
     handleSend,
     handleStop,
     handleKeyDown,
+    handleCompositionStart,
+    handleCompositionEnd,
   } = useConversationComposer({
     activeConversationId,
     activeAgentProfileId,
@@ -772,6 +774,8 @@ export default function App() {
             onStop={() => void handleStop()}
             onAttachClick={() => fileInputRef.current?.click()}
             onKeyDown={handleKeyDown}
+            onCompositionStart={handleCompositionStart}
+            onCompositionEnd={handleCompositionEnd}
           />
         }
         conversationContent={
@@ -810,6 +814,8 @@ export default function App() {
             onSend={() => void handleSend()}
             onStop={() => void handleStop()}
             onKeyDown={handleKeyDown}
+            onCompositionStart={handleCompositionStart}
+            onCompositionEnd={handleCompositionEnd}
             availableCommands={activeConversationState?.available_commands}
           />
         }

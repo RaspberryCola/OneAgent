@@ -41,6 +41,8 @@ interface HomeScreenProps {
   onStop: () => void;
   onAttachClick: () => void;
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+  onCompositionStart: () => void;
+  onCompositionEnd: () => void;
   availableCommands?: Types.AvailableCommand[];
 }
 
@@ -79,6 +81,8 @@ export function HomeScreen({
   onStop,
   onAttachClick,
   onKeyDown,
+  onCompositionStart,
+  onCompositionEnd,
   availableCommands,
 }: HomeScreenProps) {
   const { t } = useTranslation("common");
@@ -166,6 +170,8 @@ export function HomeScreen({
               onSetAttachmentUsageIntent={onSetAttachmentUsageIntent}
               onSend={onSend}
               onKeyDown={onKeyDown}
+              onCompositionStart={onCompositionStart}
+              onCompositionEnd={onCompositionEnd}
               canSend={canSend}
               isCompact={false}
               isBusy={isBusy}

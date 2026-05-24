@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type * as Types from '../lib/backend/types';
 import type { AttachmentState } from './useAttachmentHandler';
 import type { ModelSelectorState } from './useModelSelector';
@@ -35,6 +35,8 @@ export interface UseConversationComposerReturn {
   handleSend: () => Promise<void>;
   handleStop: () => Promise<void>;
   handleKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  handleCompositionStart: () => void;
+  handleCompositionEnd: () => void;
 }
 
 export function useConversationComposer(options: UseConversationComposerOptions): UseConversationComposerReturn {
@@ -58,6 +60,11 @@ export function useConversationComposer(options: UseConversationComposerOptions)
 
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
+  // 使用 ref 同步跟踪 IME 状态，因为 React 状态更新是异步的
+  // 在某些输入法中，keydown 事件可能在 compositionend 之前触发
+  const isComposingRef = useRef(false);
+  // 用于追踪 composition 刚结束的状态，防止紧接着的 Enter 发送消息
+  const justEndedComposingRef = useRef(false);
 
   const canSend = useMemo(() => {
     const hasText = input.trim().length > 0;
@@ -135,8 +142,27 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     await cancelTurn();
   }, [cancelTurn]);
 
+  const handleCompositionStart = useCallback(() => {
+    isComposingRef.current = true;
+    justEndedComposingRef.current = false;
+  }, []);
+
+  const handleCompositionEnd = useCallback(() => {
+    isComposingRef.current = false;
+    // 设置标记，防止紧接着的 Enter 发送消息
+    justEndedComposingRef.current = true;
+    // 短暂延迟后清除标记，让用户可以正常发送
+    setTimeout(() => {
+      justEndedComposingRef.current = false;
+    }, 100);
+  }, []);
+
   const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    // 使用 ref 同步检查 IME 状态，确保在 compositionend 触发前正确判断
+    // 同时检查 composition 是否刚结束，防止在确认候选后立即发送
+    const isImeComposing = event.nativeEvent.isComposing || isComposingRef.current || justEndedComposingRef.current;
+
+    if (event.key === 'Enter' && !event.shiftKey && !isImeComposing) {
       event.preventDefault();
       void handleSend();
     }
@@ -152,5 +178,7 @@ export function useConversationComposer(options: UseConversationComposerOptions)
     handleSend,
     handleStop,
     handleKeyDown,
+    handleCompositionStart,
+    handleCompositionEnd,
   };
 }

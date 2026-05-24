@@ -55,6 +55,8 @@ interface ConversationScreenProps {
   onSend: () => void;
   onStop: () => void;
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+  onCompositionStart: () => void;
+  onCompositionEnd: () => void;
   availableCommands?: Types.AvailableCommand[];
 }
 
@@ -93,6 +95,8 @@ export function ConversationScreen({
   onSend,
   onStop,
   onKeyDown,
+  onCompositionStart,
+  onCompositionEnd,
   availableCommands,
 }: ConversationScreenProps) {
   const planItems = activeTimelineItems.filter(
@@ -215,6 +219,8 @@ export function ConversationScreen({
               onSetAttachmentUsageIntent={onSetAttachmentUsageIntent}
               onSend={onSend}
               onKeyDown={onKeyDown}
+              onCompositionStart={onCompositionStart}
+              onCompositionEnd={onCompositionEnd}
               canSend={canSend}
               isCompact
               isBusy={isBusy}
