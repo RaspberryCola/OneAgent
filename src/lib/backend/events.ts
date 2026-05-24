@@ -130,6 +130,7 @@ export type ImPluginConfigChangedPayload = {
   platform: string;
   workspace_id?: string | null;
   agent_profile_id?: string | null;
+  model_id?: string | null;
 };
 
 export function onImPluginConfigChanged(handler: (payload: ImPluginConfigChangedPayload) => void): Promise<UnlistenFn> {

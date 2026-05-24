@@ -457,5 +457,6 @@ export interface ImPluginInfo {
   status: string;
   workspace_id?: string | null;
   agent_profile_id?: string | null;
+  model_id?: string | null;
 }
 

@@ -480,6 +480,7 @@ pub struct ImPluginInfo {
     pub status: String,
     pub workspace_id: Option<String>,
     pub agent_profile_id: Option<String>,
+    pub model_id: Option<String>,
 }
 
 // Tauri commands implementation helper functions
@@ -496,10 +497,10 @@ pub async fn list_im_plugins_impl(
         .map_err(|e| crate::domain::BackendError::new(crate::domain::ErrorCode::StorageError, e.to_string()))?;
     if !table_check.exists([]).unwrap_or(false) {
         return Ok(vec![
-            ImPluginInfo { platform: "weixin".to_string(), enabled: false, status: "disconnected".to_string(), workspace_id: None, agent_profile_id: None },
-            ImPluginInfo { platform: "lark".to_string(), enabled: false, status: "disconnected".to_string(), workspace_id: None, agent_profile_id: None },
-            ImPluginInfo { platform: "dingtalk".to_string(), enabled: false, status: "disconnected".to_string(), workspace_id: None, agent_profile_id: None },
-            ImPluginInfo { platform: "telegram".to_string(), enabled: false, status: "disconnected".to_string(), workspace_id: None, agent_profile_id: None },
+            ImPluginInfo { platform: "weixin".to_string(), enabled: false, status: "disconnected".to_string(), workspace_id: None, agent_profile_id: None, model_id: None },
+            ImPluginInfo { platform: "lark".to_string(), enabled: false, status: "disconnected".to_string(), workspace_id: None, agent_profile_id: None, model_id: None },
+            ImPluginInfo { platform: "dingtalk".to_string(), enabled: false, status: "disconnected".to_string(), workspace_id: None, agent_profile_id: None, model_id: None },
+            ImPluginInfo { platform: "telegram".to_string(), enabled: false, status: "disconnected".to_string(), workspace_id: None, agent_profile_id: None, model_id: None },
         ]);
     }
 
@@ -535,14 +536,16 @@ pub async fn list_im_plugins_impl(
             
             let mut workspace_id = None;
             let mut agent_profile_id = None;
+            let mut model_id = None;
             if let Some(config_str) = config_opt {
                 if let Ok(config_json) = serde_json::from_str::<Value>(&config_str) {
                     workspace_id = config_json.get("workspace_id").and_then(|v| v.as_str()).map(|s| s.to_string());
                     agent_profile_id = config_json.get("agent_profile_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                    model_id = config_json.get("model_id").and_then(|v| v.as_str()).map(|s| s.to_string());
                 }
             }
-            
-            list.push(ImPluginInfo { platform, enabled, status, workspace_id, agent_profile_id });
+
+            list.push(ImPluginInfo { platform, enabled, status, workspace_id, agent_profile_id, model_id });
         }
     }
     
@@ -556,6 +559,7 @@ pub async fn list_im_plugins_impl(
                 status: "disconnected".to_string(),
                 workspace_id: None,
                 agent_profile_id: None,
+                model_id: None,
             });
         }
     }
@@ -571,6 +575,7 @@ pub async fn start_im_plugin_impl(
     credentials_json: String,
     workspace_id: Option<String>,
     agent_profile_id: Option<String>,
+    model_id: Option<String>,
 ) -> Result<(), crate::domain::BackendError> {
     let encrypted_creds = crypto::encrypt(&credentials_json)
         .map_err(|e| crate::domain::BackendError::new(crate::domain::ErrorCode::InvalidInput, e))?;
@@ -598,11 +603,15 @@ pub async fn start_im_plugin_impl(
     let final_agent_profile_id = agent_profile_id.or_else(|| {
         existing_config.get("agent_profile_id").and_then(|v| v.as_str()).map(String::from)
     });
+    let final_model_id = model_id.or_else(|| {
+        existing_config.get("model_id").and_then(|v| v.as_str()).map(String::from)
+    });
 
     let config_json = json!({
         "sidecar_path": sidecar_path,
         "workspace_id": final_workspace_id,
         "agent_profile_id": final_agent_profile_id,
+        "model_id": final_model_id,
     }).to_string();
     let now = Utc::now().timestamp();
 
@@ -632,6 +641,7 @@ pub async fn update_im_plugin_config_impl(
     platform: String,
     workspace_id: Option<String>,
     agent_profile_id: Option<String>,
+    model_id: Option<String>,
 ) -> Result<(), crate::domain::BackendError> {
     let db = &gateway.db;
     let conn = db.conn.lock();
@@ -656,6 +666,7 @@ pub async fn update_im_plugin_config_impl(
 
         config_val["workspace_id"] = workspace_id.clone().map(|id| Value::String(id)).unwrap_or(Value::Null);
         config_val["agent_profile_id"] = agent_profile_id.clone().map(|id| Value::String(id)).unwrap_or(Value::Null);
+        config_val["model_id"] = model_id.clone().map(|id| Value::String(id)).unwrap_or(Value::Null);
 
         let config_str = config_val.to_string();
         conn.execute(
@@ -668,6 +679,7 @@ pub async fn update_im_plugin_config_impl(
         let config_val = json!({
             "workspace_id": workspace_id.clone(),
             "agent_profile_id": agent_profile_id.clone(),
+            "model_id": model_id.clone(),
             "sidecar_path": "./im-sidecar/dist/index.js",
         });
         conn.execute(
@@ -685,6 +697,7 @@ pub async fn update_im_plugin_config_impl(
             "platform": platform,
             "workspace_id": workspace_id,
             "agent_profile_id": agent_profile_id,
+            "model_id": model_id,
         }),
     );
 
@@ -813,8 +826,9 @@ pub async fn start_im_plugin(
     credentials_json: String,
     workspace_id: Option<String>,
     agent_profile_id: Option<String>,
+    model_id: Option<String>,
 ) -> Result<(), crate::domain::BackendError> {
-    start_im_plugin_impl(&state.gateway, &state.im_manager, platform, sidecar_path, credentials_json, workspace_id, agent_profile_id).await
+    start_im_plugin_impl(&state.gateway, &state.im_manager, platform, sidecar_path, credentials_json, workspace_id, agent_profile_id, model_id).await
 }
 
 #[tauri::command]
@@ -823,8 +837,9 @@ pub async fn update_im_plugin_config(
     platform: String,
     workspace_id: Option<String>,
     agent_profile_id: Option<String>,
+    model_id: Option<String>,
 ) -> Result<(), crate::domain::BackendError> {
-    update_im_plugin_config_impl(&state.gateway, platform, workspace_id, agent_profile_id).await
+    update_im_plugin_config_impl(&state.gateway, platform, workspace_id, agent_profile_id, model_id).await
 }
 
 #[tauri::command]

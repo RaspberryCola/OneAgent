@@ -201,6 +201,7 @@ struct StartImPluginInput {
     credentials_json: String,
     workspace_id: Option<String>,
     agent_profile_id: Option<String>,
+    model_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -209,6 +210,7 @@ struct UpdateImPluginConfigInput {
     platform: String,
     workspace_id: Option<String>,
     agent_profile_id: Option<String>,
+    model_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -532,6 +534,7 @@ pub async fn invoke_handler(
                     input.credentials_json,
                     input.workspace_id,
                     input.agent_profile_id,
+                    input.model_id,
                 ).await.map_err(|e| e.to_string())?;
                 Ok(json!({ "status": "ok" }))
             }
@@ -542,6 +545,7 @@ pub async fn invoke_handler(
                     input.platform,
                     input.workspace_id,
                     input.agent_profile_id,
+                    input.model_id,
                 ).await.map_err(|e| e.to_string())?;
                 Ok(json!({ "status": "ok" }))
             }

@@ -25,9 +25,17 @@
   },
   "webui": {
     "title": "Web UI",
-    "enable": "启用 Web UI",
+    "enable": "启用 WebUI 服务器",
     "password": "密码",
     "port": "端口",
     "urls": "URLs"
+  },
+  "wechat": {
+    "scanLogin": "扫码登录",
+    "manualConfig": "手动配置",
+    "startScanLogin": "启动微信扫码登录",
+    "scanInstruction": "请使用手机微信扫描此二维码。",
+    "cancelLogin": "取消登录",
+    "saveAndStart": "保存并启动"
   }
 }

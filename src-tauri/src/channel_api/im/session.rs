@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use crate::gateway::Gateway;
 use crate::domain::CreateConversationInput;
+use crate::domain::SetModelInput;
 
 fn build_conversation_title(text: &str) -> String {
     let normalized: String = text
@@ -32,8 +33,8 @@ impl ImSessionManager {
         Self { gateway }
     }
 
-    /// Get the desired workspace_id and agent_profile_id for a platform based on the latest configuration.
-    pub fn get_desired_config(&self, platform: &str) -> Result<(String, String), String> {
+    /// Get the desired workspace_id, agent_profile_id, and model_id for a platform based on the latest configuration.
+    pub fn get_desired_config(&self, platform: &str) -> Result<(String, String, Option<String>), String> {
         let db = &self.gateway.db;
         let conn = db.conn.lock();
 
@@ -66,6 +67,7 @@ impl ImSessionManager {
 
         let mut final_workspace_id = default_workspace_id;
         let mut final_agent_profile_id = default_agent_profile_id;
+        let mut final_model_id: Option<String> = None;
 
         if let Some(config_str) = config_json_str {
             if let Ok(config_json) = serde_json::from_str::<serde_json::Value>(&config_str) {
@@ -85,10 +87,13 @@ impl ImSessionManager {
                         final_agent_profile_id = a_id.to_string();
                     }
                 }
+                if let Some(m_id) = config_json.get("model_id").and_then(|v| v.as_str()) {
+                    final_model_id = Some(m_id.to_string());
+                }
             }
         }
 
-        Ok((final_workspace_id, final_agent_profile_id))
+        Ok((final_workspace_id, final_agent_profile_id, final_model_id))
     }
 
     pub async fn get_or_create_conversation(
@@ -118,15 +123,28 @@ impl ImSessionManager {
         };
 
         if let Some((id, workspace_id, agent_profile_id)) = existing_info {
-            // Check if settings match the existing conversation
-            if let Ok((desired_ws_id, desired_agent_id)) = self.get_desired_config(platform) {
+            // Check if workspace and agent settings match the existing conversation
+            // Note: model_id changes do NOT trigger conversation archival (same session can switch models)
+            if let Ok((desired_ws_id, desired_agent_id, desired_model_id)) = self.get_desired_config(platform) {
                 if workspace_id == desired_ws_id && agent_profile_id == desired_agent_id {
+                    // workspace/agent match - check if model needs to be switched
+                    if let Some(new_model_id) = desired_model_id {
+                        // Try to get current model from conversation state
+                        let current_model = self.get_conversation_current_model(&id);
+                        if current_model.as_ref() != Some(&new_model_id) {
+                            // Switch model in the existing session
+                            let _ = self.gateway.set_model(SetModelInput {
+                                conversation_id: id.clone(),
+                                model_id: new_model_id,
+                            }).await;
+                        }
+                    }
                     if let Some(text) = first_msg_text {
                         let _ = self.maybe_update_conversation_title(&id, text).await;
                     }
                     return Ok(id);
                 } else {
-                    // Mismatch! Archive old conversation and create a new one.
+                    // workspace or agent mismatch - archive old and create new
                     return self.archive_and_create_new(platform, chat_id, first_msg_text).await;
                 }
             }
@@ -183,7 +201,7 @@ impl ImSessionManager {
         }
 
         // Update plugin config with new workspace
-        let agent_profile_id = {
+        let agent_model_ids = {
             let conn = db.conn.lock();
             let config_str: Option<String> = conn.query_row(
                 "SELECT config_json FROM im_plugins WHERE plugin_type = ?1",
@@ -198,6 +216,7 @@ impl ImSessionManager {
             };
 
             let a_id = config_val.get("agent_profile_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let m_id = config_val.get("model_id").and_then(|v| v.as_str()).map(|s| s.to_string());
 
             config_val["workspace_id"] = serde_json::Value::String(workspace_id.to_string());
             let now = chrono::Utc::now().timestamp();
@@ -206,19 +225,21 @@ impl ImSessionManager {
                 rusqlite::params![config_val.to_string(), now, platform],
             ).map_err(|e| e.to_string())?;
 
-            a_id
+            (a_id, m_id)
         };
 
         // Archive old and create new
         let new_conv_id = self.archive_and_create_new(platform, chat_id, None).await?;
 
         // Broadcast config changed event so frontend and other parts stay in sync
+        let (agent_profile_id, model_id) = agent_model_ids;
         self.gateway.runtime.event_bus.broadcast(
             "im:plugin_config_changed",
             &serde_json::json!({
                 "platform": platform,
                 "workspace_id": workspace_id,
                 "agent_profile_id": agent_profile_id,
+                "model_id": model_id,
             }),
         );
 
@@ -270,6 +291,38 @@ impl ImSessionManager {
         }
     }
 
+    /// Get the current model_id for a conversation from its config_options.
+    fn get_conversation_current_model(&self, conversation_id: &str) -> Option<String> {
+        // Try to get from conversation_state JSON in database
+        let db = &self.gateway.db;
+        let conn = db.conn.lock();
+
+        let state_json: Option<String> = conn.query_row(
+            "SELECT state_json FROM conversation_states WHERE conversation_id = ?1",
+            [conversation_id],
+            |row| row.get(0)
+        ).ok().flatten();
+
+        if let Some(json_str) = state_json {
+            if let Ok(state) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                // Look for model in config_options
+                if let Some(config_options) = state.get("config_options").and_then(|v| v.as_array()) {
+                    for opt in config_options {
+                        if opt.get("category").and_then(|v| v.as_str()) == Some("model") {
+                            return opt.get("current_value").and_then(|v| v.as_str()).map(|s| s.to_string());
+                        }
+                    }
+                }
+                // Also check models.current_model_id
+                if let Some(models) = state.get("models") {
+                    return models.get("current_model_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+                }
+            }
+        }
+
+        None
+    }
+
     /// Internal: Create a new IM conversation using latest plugin config.
     async fn create_im_conversation(
         &self,
@@ -278,7 +331,7 @@ impl ImSessionManager {
         first_msg_text: Option<&str>,
     ) -> Result<String, String> {
         let db = &self.gateway.db;
-        let (workspace_id, agent_profile_id) = self.get_desired_config(platform)?;
+        let (workspace_id, agent_profile_id, model_id) = self.get_desired_config(platform)?;
 
         let title = match first_msg_text {
             Some(text) => build_conversation_title(text),
@@ -306,14 +359,25 @@ impl ImSessionManager {
         let conv_id = conv_state.conversation.id;
 
         // Update the conversation source and channel_chat_id
-        let conn = db.conn.lock();
-        conn.execute(
-            "UPDATE conversations SET source = ?1, channel_chat_id = ?2 WHERE id = ?3",
-            rusqlite::params![platform, chat_id, conv_id],
-        )
-        .map_err(|e| e.to_string())?;
+        {
+            let conn = db.conn.lock();
+            conn.execute(
+                "UPDATE conversations SET source = ?1, channel_chat_id = ?2 WHERE id = ?3",
+                rusqlite::params![platform, chat_id, conv_id],
+            )
+            .map_err(|e| e.to_string())?;
+        }
 
         tracing::info!("create_im_conversation: successfully created and bound conversation id={}", conv_id);
+
+        // Set model if configured
+        if let Some(m_id) = model_id {
+            let _ = self.gateway.set_model(SetModelInput {
+                conversation_id: conv_id.clone(),
+                model_id: m_id,
+            }).await;
+            tracing::info!("create_im_conversation: set model for conversation id={}", conv_id);
+        }
 
         Ok(conv_id)
     }

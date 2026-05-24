@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   QrCode,
   Play,
@@ -13,12 +14,15 @@ import {
   HelpCircle,
   Copy,
   Globe,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import type * as Types from '../../lib/backend/types';
 import * as commands from '../../lib/backend/commands';
 import * as events from '../../lib/backend/events';
 import { IS_TAURI } from '../../lib/backend/transport';
 import { SettingSelect } from './SettingSelect';
+import { SettingSelectWithSearch } from './SettingSelectWithSearch';
 
 interface ImSettingsPaneProps {
   webuiEnabled: boolean;
@@ -33,7 +37,8 @@ export function ImSettingsPane({
   webuiInfo,
   onToggleWebuiEnabled,
 }: ImSettingsPaneProps) {
-  const [selectedTab, setSelectedTab] = useState<'webui' | 'weixin' | 'lark' | 'pairing'>('webui');
+  const { t } = useTranslation("settings");
+  const [selectedTab, setSelectedTab] = useState<'webui' | 'weixin' | 'lark'>('webui');
   const [plugins, setPlugins] = useState<Types.ImPluginInfo[]>([]);
   const sidecarPath = './im-sidecar/dist/index.js';
   const [loading, setLoading] = useState(false);
@@ -62,8 +67,28 @@ export function ImSettingsPane({
   const [pairingMessageType, setPairingMessageType] = useState<'success' | 'error' | null>(null);
   const [pendingPairings, setPendingPairings] = useState<events.ImPairingRequestedPayload[]>([]);
 
+  // Derived state: 判断当前是否在 Bot Channels 分类下
+  const isBotChannelsActive = selectedTab === 'weixin' || selectedTab === 'lark';
+
+  // 按渠道分组的待处理配对请求
+  const weixinPendingPairings = useMemo(
+    () => pendingPairings.filter(p => p.platform_type === 'weixin'),
+    [pendingPairings]
+  );
+
+  const larkPendingPairings = useMemo(
+    () => pendingPairings.filter(p => p.platform_type === 'lark'),
+    [pendingPairings]
+  );
+
+  // 按渠道清除配对请求
+  const clearChannelPairings = (platformType: 'weixin' | 'lark') => {
+    setPendingPairings(prev => prev.filter(p => p.platform_type !== platformType));
+  };
+
   // WebUI copy state
   const [webuiCopied, setWebuiCopied] = useState<string | null>(null);
+  const [passwordVisible, setPasswordVisible] = useState(false);
 
   const handleWebuiCopy = async (text: string) => {
     await navigator.clipboard.writeText(text);
@@ -78,10 +103,14 @@ export function ImSettingsPane({
   // WeChat Routing State
   const [wxWorkspaceId, setWxWorkspaceId] = useState('');
   const [wxAgentProfileId, setWxAgentProfileId] = useState('');
+  const [wxModelId, setWxModelId] = useState('');
+  const [wxAvailableModels, setWxAvailableModels] = useState<Types.AcpAvailableModel[]>([]);
 
   // Lark Routing State
   const [larkWorkspaceId, setLarkWorkspaceId] = useState('');
   const [larkAgentProfileId, setLarkAgentProfileId] = useState('');
+  const [larkModelId, setLarkModelId] = useState('');
+  const [larkAvailableModels, setLarkAvailableModels] = useState<Types.AcpAvailableModel[]>([]);
 
   // Sync routing configuration from backend plugin info
   useEffect(() => {
@@ -89,11 +118,13 @@ export function ImSettingsPane({
     if (wx) {
       setWxWorkspaceId(wx.workspace_id || '');
       setWxAgentProfileId(wx.agent_profile_id || '');
+      setWxModelId(wx.model_id || '');
     }
     const lark = plugins.find((p) => p.platform === 'lark');
     if (lark) {
       setLarkWorkspaceId(lark.workspace_id || '');
       setLarkAgentProfileId(lark.agent_profile_id || '');
+      setLarkModelId(lark.model_id || '');
     }
   }, [plugins]);
 
@@ -112,22 +143,57 @@ export function ImSettingsPane({
     loadWorkspacesAndAgents();
   }, []);
 
-  const handleUpdateWeixinConfig = async (wsId: string, agentId: string) => {
+  // Load available models when agent profile changes
+  const loadModelsForAgent = async (agentProfileId: string, workspaceId: string) => {
+    if (!agentProfileId || !workspaceId) return [];
+    try {
+      const result = await commands.previewSessionConfig({
+        workspace_id: workspaceId,
+        agent_profile_id: agentProfileId,
+      });
+      return result.models?.available_models || [];
+    } catch (err) {
+      console.error('Failed to load models:', err);
+      return [];
+    }
+  };
+
+  // Load WeChat models when agent profile changes
+  useEffect(() => {
+    if (wxAgentProfileId && wxWorkspaceId) {
+      loadModelsForAgent(wxAgentProfileId, wxWorkspaceId).then(setWxAvailableModels);
+    } else {
+      setWxAvailableModels([]);
+    }
+  }, [wxAgentProfileId, wxWorkspaceId]);
+
+  // Load Lark models when agent profile changes
+  useEffect(() => {
+    if (larkAgentProfileId && larkWorkspaceId) {
+      loadModelsForAgent(larkAgentProfileId, larkWorkspaceId).then(setLarkAvailableModels);
+    } else {
+      setLarkAvailableModels([]);
+    }
+  }, [larkAgentProfileId, larkWorkspaceId]);
+
+  const handleUpdateWeixinConfig = async (wsId: string, agentId: string, modelId: string) => {
     setWxWorkspaceId(wsId);
     setWxAgentProfileId(agentId);
+    setWxModelId(modelId);
     try {
-      await commands.updateImPluginConfig('weixin', wsId || undefined, agentId || undefined);
+      await commands.updateImPluginConfig('weixin', wsId || undefined, agentId || undefined, modelId || undefined);
       await refreshPlugins();
     } catch (err: any) {
       setError(err.message || 'Failed to update WeChat configuration');
     }
   };
 
-  const handleUpdateLarkConfig = async (wsId: string, agentId: string) => {
+  const handleUpdateLarkConfig = async (wsId: string, agentId: string, modelId: string) => {
     setLarkWorkspaceId(wsId);
     setLarkAgentProfileId(agentId);
+    setLarkModelId(modelId);
     try {
-      await commands.updateImPluginConfig('lark', wsId || undefined, agentId || undefined);
+      await commands.updateImPluginConfig('lark', wsId || undefined, agentId || undefined, modelId || undefined);
       await refreshPlugins();
     } catch (err: any) {
       setError(err.message || 'Failed to update Feishu configuration');
@@ -193,7 +259,8 @@ export function ImSettingsPane({
               baseUrl: wxBaseUrl || undefined,
             }),
             wxWorkspaceId || undefined,
-            wxAgentProfileId || undefined
+            wxAgentProfileId || undefined,
+            wxModelId || undefined
           );
           // Stop WeChat login process
           await commands.stopWeixinLogin();
@@ -231,7 +298,7 @@ export function ImSettingsPane({
       if (unlistenAuth) unlistenAuth();
       if (unlistenConfig) unlistenConfig();
     };
-  }, [wxBaseUrl, wxWorkspaceId, wxAgentProfileId]);
+  }, [wxBaseUrl, wxWorkspaceId, wxAgentProfileId, wxModelId]);
 
   // WeChat Actions
   const handleStartWeixinLogin = async () => {
@@ -274,7 +341,8 @@ export function ImSettingsPane({
           baseUrl: wxBaseUrl || undefined,
         }),
         wxWorkspaceId || undefined,
-        wxAgentProfileId || undefined
+        wxAgentProfileId || undefined,
+        wxModelId || undefined
       );
       await refreshPlugins();
     } catch (err: any) {
@@ -314,7 +382,8 @@ export function ImSettingsPane({
           domain: larkDomain,
         }),
         larkWorkspaceId || undefined,
-        larkAgentProfileId || undefined
+        larkAgentProfileId || undefined,
+        larkModelId || undefined
       );
       await refreshPlugins();
     } catch (err: any) {
@@ -373,7 +442,8 @@ export function ImSettingsPane({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex gap-1 bg-snow rounded-interactive p-1 mb-5 w-fit">
+      {/* 二级 Tab: WebUI Access / Bot Channels */}
+      <div className="flex gap-1 bg-snow rounded-interactive p-1 mb-3 w-fit">
         {IS_TAURI && (
           <button
             onClick={() => setSelectedTab('webui')}
@@ -389,37 +459,59 @@ export function ImSettingsPane({
         <button
           onClick={() => setSelectedTab('weixin')}
           className={`px-3 py-1.5 text-[12px] font-medium rounded-interactive transition-colors ${
-            selectedTab === 'weixin'
+            isBotChannelsActive
               ? 'bg-light-gray text-near-black'
               : 'bg-transparent text-stone hover:text-pure-black'
           }`}
         >
-          WeChat Bot
-        </button>
-        <button
-          onClick={() => setSelectedTab('lark')}
-          className={`px-3 py-1.5 text-[12px] font-medium rounded-interactive transition-colors ${
-            selectedTab === 'lark'
-              ? 'bg-light-gray text-near-black'
-              : 'bg-transparent text-stone hover:text-pure-black'
-          }`}
-        >
-          Feishu Bot
-        </button>
-        <button
-          onClick={() => setSelectedTab('pairing')}
-          className={`px-3 py-1.5 text-[12px] font-medium rounded-interactive transition-colors flex items-center gap-1.5 ${
-            selectedTab === 'pairing'
-              ? 'bg-light-gray text-near-black'
-              : 'bg-transparent text-stone hover:text-pure-black'
-          }`}
-        >
-          Pairing Codes
-          {pendingPairings.length > 0 && (
-            <span className="w-1.5 h-1.5 rounded-full bg-pure-black animate-pulse" />
-          )}
+          Bot Channels
         </button>
       </div>
+
+      {/* 三级 Tab: Bot 渠道图标 - 仅当 Bot Channels 选中时显示 */}
+      {isBotChannelsActive && (
+        <div className="flex gap-1 mb-5 w-fit ml-1">
+          <button
+            onClick={() => setSelectedTab('weixin')}
+            className={`relative p-1.5 rounded-interactive transition-colors ${
+              selectedTab === 'weixin'
+                ? 'bg-light-gray/60'
+                : 'bg-transparent hover:bg-snow'
+            }`}
+            title="WeChat Bot"
+          >
+            <img src="/logos/channels/weixin.svg" className="w-4 h-4" alt="WeChat" />
+            {/* Connection status indicator */}
+            {weixinPlugin?.status === 'connected' && (
+              <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-green" />
+            )}
+            {weixinPlugin?.status === 'connecting' && (
+              <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-yellow animate-pulse" />
+            )}
+            {weixinPlugin?.status === 'error' && (
+              <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-rose-500" />
+            )}
+            {/* Pairing request indicator */}
+            {weixinPendingPairings.length > 0 && (
+              <span className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-pure-black animate-pulse" />
+            )}
+          </button>
+          <button
+            onClick={() => setSelectedTab('lark')}
+            className={`relative p-1.5 rounded-interactive transition-colors ${
+              selectedTab === 'lark'
+                ? 'bg-light-gray/60'
+                : 'bg-transparent hover:bg-snow'
+            }`}
+            title="Feishu Bot"
+          >
+            <img src="/logos/channels/lark.svg" className="w-4 h-4" alt="Feishu" />
+            {larkPendingPairings.length > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-pure-black animate-pulse" />
+            )}
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="flex gap-3 p-3 rounded-container bg-light-gray/20 border border-light-gray text-near-black text-[11px] leading-relaxed">
@@ -435,10 +527,7 @@ export function ImSettingsPane({
           <div className="flex items-center justify-between py-3 px-4">
             <div className="flex flex-col gap-0.5">
               <span className="font-display font-medium text-[13px] text-pure-black">
-                Enable WebUI Access
-              </span>
-              <span className="text-[11px] text-stone">
-                Allows remote web browser access on port {webuiInfo?.port ?? 19520}, LAN enabled
+                {t("webui.enable")}
               </span>
             </div>
             <button
@@ -468,25 +557,26 @@ export function ImSettingsPane({
                     <span className="font-display font-medium text-[13px] text-pure-black">Access URLs</span>
                   </div>
                   <div className="space-y-1.5">
-                    {webuiInfo.urls.map((url) => (
-                      <div key={url} className="flex items-center gap-2">
-                        <code className="flex-1 px-3 py-1.5 bg-snow border border-light-gray/60 rounded-interactive text-[12px] font-mono text-pure-black truncate overflow-hidden" title={url}>
-                          {url}
-                        </code>
-                        <button
-                          onClick={() => handleWebuiCopy(url)}
-                          className="flex items-center gap-1 px-2 py-1.5 rounded-interactive text-[10px] font-medium border border-light-gray text-stone hover:bg-snow hover:text-pure-black bg-pure-white transition-colors shrink-0"
-                        >
-                          {webuiCopied === url ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                        </button>
-                      </div>
-                    ))}
+                    {webuiInfo.urls.map((url, index) => {
+                      const isLocalhost = url.includes('127.0.0.1') || url.includes('localhost');
+                      return (
+                        <div key={url} className="flex items-center gap-2">
+                          <span className="text-[12px] text-pure-black font-medium shrink-0">
+                            {isLocalhost ? 'Local:' : 'LAN:'}
+                          </span>
+                          <code className="flex-1 px-3 py-1.5 bg-snow border border-light-gray/60 rounded-interactive text-[12px] font-mono text-pure-black truncate overflow-hidden" title={url}>
+                            {url}
+                          </code>
+                          <button
+                            onClick={() => handleWebuiCopy(url)}
+                            className="flex items-center gap-1 px-2 py-1.5 rounded-interactive text-[10px] font-medium border border-light-gray text-stone hover:bg-snow hover:text-pure-black bg-pure-white transition-colors shrink-0"
+                          >
+                            {webuiCopied === url ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
-                  {webuiInfo.urls.length > 1 && (
-                    <p className="text-[10px] text-silver">
-                      Use the second URL to access from other devices on the same network.
-                    </p>
-                  )}
                 </div>
               )}
 
@@ -499,8 +589,15 @@ export function ImSettingsPane({
                   </div>
                   <div className="flex items-center gap-2">
                     <code className="flex-1 px-3 py-1.5 bg-snow border border-light-gray/60 rounded-interactive text-[12px] font-mono text-pure-black select-all">
-                      {webuiPassword}
+                      {passwordVisible ? webuiPassword : '•'.repeat(webuiPassword.length)}
                     </code>
+                    <button
+                      onClick={() => setPasswordVisible(!passwordVisible)}
+                      className="flex items-center justify-center p-1.5 rounded-interactive text-stone hover:bg-snow hover:text-pure-black bg-pure-white border border-light-gray transition-colors shrink-0"
+                      title={passwordVisible ? 'Hide password' : 'Show password'}
+                    >
+                      {passwordVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
                     <button
                       onClick={() => handleWebuiCopy(webuiPassword)}
                       className="flex items-center gap-1 px-2 py-1.5 rounded-interactive text-[10px] font-medium border border-light-gray text-stone hover:bg-snow hover:text-pure-black bg-pure-white transition-colors shrink-0"
@@ -520,27 +617,29 @@ export function ImSettingsPane({
         <div className="space-y-5">
           {weixinPlugin?.enabled ? (
             <section className="space-y-3">
-              <div className="border border-light-gray/60 rounded-container p-4 bg-pure-white space-y-4">
-                <div className="flex items-center gap-2">
-                  <span className="font-display font-medium text-[13px] text-pure-black">WeChat Bot</span>
-                  <span className={`w-2 h-2 rounded-full ${
-                    weixinPlugin.status === 'connected' ? 'bg-green' :
-                    weixinPlugin.status === 'connecting' ? 'bg-yellow animate-pulse' :
-                    weixinPlugin.status === 'error' ? 'bg-rose-500' :
-                    'bg-stone'
-                  }`} />
-                </div>
-                <p className="text-[11px] text-stone leading-relaxed">
-                  WeChat Personal Bot integration is active. The sidecar handles user interaction via iLink Bot APIs.
-                </p>
-                <div className="pt-2">
+              <div className="border border-light-gray/60 rounded-container p-4 bg-pure-white">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="font-display font-medium text-[13px] text-pure-black">Configuration</span>
+                    {weixinPlugin.status !== 'connected' && (
+                      <span className={`text-[11px] ${
+                        weixinPlugin.status === 'connecting' ? 'text-yellow' :
+                        weixinPlugin.status === 'error' ? 'text-rose-500' :
+                        'text-stone'
+                      }`}>
+                        {weixinPlugin.status === 'connecting' ? 'Connecting...' :
+                         weixinPlugin.status === 'error' ? 'Error' :
+                         'Disconnected'}
+                      </span>
+                    )}
+                  </div>
                   <button
                     onClick={handleStopWeixin}
                     disabled={loading}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-interactive text-[11px] font-medium transition-colors border border-mid-gray text-mid-gray hover:bg-snow bg-pure-white"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-interactive text-[11px] font-medium transition-colors border border-rose-500 text-rose-500 hover:bg-rose-50 bg-pure-white"
                   >
                     <Square className="w-3 h-3" />
-                    <span>Stop WeChat Bot</span>
+                    <span>Stop</span>
                   </button>
                 </div>
               </div>
@@ -560,7 +659,7 @@ export function ImSettingsPane({
                         : 'bg-transparent text-stone hover:text-pure-black'
                     }`}
                   >
-                    Scan Login
+                    {t("wechat.scanLogin")}
                   </button>
                   <button
                     onClick={() => setWxSubTab('manual')}
@@ -571,7 +670,7 @@ export function ImSettingsPane({
                         : 'bg-transparent text-stone hover:text-pure-black'
                     }`}
                   >
-                    Manual Configuration
+                    {t("wechat.manualConfig")}
                   </button>
                 </div>
 
@@ -598,16 +697,13 @@ export function ImSettingsPane({
                           </div>
                         )}
 
-                        <div className="text-center space-y-1">
+                        <div className="text-center">
                           <span className="text-[12px] font-medium text-pure-black">
                             {weixinScanStep === 'idle' && 'Initializing login bridge...'}
-                            {weixinScanStep === 'qr' && 'Please scan this code using your phone\'s WeChat app.'}
+                            {weixinScanStep === 'qr' && t("wechat.scanInstruction")}
                             {weixinScanStep === 'scanned' && 'Scan detected! Please confirm login on your mobile WeChat app.'}
                             {weixinScanStep === 'done' && 'Login successful! Setting up bot channel...'}
                           </span>
-                          <p className="text-[10px] text-silver leading-relaxed max-w-sm">
-                            WeChat Bot operates using Tencent iLink API. The QR code links your personal WeChat bot assistant.
-                          </p>
                         </div>
 
                         <button
@@ -615,7 +711,7 @@ export function ImSettingsPane({
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-interactive text-[11px] font-medium border border-light-gray text-stone hover:bg-snow hover:text-pure-black bg-pure-white"
                         >
                           <X className="w-3.5 h-3.5" />
-                          <span>Cancel Login</span>
+                          <span>{t("wechat.cancelLogin")}</span>
                         </button>
                       </div>
                     ) : (
@@ -625,7 +721,7 @@ export function ImSettingsPane({
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-interactive text-[11px] font-medium bg-pure-black text-pure-white border border-pure-black hover:bg-near-black"
                         >
                           <QrCode className="w-3.5 h-3.5" />
-                          <span>Start WeChat Scan Login</span>
+                          <span>{t("wechat.startScanLogin")}</span>
                         </button>
                       </div>
                     )}
@@ -679,7 +775,7 @@ export function ImSettingsPane({
                           className="flex items-center gap-1.5 px-3 py-1.5 rounded-interactive text-[11px] font-medium bg-pure-black text-pure-white border border-pure-black hover:bg-near-black disabled:opacity-50"
                         >
                           <Play className="w-3 h-3" />
-                          <span>Save & Start Manual Bot</span>
+                          <span>{t("wechat.saveAndStart")}</span>
                         </button>
                       </div>
                     </form>
@@ -689,16 +785,13 @@ export function ImSettingsPane({
             </section>
           )}
 
-          {/* Session Routing Configuration — moved to bottom */}
+          {/* Session Routing Configuration */}
           <div className="border border-light-gray/60 rounded-container p-4 bg-pure-white space-y-4">
-            <div className="flex flex-col gap-1 border-b border-light-gray/40 pb-2 mb-1">
-              <span className="font-display font-medium text-[13px] text-pure-black">Session Routing Configuration</span>
-              <span className="text-[11px] text-stone">Specify which Workspace and Agent Profile will handle incoming WeChat messages on this channel.</span>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
+            <span className="font-display font-medium text-[13px] text-pure-black">Session Routing</span>
+            <div className="grid grid-cols-3 gap-4">
               <SettingSelect
                 value={wxWorkspaceId}
-                onChange={(v) => handleUpdateWeixinConfig(v, wxAgentProfileId)}
+                onChange={(v) => handleUpdateWeixinConfig(v, wxAgentProfileId, wxModelId)}
                 placeholder="Default Workspace (First Available)"
                 label="Workspace"
                 options={[
@@ -708,7 +801,7 @@ export function ImSettingsPane({
               />
               <SettingSelect
                 value={wxAgentProfileId}
-                onChange={(v) => handleUpdateWeixinConfig(wxWorkspaceId, v)}
+                onChange={(v) => handleUpdateWeixinConfig(wxWorkspaceId, v, wxModelId)}
                 placeholder="Default Agent (First Enabled)"
                 label="Agent Profile"
                 options={[
@@ -716,8 +809,102 @@ export function ImSettingsPane({
                   ...agents.map((a) => ({ value: a.id, label: a.name })),
                 ]}
               />
+              <SettingSelectWithSearch
+                value={wxModelId}
+                onChange={(v) => handleUpdateWeixinConfig(wxWorkspaceId, wxAgentProfileId, v)}
+                placeholder="Default Model (Agent Default)"
+                label="Model"
+                searchPlaceholder="Search models..."
+                options={[
+                  { value: '', label: 'Default Model (Agent Default)' },
+                  ...wxAvailableModels.map((m) => ({ value: m.id ?? m.model_id ?? '', label: m.name ?? m.id ?? '' })),
+                ]}
+              />
             </div>
           </div>
+
+          {/* Pairing Requests Section - 仅当有待处理请求时显示 */}
+          {weixinPendingPairings.length > 0 && (
+            <div className="border border-light-gray/60 rounded-container p-4 bg-pure-white space-y-4 mt-4">
+              <div className="flex flex-col gap-1">
+                <span className="font-display font-medium text-[13px] text-pure-black">Pairing Requests</span>
+                <span className="text-[11px] text-stone">
+                  Users from WeChat requesting authorization to use this bot.
+                </span>
+              </div>
+
+              {/* 手动输入区 */}
+              <div className="flex gap-2 max-w-sm">
+                <input
+                  type="text"
+                  maxLength={6}
+                  value={pairingCodeInput}
+                  onChange={(e) => setPairingCodeInput(e.target.value.trim())}
+                  placeholder="Enter 6-digit code"
+                  className="w-full px-3 py-1.5 border border-light-gray/60 rounded-interactive text-[12px] bg-pure-white text-pure-black focus:outline-none focus:border-pure-black transition-colors font-mono tracking-widest text-center text-lg"
+                />
+                <button
+                  onClick={() => handleApprovePairing(pairingCodeInput)}
+                  disabled={pairingCodeInput.length !== 6}
+                  className="flex items-center justify-center gap-1.5 px-4 py-1.5 rounded-interactive text-[11px] font-medium bg-pure-black text-pure-white border border-pure-black hover:bg-near-black disabled:opacity-50 shrink-0"
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>Approve</span>
+                </button>
+              </div>
+
+              {/* 消息反馈 */}
+              {pairingMessage && (
+                <div className="flex gap-3 p-3 rounded-container bg-light-gray/20 border border-light-gray text-near-black text-[11px] leading-relaxed">
+                  {pairingMessageType === 'success' ? (
+                    <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  )}
+                  <div>{pairingMessage}</div>
+                </div>
+              )}
+
+              {/* 待处理列表 */}
+              <div className="space-y-3 border-t border-light-gray/40 pt-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-[10px] text-silver font-medium uppercase tracking-wider">
+                    Pending Requests ({weixinPendingPairings.length})
+                  </div>
+                  <button
+                    onClick={() => clearChannelPairings('weixin')}
+                    className="text-[10px] text-stone hover:text-pure-black"
+                  >
+                    Clear
+                  </button>
+                </div>
+
+                <div className="divide-y divide-light-gray/30">
+                  {weixinPendingPairings.map((req) => (
+                    <div key={req.code} className="flex items-center justify-between py-2.5 first:pt-0 last:pb-0">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-display font-medium text-[12px] text-pure-black">
+                          {req.display_name} ({req.platform_user_id})
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono text-[13px] font-medium text-pure-black tracking-widest bg-snow border border-light-gray/40 px-2 py-0.5 rounded-interactive">
+                          {req.code}
+                        </span>
+                        <button
+                          onClick={() => handleApprovePairing(req.code)}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-interactive text-[10px] font-medium border border-light-gray text-stone hover:bg-snow hover:text-pure-black bg-pure-white transition-colors"
+                        >
+                          <Check className="w-3 h-3" />
+                          <span>Approve</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -835,12 +1022,12 @@ export function ImSettingsPane({
           <div className="border border-light-gray/60 rounded-container p-4 bg-pure-white space-y-4">
             <div className="flex flex-col gap-1 border-b border-light-gray/40 pb-2 mb-1">
               <span className="font-display font-medium text-[13px] text-pure-black">Session Routing Configuration</span>
-              <span className="text-[11px] text-stone">Specify which Workspace and Agent Profile will handle incoming Feishu messages on this channel.</span>
+              <span className="text-[11px] text-stone">Specify which Workspace, Agent Profile, and Model will handle incoming Feishu messages on this channel.</span>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <SettingSelect
                 value={larkWorkspaceId}
-                onChange={(v) => handleUpdateLarkConfig(v, larkAgentProfileId)}
+                onChange={(v) => handleUpdateLarkConfig(v, larkAgentProfileId, larkModelId)}
                 placeholder="Default Workspace (First Available)"
                 label="Workspace"
                 options={[
@@ -850,7 +1037,7 @@ export function ImSettingsPane({
               />
               <SettingSelect
                 value={larkAgentProfileId}
-                onChange={(v) => handleUpdateLarkConfig(larkWorkspaceId, v)}
+                onChange={(v) => handleUpdateLarkConfig(larkWorkspaceId, v, larkModelId)}
                 placeholder="Default Agent (First Enabled)"
                 label="Agent Profile"
                 options={[
@@ -858,99 +1045,102 @@ export function ImSettingsPane({
                   ...agents.map((a) => ({ value: a.id, label: a.name })),
                 ]}
               />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Pairing Codes Tab */}
-      {selectedTab === 'pairing' && (
-        <div className="space-y-4">
-          <div className="border border-light-gray/60 rounded-container p-4 bg-pure-white space-y-4">
-            <div className="flex flex-col gap-1">
-              <span className="font-display font-medium text-[13px] text-pure-black">Pairing Authorization</span>
-              <span className="text-[11px] text-stone">
-                Linking an external IM account (WeChat or Feishu) to this agent core. When an unauthorized user sends a message, they receive a pairing code. Enter the 6-digit code below to approve them.
-              </span>
-            </div>
-
-            {pairingMessage && (
-              <div className="flex gap-3 p-3 rounded-container bg-light-gray/20 border border-light-gray text-near-black text-[11px] leading-relaxed">
-                {pairingMessageType === 'success' ? (
-                  <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                ) : (
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                )}
-                <div>{pairingMessage}</div>
-              </div>
-            )}
-
-            <div className="flex gap-2 max-w-sm">
-              <input
-                type="text"
-                maxLength={6}
-                value={pairingCodeInput}
-                onChange={(e) => setPairingCodeInput(e.target.value.trim())}
-                placeholder="Enter 6-digit code"
-                className="w-full px-3 py-1.5 border border-light-gray/60 rounded-interactive text-[12px] bg-pure-white text-pure-black focus:outline-none focus:border-pure-black transition-colors font-mono tracking-widest text-center text-lg"
+              <SettingSelectWithSearch
+                value={larkModelId}
+                onChange={(v) => handleUpdateLarkConfig(larkWorkspaceId, larkAgentProfileId, v)}
+                placeholder="Default Model (Agent Default)"
+                label="Model"
+                searchPlaceholder="Search models..."
+                options={[
+                  { value: '', label: 'Default Model (Agent Default)' },
+                  ...larkAvailableModels.map((m) => ({ value: m.id ?? m.model_id ?? '', label: m.name ?? m.id ?? '' })),
+                ]}
               />
-              <button
-                onClick={() => handleApprovePairing(pairingCodeInput)}
-                disabled={pairingCodeInput.length !== 6}
-                className="flex items-center justify-center gap-1.5 px-4 py-1.5 rounded-interactive text-[11px] font-medium bg-pure-black text-pure-white border border-pure-black hover:bg-near-black disabled:opacity-50 shrink-0"
-              >
-                <UserCheck className="w-3.5 h-3.5" />
-                <span>Approve</span>
-              </button>
             </div>
           </div>
 
-          <div className="border border-light-gray/60 rounded-container p-4 bg-pure-white space-y-3">
-            <div className="flex items-center justify-between mb-1">
-              <div className="text-[10px] text-silver font-medium uppercase tracking-wider">Dynamic Session Pairing Requests</div>
-              {pendingPairings.length > 0 && (
-                <button
-                  onClick={() => setPendingPairings([])}
-                  className="text-[10px] text-stone hover:text-pure-black"
-                >
-                  Clear List
-                </button>
-              )}
-            </div>
-
-            {pendingPairings.length === 0 ? (
-              <p className="text-[11px] text-stone italic text-center py-4">
-                No active pairing requests. Send a message to your WeChat/Feishu bot to request a new code.
-              </p>
-            ) : (
-              <div className="divide-y divide-light-gray/30">
-                {pendingPairings.map((req) => (
-                  <div key={req.code} className="flex items-center justify-between py-2.5 first:pt-0 last:pb-0">
-                    <div className="flex flex-col gap-0.5">
-                      <span className="font-display font-medium text-[12px] text-pure-black">
-                        {req.display_name} ({req.platform_user_id})
-                      </span>
-                      <span className="text-[10px] text-silver">
-                        Platform: <span className="font-medium text-stone uppercase">{req.platform_type}</span>
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="font-mono text-[13px] font-medium text-pure-black tracking-widest bg-snow border border-light-gray/40 px-2 py-0.5 rounded-interactive">
-                        {req.code}
-                      </span>
-                      <button
-                        onClick={() => handleApprovePairing(req.code)}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-interactive text-[10px] font-medium border border-light-gray text-stone hover:bg-snow hover:text-pure-black bg-pure-white transition-colors"
-                      >
-                        <Check className="w-3 h-3" />
-                        <span>Approve</span>
-                      </button>
-                    </div>
-                  </div>
-                ))}
+          {/* Pairing Requests Section - 仅当有待处理请求时显示 */}
+          {larkPendingPairings.length > 0 && (
+            <div className="border border-light-gray/60 rounded-container p-4 bg-pure-white space-y-4 mt-4">
+              <div className="flex flex-col gap-1">
+                <span className="font-display font-medium text-[13px] text-pure-black">Pairing Requests</span>
+                <span className="text-[11px] text-stone">
+                  Users from Feishu requesting authorization to use this bot.
+                </span>
               </div>
-            )}
-          </div>
+
+              {/* 手动输入区 */}
+              <div className="flex gap-2 max-w-sm">
+                <input
+                  type="text"
+                  maxLength={6}
+                  value={pairingCodeInput}
+                  onChange={(e) => setPairingCodeInput(e.target.value.trim())}
+                  placeholder="Enter 6-digit code"
+                  className="w-full px-3 py-1.5 border border-light-gray/60 rounded-interactive text-[12px] bg-pure-white text-pure-black focus:outline-none focus:border-pure-black transition-colors font-mono tracking-widest text-center text-lg"
+                />
+                <button
+                  onClick={() => handleApprovePairing(pairingCodeInput)}
+                  disabled={pairingCodeInput.length !== 6}
+                  className="flex items-center justify-center gap-1.5 px-4 py-1.5 rounded-interactive text-[11px] font-medium bg-pure-black text-pure-white border border-pure-black hover:bg-near-black disabled:opacity-50 shrink-0"
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>Approve</span>
+                </button>
+              </div>
+
+              {/* 消息反馈 */}
+              {pairingMessage && (
+                <div className="flex gap-3 p-3 rounded-container bg-light-gray/20 border border-light-gray text-near-black text-[11px] leading-relaxed">
+                  {pairingMessageType === 'success' ? (
+                    <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  )}
+                  <div>{pairingMessage}</div>
+                </div>
+              )}
+
+              {/* 待处理列表 */}
+              <div className="space-y-3 border-t border-light-gray/40 pt-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-[10px] text-silver font-medium uppercase tracking-wider">
+                    Pending Requests ({larkPendingPairings.length})
+                  </div>
+                  <button
+                    onClick={() => clearChannelPairings('lark')}
+                    className="text-[10px] text-stone hover:text-pure-black"
+                  >
+                    Clear
+                  </button>
+                </div>
+
+                <div className="divide-y divide-light-gray/30">
+                  {larkPendingPairings.map((req) => (
+                    <div key={req.code} className="flex items-center justify-between py-2.5 first:pt-0 last:pb-0">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-display font-medium text-[12px] text-pure-black">
+                          {req.display_name} ({req.platform_user_id})
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono text-[13px] font-medium text-pure-black tracking-widest bg-snow border border-light-gray/40 px-2 py-0.5 rounded-interactive">
+                          {req.code}
+                        </span>
+                        <button
+                          onClick={() => handleApprovePairing(req.code)}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-interactive text-[10px] font-medium border border-light-gray text-stone hover:bg-snow hover:text-pure-black bg-pure-white transition-colors"
+                        >
+                          <Check className="w-3 h-3" />
+                          <span>Approve</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
       </div>

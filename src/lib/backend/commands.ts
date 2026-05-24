@@ -171,12 +171,12 @@ export async function listImPlugins(): Promise<Types.ImPluginInfo[]> {
   return invoke('list_im_plugins');
 }
 
-export async function startImPlugin(platform: string, sidecarPath: string, credentialsJson: string, workspaceId?: string, agentProfileId?: string): Promise<void> {
-  return invoke('start_im_plugin', { platform, sidecarPath, credentialsJson, workspaceId, agentProfileId });
+export async function startImPlugin(platform: string, sidecarPath: string, credentialsJson: string, workspaceId?: string, agentProfileId?: string, modelId?: string): Promise<void> {
+  return invoke('start_im_plugin', { platform, sidecarPath, credentialsJson, workspaceId, agentProfileId, modelId });
 }
 
-export async function updateImPluginConfig(platform: string, workspaceId?: string, agentProfileId?: string): Promise<void> {
-  return invoke('update_im_plugin_config', { platform, workspaceId, agentProfileId });
+export async function updateImPluginConfig(platform: string, workspaceId?: string, agentProfileId?: string, modelId?: string): Promise<void> {
+  return invoke('update_im_plugin_config', { platform, workspaceId, agentProfileId, modelId });
 }
 
 export async function stopImPlugin(platform: string): Promise<void> {

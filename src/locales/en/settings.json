@@ -25,9 +25,17 @@
   },
   "webui": {
     "title": "Web UI",
-    "enable": "Enable Web UI",
+    "enable": "Enable WebUI Server",
     "password": "Password",
     "port": "Port",
     "urls": "URLs"
+  },
+  "wechat": {
+    "scanLogin": "Scan Login",
+    "manualConfig": "Manual Configuration",
+    "startScanLogin": "Start WeChat Scan Login",
+    "scanInstruction": "Please scan this code using your phone's WeChat app.",
+    "cancelLogin": "Cancel Login",
+    "saveAndStart": "Save & Start"
   }
 }
