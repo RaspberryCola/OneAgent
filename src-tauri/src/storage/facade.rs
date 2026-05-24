@@ -292,6 +292,10 @@ impl Database {
         McpRepository::new(&self.conn.lock()).upsert(config)
     }
 
+    pub fn delete_workspace_mcp(&self, id: &str) -> StorageResult<()> {
+        McpRepository::new(&self.conn.lock()).delete(id)
+    }
+
     pub fn replace_workspace_skills(
         &self,
         workspace: &Workspace,

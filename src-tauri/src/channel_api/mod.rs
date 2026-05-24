@@ -573,6 +573,17 @@ pub async fn upsert_workspace_mcp(
 }
 
 #[tauri::command]
+pub async fn delete_workspace_mcp(
+    state: State<'_, AppState>,
+    config_id: String,
+) -> Result<(), BackendError> {
+    state
+        .gateway
+        .delete_workspace_mcp(&config_id)
+        .map_err(BackendError::from)
+}
+
+#[tauri::command]
 pub async fn list_workspace_skills(
     state: State<'_, AppState>,
     workspace_id: String,

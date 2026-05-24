@@ -17,6 +17,7 @@ interface SettingsDialogProps {
   alwaysExpandThinking: boolean;
   sortedDiscoveryStatus: Types.AgentDiscoveryStatus[];
   availableAgentsCount: number;
+  activeWorkspaceId: string | null;
   onClose: () => void;
   onSelectTab: (tab: SettingsTab) => void;
   onToggleAlwaysExpandThinking: () => void;
@@ -33,6 +34,7 @@ export function SettingsDialog({
   alwaysExpandThinking,
   sortedDiscoveryStatus,
   availableAgentsCount,
+  activeWorkspaceId,
   onClose,
   onSelectTab,
   onToggleAlwaysExpandThinking,
@@ -177,7 +179,14 @@ export function SettingsDialog({
                     renderAgentLogo={renderAgentLogo}
                   />
                 )}
-                {settingsTab === 'mcp' && <McpSettingsPane />}
+                {settingsTab === 'mcp' && activeWorkspaceId && (
+                  <McpSettingsPane workspaceId={activeWorkspaceId} />
+                )}
+                {settingsTab === 'mcp' && !activeWorkspaceId && (
+                  <div className="text-[12px] text-stone text-center py-8">
+                    {t("mcp.noWorkspace")}
+                  </div>
+                )}
               </div>
             )}
           </div>

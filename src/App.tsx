@@ -847,6 +847,7 @@ export default function App() {
             alwaysExpandThinking={alwaysExpandThinking}
             sortedDiscoveryStatus={sortedDiscoveryStatus}
             availableAgentsCount={availableAgents.length}
+            activeWorkspaceId={activeWorkspace?.id ?? null}
             onClose={() => setIsSettingsOpen(false)}
             onSelectTab={setSettingsTab}
             onToggleAlwaysExpandThinking={() => setAlwaysExpandThinking(!alwaysExpandThinking)}

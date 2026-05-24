@@ -308,6 +308,23 @@ export interface McpServerConfig {
   enabled: boolean;
 }
 
+export type McpConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+
+export interface McpToolInfo {
+  name: string;
+  description?: string | null;
+  input_schema?: any;
+}
+
+export interface McpServerStatus {
+  config_id: string;
+  name: string;
+  status: McpConnectionStatus;
+  tools: McpToolInfo[];
+  error_message?: string | null;
+  last_updated: string;
+}
+
 export interface SkillRecord {
   id: string;
   scope: 'project' | 'user' | 'agent_specific';

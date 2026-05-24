@@ -192,6 +192,11 @@ interface AppState {
   setAlwaysExpandThinking: (value: boolean) => void;
   setWebuiEnabled: (value: boolean) => Promise<string | null>;
 
+  // MCP Actions
+  refreshMcpServers: () => Promise<void>;
+  upsertMcpServer: (config: Types.McpServerConfig) => Promise<void>;
+  deleteMcpServer: (id: string) => Promise<void>;
+
   login: (password: string) => Promise<boolean>;
   logout: () => Promise<void>;
 
@@ -1076,6 +1081,50 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     set({ webuiEnabled: value, webuiPassword, webuiInfo });
     return generatedPassword;
+  },
+
+  refreshMcpServers: async () => {
+    const activeWorkspaceId = get().activeWorkspace?.id;
+    if (!activeWorkspaceId) return;
+    try {
+      const mcpServers = await API.listWorkspaceMcp(activeWorkspaceId);
+      set({ mcpServers });
+    } catch (error) {
+      console.error('Failed to refresh MCP servers', error);
+    }
+  },
+
+  upsertMcpServer: async (config: Types.McpServerConfig) => {
+    try {
+      const result = await API.upsertWorkspaceMcp(config);
+      set((state) => {
+        const existing = state.mcpServers.find(s => s.id === result.id);
+        if (existing) {
+          return {
+            mcpServers: state.mcpServers.map(s => s.id === result.id ? result : s),
+          };
+        } else {
+          return {
+            mcpServers: [...state.mcpServers, result],
+          };
+        }
+      });
+    } catch (error) {
+      console.error('Failed to upsert MCP server', error);
+      throw error;
+    }
+  },
+
+  deleteMcpServer: async (id: string) => {
+    try {
+      await API.deleteWorkspaceMcp(id);
+      set((state) => ({
+        mcpServers: state.mcpServers.filter(s => s.id !== id),
+      }));
+    } catch (error) {
+      console.error('Failed to delete MCP server', error);
+      throw error;
+    }
   },
 
   login: async (password: string) => {

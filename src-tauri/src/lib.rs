@@ -125,6 +125,7 @@ pub fn run() {
             channel_api::resolve_permission_request,
             channel_api::list_workspace_mcp,
             channel_api::upsert_workspace_mcp,
+            channel_api::delete_workspace_mcp,
             channel_api::list_workspace_skills,
             channel_api::get_conversation_timeline,
             channel_api::get_conversation_state,

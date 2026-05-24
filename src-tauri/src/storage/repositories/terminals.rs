@@ -114,6 +114,14 @@ impl<'a> McpRepository<'a> {
         )?;
         Ok(())
     }
+
+    pub fn delete(&self, id: &str) -> StorageResult<()> {
+        self.conn.execute(
+            "DELETE FROM mcp_server_configs WHERE id = ?1",
+            params![id],
+        )?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

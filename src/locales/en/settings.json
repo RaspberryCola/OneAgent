@@ -37,5 +37,35 @@
     "scanInstruction": "Please scan this code using your phone's WeChat app.",
     "cancelLogin": "Cancel Login",
     "saveAndStart": "Save & Start"
-  }
+  },
+  "mcp": {
+    "title": "MCP Servers",
+    "description": "Model Context Protocol (MCP) servers provide tools and resources to AI agents. Add servers here to extend agent capabilities.",
+    "add": "Add Server",
+    "edit": "Edit",
+    "delete": "Delete",
+    "name": "Name",
+    "nameRequired": "Name is required",
+    "command": "Command",
+    "commandRequired": "Command is required",
+    "args": "Arguments (JSON Array)",
+    "argsPlaceholder": "e.g. [\"-y\", \"@modelcontextprotocol/server-filesystem\", \"/path\"]",
+    "argsInvalid": "Arguments must be a valid JSON array",
+    "env": "Environment Variables (JSON Object)",
+    "envPlaceholder": "e.g. {\"API_KEY\": \"your-key\"}",
+    "envInvalid": "Environment variables must be a valid JSON object",
+    "enabled": "Enabled",
+    "enabledDesc": "Server will be started when creating new conversations",
+    "noServers": "No MCP servers configured. Click 'Add Server' to add one.",
+    "noWorkspace": "No workspace selected. Please select a workspace first.",
+    "status": {
+      "connected": "Connected",
+      "connecting": "Connecting",
+      "disconnected": "Disconnected",
+      "error": "Error"
+    },
+    "tools": "tools"
+  },
+  "cancel": "Cancel",
+  "save": "Save"
 }

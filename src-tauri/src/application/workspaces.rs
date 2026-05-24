@@ -58,6 +58,10 @@ impl WorkspaceAppService {
         Ok(config)
     }
 
+    pub fn delete_workspace_mcp(&self, id: &str) -> ApplicationResult<()> {
+        Ok(self.db.delete_workspace_mcp(id)?)
+    }
+
     pub fn list_workspace_skills(&self, workspace_id: &str) -> ApplicationResult<Vec<SkillRecord>> {
         Ok(self.runtime.refresh_workspace_skills(workspace_id)?)
     }

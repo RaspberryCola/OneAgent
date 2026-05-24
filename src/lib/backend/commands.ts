@@ -145,6 +145,10 @@ export async function upsertWorkspaceMcp(config: Types.McpServerConfig): Promise
   return invoke('upsert_workspace_mcp', { config });
 }
 
+export async function deleteWorkspaceMcp(configId: string): Promise<void> {
+  return invoke('delete_workspace_mcp', { configId });
+}
+
 export async function listWorkspaceSkills(workspaceId: string): Promise<Types.SkillRecord[]> {
   return invoke('list_workspace_skills', { workspaceId });
 }

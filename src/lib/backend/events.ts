@@ -1,6 +1,6 @@
 import { listen } from './transport';
 import type { UnlistenFn } from './transport';
-import type { AvailableCommand, MessageProjection, ToolCallProjection, PermissionDecision, ConversationState, SessionConfigOption, AcpSessionModels, AcpSessionModeState, AgentCapabilities, PendingPermissionRequest, TerminalRecord, TaskRun } from './types';
+import type { AvailableCommand, MessageProjection, ToolCallProjection, PermissionDecision, ConversationState, SessionConfigOption, AcpSessionModels, AcpSessionModeState, AgentCapabilities, PendingPermissionRequest, TerminalRecord, TaskRun, McpServerStatus } from './types';
 
 // The backend now emits normalized envelopes, replacing the older raw-payload assumptions.
 
@@ -135,4 +135,13 @@ export type ImPluginConfigChangedPayload = {
 
 export function onImPluginConfigChanged(handler: (payload: ImPluginConfigChangedPayload) => void): Promise<UnlistenFn> {
   return listen<ImPluginConfigChangedPayload>('im:plugin_config_changed', (event) => handler(event.payload));
+}
+
+export type McpStatusChangedPayload = {
+  workspace_id: string;
+  status: McpServerStatus;
+};
+
+export function onMcpStatusChanged(handler: (payload: McpStatusChangedPayload) => void): Promise<UnlistenFn> {
+  return listen<McpStatusChangedPayload>('mcp:status_changed', (event) => handler(event.payload));
 }

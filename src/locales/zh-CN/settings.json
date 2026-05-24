@@ -37,5 +37,35 @@
     "scanInstruction": "请使用手机微信扫描此二维码。",
     "cancelLogin": "取消登录",
     "saveAndStart": "保存并启动"
-  }
+  },
+  "mcp": {
+    "title": "MCP 服务器",
+    "description": "模型上下文协议 (MCP) 服务器为 AI Agent 提供工具和资源。在此添加服务器以扩展 Agent 能力。",
+    "add": "添加服务器",
+    "edit": "编辑",
+    "delete": "删除",
+    "name": "名称",
+    "nameRequired": "名称为必填项",
+    "command": "命令",
+    "commandRequired": "命令为必填项",
+    "args": "参数 (JSON 数组)",
+    "argsPlaceholder": "例如: [\"-y\", \"@modelcontextprotocol/server-filesystem\", \"/path\"]",
+    "argsInvalid": "参数必须是有效的 JSON 数组",
+    "env": "环境变量 (JSON 对象)",
+    "envPlaceholder": "例如: {\"API_KEY\": \"your-key\"}",
+    "envInvalid": "环境变量必须是有效的 JSON 对象",
+    "enabled": "启用",
+    "enabledDesc": "创建新对话时启动此服务器",
+    "noServers": "未配置 MCP 服务器。点击\"添加服务器\"添加一个。",
+    "noWorkspace": "未选择工作区。请先选择一个工作区。",
+    "status": {
+      "connected": "已连接",
+      "connecting": "连接中",
+      "disconnected": "未连接",
+      "error": "错误"
+    },
+    "tools": "个工具"
+  },
+  "cancel": "取消",
+  "save": "保存"
 }

@@ -422,6 +422,32 @@ pub struct McpServerConfig {
     pub enabled: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum McpConnectionStatus {
+    Disconnected,
+    Connecting,
+    Connected,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpToolInfo {
+    pub name: String,
+    pub description: Option<String>,
+    pub input_schema: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpServerStatus {
+    pub config_id: String,
+    pub name: String,
+    pub status: McpConnectionStatus,
+    pub tools: Vec<McpToolInfo>,
+    pub error_message: Option<String>,
+    pub last_updated: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillRecord {
     pub id: String,

@@ -218,6 +218,10 @@ impl Gateway {
         Ok(self.app.workspaces.upsert_workspace_mcp(config)?)
     }
 
+    pub fn delete_workspace_mcp(&self, id: &str) -> GatewayResult<()> {
+        Ok(self.app.workspaces.delete_workspace_mcp(id)?)
+    }
+
     pub fn list_workspace_skills(&self, workspace_id: &str) -> GatewayResult<Vec<SkillRecord>> {
         Ok(self.app.workspaces.list_workspace_skills(workspace_id)?)
     }
