@@ -1,4 +1,4 @@
-import { Bot, Trash2, X, MessageCircle } from "lucide-react";
+import { Bot, Trash2, X } from "lucide-react";
 import type * as Types from "../../lib/backend/types";
 
 type SidebarItemProps = {
@@ -52,13 +52,20 @@ export function SidebarItem({
             <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-[calc(100%+3px)] w-1.5 h-1.5 rounded-full bg-emerald-500" />
           )}
         </div>
-        <span className={`text-small truncate flex-1 ${active ? "text-pure-black font-medium" : "text-near-black"}`}>{title}</span>
-        {imSource && (
-          <span className="shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 text-[9px] font-medium leading-none" title={`via ${imSource}`}>
-            <MessageCircle className="w-2.5 h-2.5" />
-            {imSource === 'weixin' ? 'WX' : imSource === 'lark' ? 'Lark' : imSource.slice(0, 4).toUpperCase()}
+        {(imSource === 'weixin' || imSource === 'lark') && (
+          <img
+            src={imSource === 'weixin' ? '/logos/channels/weixin.svg' : '/logos/channels/lark.svg'}
+            className="w-3.5 h-3.5 shrink-0"
+            alt={imSource}
+            title={`via ${imSource}`}
+          />
+        )}
+        {imSource && imSource !== 'weixin' && imSource !== 'lark' && (
+          <span className="shrink-0 text-[9px] font-medium text-blue-600" title={`via ${imSource}`}>
+            {imSource.slice(0, 4).toUpperCase()}
           </span>
         )}
+        <span className={`text-small truncate flex-1 ${active ? "text-pure-black font-medium" : "text-near-black"}`}>{title}</span>
       </button>
       {onDelete && (
         deletePending ? (
