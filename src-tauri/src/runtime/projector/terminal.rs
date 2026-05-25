@@ -22,7 +22,7 @@ impl Runtime {
     ) -> RuntimeResult<()> {
         self.finalize_thinking_stream(conversation_id, turn_id)?;
         let cache_key = format!("{conversation_id}:{terminal_id}");
-        let cached_record = self.terminal_records_cache.lock().get(&cache_key).cloned();
+        let cached_record = self.state_cache.get_terminal_record(&cache_key);
         let mut record = if let Some(cached) = cached_record {
             cached
         } else {
@@ -43,9 +43,7 @@ impl Runtime {
                 started_at: Utc::now(),
                 ended_at: None,
             });
-            self.terminal_records_cache
-                .lock()
-                .insert(cache_key.clone(), loaded.clone());
+            self.state_cache.set_terminal_record(&cache_key, loaded.clone());
             loaded
         };
         if let Some(cwd) = cwd {
@@ -83,9 +81,7 @@ impl Runtime {
             record.ended_at = Some(Utc::now());
         }
         self.db.upsert_terminal(&record)?;
-        self.terminal_records_cache
-            .lock()
-            .insert(cache_key, record.clone());
+        self.state_cache.set_terminal_record(&cache_key, record.clone());
         if let Some(chunk) = content {
             let message = MessageProjection {
                 id: format!(

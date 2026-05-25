@@ -12,5 +12,6 @@
   "moreActions": "More actions",
   "openWorkspace": "Open workspace",
   "deleteConversation": "Delete conversation",
-  "cancelDelete": "Cancel delete"
+  "cancelDelete": "Cancel delete",
+  "showMore": "Show More"
 }

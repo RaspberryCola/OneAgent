@@ -18,14 +18,11 @@ impl Runtime {
             &MessageRole::System,
             &MessageKind::Thinking,
         );
-        let mut stream_messages = self.streaming_messages.lock();
-        let is_new_stream = !stream_messages.contains_key(&stream_key);
-        if !stream_messages.contains_key(&stream_key) {
-            drop(stream_messages);
+        let is_new_stream = !self.state_cache.has_streaming_message(&stream_key);
+        if is_new_stream {
             self.finalize_text_stream(conversation_id, turn_id)?;
-            stream_messages = self.streaming_messages.lock();
         }
-        let active = stream_messages.entry(stream_key).or_insert_with(|| {
+        let (active, _) = self.state_cache.get_or_create_streaming_message(&stream_key, || {
             crate::runtime::ActiveStreamMessage {
                 id: Uuid::new_v4().to_string(),
                 role: MessageRole::System,
@@ -34,7 +31,7 @@ impl Runtime {
                 started_at: Utc::now(),
             }
         });
-        active.content.push_str(&content);
+        self.state_cache.append_streaming_content(&stream_key, &content);
         let message = MessageProjection {
             id: active.id.clone(),
             conversation_id: conversation_id.to_string(),
@@ -49,7 +46,6 @@ impl Runtime {
             }),
             created_at: active.started_at,
         };
-        drop(stream_messages);
         self.db.upsert_message(&message)?;
         self.emit(
             if is_new_stream {
@@ -76,9 +72,8 @@ impl Runtime {
         let message_role = Self::role_from_stream(&role);
         let stream_key =
             Self::stream_message_key(conversation_id, turn_id, &message_role, &MessageKind::Text);
-        let mut stream_messages = self.streaming_messages.lock();
-        let is_new_stream = !stream_messages.contains_key(&stream_key);
-        let active = stream_messages.entry(stream_key).or_insert_with(|| {
+        let is_new_stream = !self.state_cache.has_streaming_message(&stream_key);
+        let (active, _) = self.state_cache.get_or_create_streaming_message(&stream_key, || {
             crate::runtime::ActiveStreamMessage {
                 id: Uuid::new_v4().to_string(),
                 role: message_role.clone(),
@@ -87,7 +82,7 @@ impl Runtime {
                 started_at: Utc::now(),
             }
         });
-        active.content.push_str(&content);
+        self.state_cache.append_streaming_content(&stream_key, &content);
         let message = MessageProjection {
             id: active.id.clone(),
             conversation_id: conversation_id.to_string(),
@@ -97,7 +92,6 @@ impl Runtime {
             content_json: json!({ "text": active.content, "stream": true }),
             created_at: active.started_at,
         };
-        drop(stream_messages);
         self.db.upsert_message(&message)?;
         self.record_lifecycle_event(
             conversation_id,
@@ -130,7 +124,7 @@ impl Runtime {
         let message_role = Self::role_from_stream(&role);
         let stream_key =
             Self::stream_message_key(conversation_id, turn_id, &message_role, &MessageKind::Text);
-        let active = self.streaming_messages.lock().remove(&stream_key);
+        let active = self.state_cache.remove_streaming_message(&stream_key);
         let message = MessageProjection {
             id: active
                 .as_ref()
@@ -199,10 +193,7 @@ impl Runtime {
         message: String,
     ) -> RuntimeResult<()> {
         self.finalize_thinking_stream(conversation_id, turn_id)?;
-        let prefix = format!("{conversation_id}:{turn_id}:");
-        self.streaming_messages
-            .lock()
-            .retain(|key, _| !key.starts_with(&prefix));
+        self.state_cache.clear_streaming_messages_for_turn(conversation_id, turn_id);
         let message = MessageProjection {
             id: Uuid::new_v4().to_string(),
             conversation_id: conversation_id.to_string(),

@@ -45,7 +45,7 @@ impl Runtime {
             &MessageRole::System,
             &MessageKind::Thinking,
         );
-        let active = self.streaming_messages.lock().remove(&stream_key);
+        let active = self.state_cache.remove_streaming_message(&stream_key);
         let Some(active) = active else {
             return Ok(());
         };
@@ -81,7 +81,7 @@ impl Runtime {
         for role in [MessageRole::Agent, MessageRole::User] {
             let stream_key =
                 Self::stream_message_key(conversation_id, turn_id, &role, &MessageKind::Text);
-            let active = self.streaming_messages.lock().remove(&stream_key);
+            let active = self.state_cache.remove_streaming_message(&stream_key);
             if let Some(active) = active {
                 let message = MessageProjection {
                     id: active.id,
@@ -135,10 +135,7 @@ impl Runtime {
 
     fn process_turn_finished(&self, conversation_id: &str, turn_id: &str) -> RuntimeResult<()> {
         self.finalize_thinking_stream(conversation_id, turn_id)?;
-        let prefix = format!("{conversation_id}:{turn_id}:");
-        self.streaming_messages
-            .lock()
-            .retain(|key, _| !key.starts_with(&prefix));
+        self.state_cache.clear_streaming_messages_for_turn(conversation_id, turn_id);
         self.record_lifecycle_event(
             conversation_id,
             "TurnCompleted",

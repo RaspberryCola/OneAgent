@@ -14,6 +14,29 @@ pub enum RuntimeError {
     Storage(#[from] crate::storage::StorageError),
     #[error("adapter error: {0}")]
     Adapter(#[from] crate::agent_adapters::AdapterError),
+
+    // Specific state errors (replaces generic InvalidState)
+    #[error("conversation already has an active turn")]
+    ActiveTurnRunning,
+
+    #[error("conversation is missing agent session binding")]
+    MissingBinding,
+
+    #[error("pending permission request not found")]
+    PendingPermissionNotFound,
+
+    #[error("permission request is no longer pending")]
+    PermissionNotPending,
+
+    #[error("permission fingerprint does not match latest pending request")]
+    PermissionFingerprintMismatch,
+
+    #[error("agent session discovery timed out")]
+    SessionDiscoveryTimeout,
+
+    #[error("prompt completion channel dropped")]
+    PromptCompletionChannelDropped,
+
     #[error("invalid state: {0}")]
     InvalidState(String),
 }

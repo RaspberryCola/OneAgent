@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Folder, FolderOpen, SquarePen, MoreVertical, Archive } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type * as Types from '../../lib/backend/types';
 import { SidebarItem } from './SidebarItem';
 
@@ -38,8 +39,26 @@ export function WorkspaceConversationGroup({
   onCancelDeleteConversation,
   onArchiveWorkspace,
 }: WorkspaceConversationGroupProps) {
+  const { t } = useTranslation("sidebar");
   const hasConversations = conversations.length > 0;
   const [showMenu, setShowMenu] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(10);
+
+  // If the active conversation is not within the first visibleCount items,
+  // expand visibleCount to make it visible.
+  useEffect(() => {
+    if (activeConversationId) {
+      const activeIndex = conversations.findIndex((c) => c.id === activeConversationId);
+      if (activeIndex !== -1) {
+        setVisibleCount((prev) => {
+          if (activeIndex >= prev) {
+            return Math.ceil((activeIndex + 1) / 10) * 10;
+          }
+          return prev;
+        });
+      }
+    }
+  }, [activeConversationId, conversations]);
 
   return (
     <div className="space-y-0.5">
@@ -116,27 +135,38 @@ export function WorkspaceConversationGroup({
       {isExpanded && (
         <div className="ml-5 pl-2 border-l border-light-gray/50 space-y-0.5 mt-0.5">
           {hasConversations ? (
-            conversations.map((conversation) => {
-              const agent = agentProfiles.find((a) => a.id === conversation.agent_profile_id);
-              return (
-                <SidebarItem
-                  key={conversation.id}
-                  title={conversation.title || 'Untitled Chat'}
-                  agentCommand={agent?.command ?? conversation.agent_profile_id}
-                  status={conversation.status}
-                  imSource={conversation.source && conversation.source !== 'oneagent' ? conversation.source : undefined}
-                  renderAgentLogo={renderAgentLogo}
-                  unread={unreadCompletedConversations.has(conversation.id)}
-                  active={activeConversationId === conversation.id}
-                  onClick={() => onSelectConversation(conversation.id)}
-                  deletePending={pendingDeleteConversationId === conversation.id}
-                  onDelete={() => onToggleDeleteConversation(conversation.id)}
-                  onCancelDelete={() => onCancelDeleteConversation(conversation.id)}
-                />
-              );
-            })
+            <>
+              {conversations.slice(0, visibleCount).map((conversation) => {
+                const agent = agentProfiles.find((a) => a.id === conversation.agent_profile_id);
+                return (
+                  <SidebarItem
+                    key={conversation.id}
+                    title={conversation.title || 'Untitled Chat'}
+                    agentCommand={agent?.command ?? conversation.agent_profile_id}
+                    status={conversation.status}
+                    imSource={conversation.source && conversation.source !== 'oneagent' ? conversation.source : undefined}
+                    renderAgentLogo={renderAgentLogo}
+                    unread={unreadCompletedConversations.has(conversation.id)}
+                    active={activeConversationId === conversation.id}
+                    onClick={() => onSelectConversation(conversation.id)}
+                    deletePending={pendingDeleteConversationId === conversation.id}
+                    onDelete={() => onToggleDeleteConversation(conversation.id)}
+                    onCancelDelete={() => onCancelDeleteConversation(conversation.id)}
+                  />
+                );
+              })}
+              {conversations.length > visibleCount && (
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount((prev) => prev + 10)}
+                  className="w-full text-left px-9 py-2 text-small text-stone hover:text-near-black hover:bg-light-gray/40 rounded-container transition-colors md:min-h-0 min-h-[44px]"
+                >
+                  {t("showMore")}
+                </button>
+              )}
+            </>
           ) : (
-            <div className="px-3 py-1 text-[11px] text-silver">No conversations</div>
+            <div className="px-3 py-1 text-[11px] text-silver">{t("noConversations")}</div>
           )}
         </div>
       )}

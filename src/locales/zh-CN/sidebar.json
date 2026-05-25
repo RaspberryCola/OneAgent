@@ -12,5 +12,6 @@
   "moreActions": "更多操作",
   "openWorkspace": "打开工作区",
   "deleteConversation": "删除对话",
-  "cancelDelete": "取消删除"
+  "cancelDelete": "取消删除",
+  "showMore": "显示更多"
 }

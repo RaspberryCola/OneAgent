@@ -851,20 +851,30 @@ impl From<crate::gateway::GatewayError> for BackendError {
                 }
             }
             crate::gateway::GatewayError::Runtime(e) => match e {
+                // Specific state errors - direct pattern matching, no string parsing
+                crate::runtime::RuntimeError::ActiveTurnRunning => {
+                    BackendError::new(ErrorCode::ActiveTurnRunning, e.to_string())
+                }
+                crate::runtime::RuntimeError::MissingBinding => {
+                    BackendError::new(ErrorCode::MissingBinding, e.to_string())
+                }
+                crate::runtime::RuntimeError::PendingPermissionNotFound => {
+                    BackendError::new(ErrorCode::PendingPermissionNotFound, e.to_string())
+                }
+                crate::runtime::RuntimeError::PermissionNotPending => {
+                    BackendError::new(ErrorCode::PermissionNotPending, e.to_string())
+                }
+                crate::runtime::RuntimeError::PermissionFingerprintMismatch => {
+                    BackendError::new(ErrorCode::PermissionFingerprintMismatch, e.to_string())
+                }
+                crate::runtime::RuntimeError::SessionDiscoveryTimeout => {
+                    BackendError::new(ErrorCode::ConversationNotReady, e.to_string())
+                }
+                crate::runtime::RuntimeError::PromptCompletionChannelDropped => {
+                    BackendError::new(ErrorCode::ConversationNotReady, e.to_string())
+                }
                 crate::runtime::RuntimeError::InvalidState(msg) => {
-                    if msg.contains("active turn") {
-                        BackendError::new(ErrorCode::ActiveTurnRunning, msg)
-                    } else if msg.contains("missing binding") {
-                        BackendError::new(ErrorCode::MissingBinding, msg)
-                    } else if msg.contains("pending permission") && msg.contains("not found") {
-                        BackendError::new(ErrorCode::PendingPermissionNotFound, msg)
-                    } else if msg.contains("permission") && msg.contains("no longer pending") {
-                        BackendError::new(ErrorCode::PermissionNotPending, msg)
-                    } else if msg.contains("fingerprint") {
-                        BackendError::new(ErrorCode::PermissionFingerprintMismatch, msg)
-                    } else {
-                        BackendError::new(ErrorCode::ConversationNotReady, msg)
-                    }
+                    BackendError::new(ErrorCode::ConversationNotReady, msg)
                 }
                 crate::runtime::RuntimeError::Adapter(ref adapter_error) => match adapter_error {
                     crate::agent_adapters::AdapterError::RuntimeNotFound(msg) => {
