@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
-import { listen } from '@tauri-apps/api/event';
+import { listen } from '../../lib/backend/transport';
 import { Plus, X, Terminal as TerminalIcon } from 'lucide-react';
 import * as API from '../../lib/backend/commands';
 import 'xterm/css/xterm.css';

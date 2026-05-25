@@ -118,13 +118,17 @@ impl<'a> ConversationRepository<'a> {
 
     pub fn get(&self, conversation_id: &str) -> StorageResult<Conversation> {
         self.conn
-            
+
             .query_row(
                 "SELECT id, workspace_id, agent_profile_id, origin, status, title, created_at, updated_at, last_event_seq, source, channel_chat_id FROM conversations WHERE id = ?1",
                 params![conversation_id],
                 read_conversation,
             )
-            .map_err(|_| StorageError::NotFound(format!("conversation {conversation_id}")))
+            .map_err(|e| StorageError::NotFoundWithContext {
+                entity: "conversation".to_string(),
+                id: conversation_id.to_string(),
+                source: e,
+            })
     }
 
     pub fn delete(&self, conversation_id: &str) -> StorageResult<()> {

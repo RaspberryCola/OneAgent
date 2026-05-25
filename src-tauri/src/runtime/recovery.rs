@@ -60,13 +60,17 @@ impl Runtime {
 
                 let (session, startup_events) = AcpLiveSession::start_new(profile, &handle.cwd, &mcp_servers).await?;
                 for event in startup_events {
-                    let _ = self.apply_stream_event(conversation_id, "startup", event);
+                    if let Err(e) = self.apply_stream_event(conversation_id, "startup", event) {
+                        tracing::warn!("Failed to apply startup event during recovery: {}", e);
+                    }
                 }
                 let mut updated_binding = binding.clone();
                 updated_binding.remote_session_id = session.handle.remote_session_id.clone();
                 updated_binding.load_supported = session.handle.load_supported;
                 updated_binding.last_synced_at = Utc::now();
-                let _ = self.db.upsert_binding(&updated_binding);
+                if let Err(e) = self.db.upsert_binding(&updated_binding) {
+                    tracing::warn!("Failed to persist binding update during recovery: {}", e);
+                }
                 let managed = ManagedSession::Acp(session.clone());
                 self.session_manager
                     .insert(conversation_id.to_string(), managed.clone());

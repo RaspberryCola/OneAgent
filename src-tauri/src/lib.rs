@@ -14,14 +14,52 @@ use channel_api::AppState;
 use gateway::Gateway;
 use tauri::{Emitter, Manager};
 
-pub fn bootstrap() -> Arc<Gateway> {
+/// Bootstrap error types for graceful error handling during startup.
+#[derive(Debug)]
+pub enum BootstrapError {
+    Database(String),
+    Gateway(String),
+}
+
+impl std::fmt::Display for BootstrapError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BootstrapError::Database(msg) => write!(f, "Database initialization failed: {}", msg),
+            BootstrapError::Gateway(msg) => write!(f, "Gateway initialization failed: {}", msg),
+        }
+    }
+}
+
+impl BootstrapError {
+    /// Returns a user-friendly message for display in error dialogs.
+    pub fn user_message(&self) -> String {
+        match self {
+            BootstrapError::Database(_) => {
+                "OneAgent failed to initialize its database.\n\n\
+                 This may be due to:\n\
+                 - Insufficient disk space\n\
+                 - Corrupted database file\n\
+                 - Permission issues with the application data directory\n\n\
+                 Please try restarting the application or check your system logs for details.".to_string()
+            }
+            BootstrapError::Gateway(_) => {
+                "OneAgent failed to initialize its core services.\n\n\
+                 Please try restarting the application or check your system logs for details.".to_string()
+            }
+        }
+    }
+}
+
+pub fn bootstrap() -> Result<Arc<Gateway>, BootstrapError> {
     prime_process_path();
     write_path_diagnostics(&[
         "gemini", "qwen", "opencode", "goose", "copilot", "qodercli", "agent", "kiro-cli",
     ]);
-    let storage = storage::Database::open_default().expect("failed to open database");
-    let gateway = Arc::new(Gateway::new(storage).expect("failed to initialize gateway"));
-    gateway
+    let storage = storage::Database::open_default()
+        .map_err(|e| BootstrapError::Database(e.to_string()))?;
+    let gateway = Gateway::new(storage)
+        .map_err(|e| BootstrapError::Gateway(e.to_string()))?;
+    Ok(Arc::new(gateway))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -29,7 +67,20 @@ pub fn run() {
     tracing_subscriber::fmt()
         .with_env_filter("oneagent=debug")
         .init();
-    let gateway = bootstrap();
+
+    // Handle bootstrap errors gracefully
+    let gateway = match bootstrap() {
+        Ok(g) => g,
+        Err(e) => {
+            tracing::error!("Bootstrap failed: {}", e);
+            // In Tauri, we cannot easily show a dialog before the app is fully initialized.
+            // For now, log the error and exit. Users can check logs for details.
+            // Future improvement: Use system-level dialog (e.g., native OS dialog)
+            eprintln!("OneAgent startup failed: {}", e.user_message());
+            return;
+        }
+    };
+
     let managed_gateway = gateway.clone();
     let terminal_manager = Arc::new(capability_services::terminal::TerminalManager::new());
     let im_manager = Arc::new(channel_api::im::ImChannelManager::new(gateway.clone()));
@@ -47,7 +98,9 @@ pub fn run() {
             let handle = app.handle().clone();
             let handle_for_emitter = handle.clone();
             let emitter = Arc::new(move |event: &str, payload: serde_json::Value| {
-                let _ = handle_for_emitter.emit(event, payload);
+                if let Err(e) = handle_for_emitter.emit(event, payload) {
+                    tracing::warn!("Failed to emit event '{}' to frontend: {}", event, e);
+                }
             });
             managed_gateway.attach_emitter(emitter);
 

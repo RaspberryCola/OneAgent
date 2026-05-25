@@ -56,6 +56,37 @@ pub(crate) struct JsonRpcProcess {
     stderr_lines: Arc<Mutex<VecDeque<String>>>,
 }
 
+/// Guard that ensures a child process is killed if setup fails.
+/// Uses `start_kill()` which is synchronous and non-blocking.
+struct ChildProcessGuard {
+    child: Option<Child>,
+    defused: bool,
+}
+
+impl ChildProcessGuard {
+    fn new(child: Child) -> Self {
+        Self { child: Some(child), defused: false }
+    }
+
+    /// Defuse the guard - the process is now properly set up and should not be killed on drop.
+    fn defuse(&mut self) -> Option<Child> {
+        self.defused = true;
+        self.child.take()
+    }
+}
+
+impl Drop for ChildProcessGuard {
+    fn drop(&mut self) {
+        if !self.defused {
+            if let Some(mut child) = self.child.take() {
+                // start_kill() is synchronous and non-blocking - it just signals the kill
+                let _ = child.start_kill();
+                tracing::warn!("Killed orphaned child process due to setup failure");
+            }
+        }
+    }
+}
+
 impl JsonRpcProcess {
     /// Spawn a new agent process for the given profile.
     pub(crate) async fn spawn(profile: &AgentProfile) -> AdapterResult<Self> {
@@ -78,24 +109,27 @@ impl JsonRpcProcess {
             const CREATE_NO_WINDOW: u32 = 0x08000000;
             command.creation_flags(CREATE_NO_WINDOW);
         }
-        let mut child = command.spawn().map_err(|error| {
+        // Wrap child in guard to ensure cleanup on setup failure
+        let mut guard = ChildProcessGuard::new(command.spawn().map_err(|error| {
             AdapterError::AdapterSpawnFailed(format!(
                 "Failed to spawn {}: {error}",
                 resolved.summary
             ))
-        })?;
-        let stdin = child
-            .stdin
+        })?);
+
+        // Extract pipes - if any fail, guard will kill the process on drop
+        let stdin = guard.child.as_mut().unwrap().stdin
             .take()
             .ok_or_else(|| AdapterError::Protocol("child stdin unavailable".to_string()))?;
-        let stdout = child
-            .stdout
+        let stdout = guard.child.as_mut().unwrap().stdout
             .take()
             .ok_or_else(|| AdapterError::Protocol("child stdout unavailable".to_string()))?;
-        let stderr = child
-            .stderr
+        let stderr = guard.child.as_mut().unwrap().stderr
             .take()
             .ok_or_else(|| AdapterError::Protocol("child stderr unavailable".to_string()))?;
+
+        // All pipes extracted successfully - defuse the guard and take ownership
+        let child = guard.defuse().unwrap();
         let stderr_lines = Arc::new(Mutex::new(VecDeque::with_capacity(12)));
         spawn_stderr_reader(stderr, stderr_lines.clone());
         Ok(Self {
@@ -316,7 +350,7 @@ impl JsonRpcProcess {
         let id = message_id(message)?;
         let params = extract_params::<FsReadTextFileParams>(message)?;
         let path = &params.path;
-        let resolved = match self.resolve_workspace_path(path) {
+        let resolved = match self.resolve_workspace_path_read(path) {
             Ok(p) => p,
             Err(e) => return self.write_jsonrpc_error(id, -32602, &e.to_string()).await,
         };
@@ -347,7 +381,7 @@ impl JsonRpcProcess {
         let params = extract_params::<FsWriteTextFileParams>(message)?;
         let path = &params.path;
         let content = &params.content;
-        let resolved = match self.resolve_workspace_path(path) {
+        let resolved = match self.resolve_workspace_path_write(path) {
             Ok(p) => p,
             Err(e) => return self.write_jsonrpc_error(id, -32602, &e.to_string()).await,
         };
@@ -367,6 +401,115 @@ impl JsonRpcProcess {
         .await
     }
 
+    /// Resolve a path for read operations.
+    /// The path MUST exist and must be within the workspace root.
+    /// Uses canonicalize to resolve symlinks and verify the path is inside workspace.
+    fn resolve_workspace_path_read(&self, requested: &str) -> AdapterResult<PathBuf> {
+        let requested = PathBuf::from(requested);
+        let candidate = if requested.is_absolute() {
+            requested
+        } else {
+            self.session_cwd.join(requested)
+        };
+        // Canonicalize workspace root - must succeed for security
+        let root = self.session_cwd
+            .canonicalize()
+            .map_err(|e| AdapterError::Protocol(format!(
+                "workspace directory does not exist or cannot be accessed: {}",
+                e
+            )))?;
+        // Canonicalize the candidate path - must exist
+        let canonicalized = candidate
+            .canonicalize()
+            .map_err(|e| AdapterError::Protocol(format!(
+                "path does not exist or cannot be accessed: {}",
+                e
+            )))?;
+        // Security check: resolved path must be within workspace
+        if !canonicalized.starts_with(&root) {
+            return Err(AdapterError::Protocol(format!(
+                "requested path {} is outside workspace {}",
+                canonicalized.display(),
+                root.display()
+            )));
+        }
+        Ok(canonicalized)
+    }
+
+    /// Resolve a path for write operations.
+    /// The path may not exist yet, but its parent directory (if exists) must be within workspace.
+    /// For new files in existing directories, validates the final resolved path stays in workspace.
+    fn resolve_workspace_path_write(&self, requested: &str) -> AdapterResult<PathBuf> {
+        let requested = PathBuf::from(requested);
+        let candidate = if requested.is_absolute() {
+            requested
+        } else {
+            self.session_cwd.join(requested)
+        };
+        // Canonicalize workspace root - must succeed for security
+        let root = self.session_cwd
+            .canonicalize()
+            .map_err(|e| AdapterError::Protocol(format!(
+                "workspace directory does not exist or cannot be accessed: {}",
+                e
+            )))?;
+        // Try to canonicalize the full path first (if it exists)
+        if candidate.exists() {
+            let canonicalized = candidate
+                .canonicalize()
+                .map_err(|e| AdapterError::Protocol(format!(
+                    "path exists but cannot be accessed: {}",
+                    e
+                )))?;
+            if !canonicalized.starts_with(&root) {
+                return Err(AdapterError::Protocol(format!(
+                    "requested path {} is outside workspace {}",
+                    canonicalized.display(),
+                    root.display()
+                )));
+            }
+            return Ok(canonicalized);
+        }
+        // Path doesn't exist - validate parent directory
+        let parent = candidate.parent();
+        if let Some(parent_path) = parent {
+            if parent_path.exists() {
+                // Parent exists - canonicalize it and check
+                let canonicalized_parent = parent_path
+                    .canonicalize()
+                    .map_err(|e| AdapterError::Protocol(format!(
+                        "parent directory exists but cannot be accessed: {}",
+                        e
+                    )))?;
+                if !canonicalized_parent.starts_with(&root) {
+                    return Err(AdapterError::Protocol(format!(
+                        "parent directory {} is outside workspace {}",
+                        canonicalized_parent.display(),
+                        root.display()
+                    )));
+                }
+                // Construct the final path from canonicalized parent
+                let final_path = canonicalized_parent.join(candidate.file_name()
+                    .ok_or_else(|| AdapterError::Protocol("invalid file name".to_string()))?);
+                return Ok(final_path);
+            }
+        }
+        // Neither path nor parent exists - fall back to normalized path
+        // This handles creating new files in new directories
+        let normalized = normalize_path(&candidate);
+        // Final safety check: normalized path must start with normalized root
+        let normalized_root = normalize_path(&root);
+        if !normalized.starts_with(&normalized_root) {
+            return Err(AdapterError::Protocol(format!(
+                "requested path {} is outside workspace {}",
+                normalized.display(),
+                root.display()
+            )));
+        }
+        Ok(normalized)
+    }
+
+    /// Legacy path resolution for backward compatibility (terminal cwd, etc.)
     fn resolve_workspace_path(&self, requested: &str) -> AdapterResult<PathBuf> {
         let requested = PathBuf::from(requested);
         let candidate = if requested.is_absolute() {

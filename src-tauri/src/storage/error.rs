@@ -8,6 +8,13 @@ pub enum StorageError {
     Serde(#[from] serde_json::Error),
     #[error("record not found: {0}")]
     NotFound(String),
+    #[error("record not found: {entity} '{id}': {source}")]
+    NotFoundWithContext {
+        entity: String,
+        id: String,
+        #[source]
+        source: rusqlite::Error,
+    },
 }
 
 pub type StorageResult<T> = Result<T, StorageError>;

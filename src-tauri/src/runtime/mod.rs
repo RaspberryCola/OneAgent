@@ -30,6 +30,31 @@ use session_manager::{default_prompt_capabilities, SessionManager};
 use snapshot_model::RuntimeSnapshotState;
 pub use types::{ActiveStreamMessage, EventEmitter, ManagedSession, RuntimeError, RuntimeResult};
 
+/**
+ * Runtime manages the lifecycle and state of agent conversation sessions.
+ *
+ * # Mutex Lock Ordering (CRITICAL - Must be strictly followed to avoid deadlock)
+ *
+ * When acquiring multiple mutexes simultaneously, always follow this order:
+ * 1. `runtime_states` - Conversation runtime state cache
+ * 2. `streaming_messages` - Active streaming message buffers
+ * 3. `terminal_records_cache` - Terminal output cache
+ *
+ * Violating this order can cause deadlocks when multiple threads/operations
+ * attempt to acquire locks in different sequences.
+ *
+ * # State Update Ordering
+ *
+ * When updating both in-memory state and database:
+ * 1. First update in-memory state (acquire appropriate mutex)
+ * 2. Then persist to database
+ * 3. Finally emit events to frontend
+ *
+ * This ordering ensures that:
+ * - Frontend receives events after state is consistent
+ * - Database can be used for recovery if in-memory state is lost
+ * - State queries during event processing see consistent data
+ */
 #[derive(Clone)]
 pub struct Runtime {
     db: Database,

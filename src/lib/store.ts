@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type * as Types from './backend/types';
 import * as API from './backend/commands';
 import * as Events from './backend/events';
-import { IS_TAURI, getToken, subscribeAuthState, login as apiLogin, logout as apiLogout } from './backend/transport';
+import { IS_TAURI, getToken, subscribeAuthState, login as apiLogin, logout as apiLogout, type UnlistenFn } from './backend/transport';
 import {
   readSettingsStorage,
   writeSettingsStorage,
@@ -26,6 +26,9 @@ import {
 import { SYNC_CONFIG } from './constants';
 
 let activeTurnSyncToken = 0;
+
+// Store unlisten functions for cleanup
+let eventUnlisteners: UnlistenFn[] = [];
 
 function startConversationSync(
   conversationId: string,
@@ -202,6 +205,7 @@ interface AppState {
 
   // Event Handlers
   _setupEventSubscriptions: () => void;
+  _teardownEventSubscriptions: () => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -240,6 +244,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ isAuthenticated: false, isInitializing: false });
       return;
     }
+    // Clean up existing event listeners before re-initializing
+    get()._teardownEventSubscriptions();
     try {
       // 1. Load all workspaces from backend
       const allWorkspaces = await API.listWorkspaces();
@@ -1137,9 +1143,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   logout: async () => {
+    // Clean up event listeners before logout
+    get()._teardownEventSubscriptions();
     await apiLogout();
     set({
       isAuthenticated: false,
+      hasEventSubscriptions: false,
       workspaces: [],
       activeWorkspace: null,
       conversations: [],
@@ -1154,312 +1163,327 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (get().hasEventSubscriptions) return;
     set({ hasEventSubscriptions: true });
 
-    Events.onConversationMessageAppended((payload) => {
-      set((state) => {
-        if (state.activeConversationId !== payload.conversation_id || !state.activeTimeline) return state;
-        return {
-          activeTimeline: mergeTimelineMessage(state.activeTimeline, payload.message),
-          activeTimelineItems: upsertTimelineItem(state.activeTimelineItems, {
-            type: 'message',
-            key: timelineItemKey('message', payload.message.id),
-            data: payload.message,
-          }),
-        };
-      });
-    });
+    // Store unlisten functions for cleanup
+    void (async () => {
+      const unlistens: UnlistenFn[] = [];
 
-    Events.onConversationMessageUpdated((payload) => {
-      set((state) => {
-        if (state.activeConversationId !== payload.conversation_id || !state.activeTimeline) return state;
-        return {
-          activeTimeline: mergeTimelineMessage(state.activeTimeline, payload.message),
-          activeTimelineItems: upsertTimelineItem(state.activeTimelineItems, {
-            type: 'message',
-            key: timelineItemKey('message', payload.message.id),
-            data: payload.message,
-          }),
-        };
-      });
-    });
-
-    Events.onConversationTerminalOutput((payload) => {
-      set((state) => {
-        if (state.activeConversationId !== payload.conversation_id || !state.activeTimeline) return state;
-        if (payload.terminal) {
+      unlistens.push(await Events.onConversationMessageAppended((payload) => {
+        set((state) => {
+          if (state.activeConversationId !== payload.conversation_id || !state.activeTimeline) return state;
           return {
-            activeTimeline: mergeTerminal(state.activeTimeline, payload.terminal),
+            activeTimeline: mergeTimelineMessage(state.activeTimeline, payload.message),
+            activeTimelineItems: upsertTimelineItem(state.activeTimelineItems, {
+              type: 'message',
+              key: timelineItemKey('message', payload.message.id),
+              data: payload.message,
+            }),
           };
-        }
-        return state;
-      });
-    });
-
-    Events.onConversationStateChanged((payload) => {
-      const activeWsId = get().activeWorkspace?.id;
-      const isActiveConv = get().activeConversationId === payload.conversation_id;
-      const currentRunning = get().runningConversations;
-      const wasRunning = currentRunning.has(payload.conversation_id);
-      const isNowIdle = payload.state.runtime.turn_phase === 'idle';
-      const isNowRunning = payload.state.runtime.turn_phase === 'running';
-
-      set((state) => {
-        const newWorkspaceConversations = new Map(state.workspaceConversations);
-        const targetWsId = payload.state.conversation.workspace_id;
-        const currentConvs = newWorkspaceConversations.get(targetWsId) ?? [];
-
-        let found = false;
-        let updatedConvs = currentConvs.map(c => {
-          if (c.id === payload.conversation_id) {
-            found = true;
-            return payload.state.conversation;
-          }
-          return c;
         });
-
-        if (!found) {
-          updatedConvs = [payload.state.conversation, ...currentConvs];
-        }
-        // Keep conversations sorted by updated_at descending
-        updatedConvs.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
-        newWorkspaceConversations.set(targetWsId, updatedConvs);
-
-        const isTargetActiveWs = state.activeWorkspace?.id === targetWsId;
-        const updatedConversations = isTargetActiveWs ? updatedConvs : state.conversations;
-
-        // Track running conversations and detect completion
-        const nextRunning = new Set(state.runningConversations);
-        const nextUnread = new Set(state.unreadCompletedConversations);
-
-        if (isNowRunning) {
-          nextRunning.add(payload.conversation_id);
-        } else if (isNowIdle && wasRunning) {
-          // Conversation just completed - mark as unread if user not viewing
-          nextRunning.delete(payload.conversation_id);
-          if (!isActiveConv) {
-            nextUnread.add(payload.conversation_id);
-          }
-        }
-
-        // Preserve model/mode metadata if a state refresh omits unstable ACP fields.
-        let newState = payload.state;
-        const currentModels = state.activeConversationState?.models;
-        const currentAvailableModels = currentModels?.available_models;
-        const currentModes = state.activeConversationState?.modes;
-        const currentAvailableModes = currentModes?.available_modes;
-        if (state.activeConversationId === payload.conversation_id) {
-          const payloadAvailableModels = payload.state.models?.available_models;
-          const payloadAvailableModes = payload.state.modes?.available_modes;
-          if (currentAvailableModels && currentAvailableModels.length > 0 &&
-              (!payloadAvailableModels || payloadAvailableModels.length === 0)) {
-            newState = {
-              ...newState,
-              models: currentModels,
-            };
-          }
-          if (currentAvailableModes && currentAvailableModes.length > 0 &&
-              (!payloadAvailableModes || payloadAvailableModes.length === 0)) {
-            newState = {
-              ...newState,
-              modes: currentModes,
-            };
-          }
-        }
-
-        return {
-          workspaceConversations: newWorkspaceConversations,
-          conversations: updatedConversations,
-          runningConversations: nextRunning,
-          unreadCompletedConversations: nextUnread,
-          activeConversationState: state.activeConversationId === payload.conversation_id
-            ? newState
-            : state.activeConversationState,
-          activeAgentProfileId: state.activeConversationId === payload.conversation_id
-            ? payload.state.conversation.agent_profile_id
-            : state.activeAgentProfileId,
-        };
-      });
-      if (get().activeConversationId === payload.conversation_id && isConversationActive(payload.state)) {
-        startConversationSync(payload.conversation_id, set, get);
-      }
-    });
-
-    Events.onAgentProfileProbed((payload) => {
-      set((state) => ({
-        agentProfiles: state.agentProfiles.map((profile) =>
-          profile.id === payload.profile_id
-            ? { ...profile, capabilities_cache: payload.capabilities }
-            : profile
-        ),
       }));
-    });
 
-    Events.onConversationConfigUpdated((payload) => {
-      set((state) => {
-        if (state.activeConversationId === payload.conversation_id && state.activeConversationState) {
-          const updates: Partial<Types.ConversationState> = {};
-          if (payload.config_options) {
-            updates.config_options = payload.config_options;
+      unlistens.push(await Events.onConversationMessageUpdated((payload) => {
+        set((state) => {
+          if (state.activeConversationId !== payload.conversation_id || !state.activeTimeline) return state;
+          return {
+            activeTimeline: mergeTimelineMessage(state.activeTimeline, payload.message),
+            activeTimelineItems: upsertTimelineItem(state.activeTimelineItems, {
+              type: 'message',
+              key: timelineItemKey('message', payload.message.id),
+              data: payload.message,
+            }),
+          };
+        });
+      }));
+
+      unlistens.push(await Events.onConversationTerminalOutput((payload) => {
+        set((state) => {
+          if (state.activeConversationId !== payload.conversation_id || !state.activeTimeline) return state;
+          if (payload.terminal) {
+            return {
+              activeTimeline: mergeTerminal(state.activeTimeline, payload.terminal),
+            };
           }
-          if (payload.models) {
-            updates.models = payload.models;
+          return state;
+        });
+      }));
+
+    unlistens.push(await Events.onConversationStateChanged((payload) => {
+        const activeWsId = get().activeWorkspace?.id;
+        const isActiveConv = get().activeConversationId === payload.conversation_id;
+        const currentRunning = get().runningConversations;
+        const wasRunning = currentRunning.has(payload.conversation_id);
+        const isNowIdle = payload.state.runtime.turn_phase === 'idle';
+        const isNowRunning = payload.state.runtime.turn_phase === 'running';
+
+        set((state) => {
+          const newWorkspaceConversations = new Map(state.workspaceConversations);
+          const targetWsId = payload.state.conversation.workspace_id;
+          const currentConvs = newWorkspaceConversations.get(targetWsId) ?? [];
+
+          let found = false;
+          let updatedConvs = currentConvs.map(c => {
+            if (c.id === payload.conversation_id) {
+              found = true;
+              return payload.state.conversation;
+            }
+            return c;
+          });
+
+          if (!found) {
+            updatedConvs = [payload.state.conversation, ...currentConvs];
           }
-          if (payload.modes) {
-            updates.modes = payload.modes;
+          // Keep conversations sorted by updated_at descending
+          updatedConvs.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+          newWorkspaceConversations.set(targetWsId, updatedConvs);
+
+          const isTargetActiveWs = state.activeWorkspace?.id === targetWsId;
+          const updatedConversations = isTargetActiveWs ? updatedConvs : state.conversations;
+
+          // Track running conversations and detect completion
+          const nextRunning = new Set(state.runningConversations);
+          const nextUnread = new Set(state.unreadCompletedConversations);
+
+          if (isNowRunning) {
+            nextRunning.add(payload.conversation_id);
+          } else if (isNowIdle && wasRunning) {
+            // Conversation just completed - mark as unread if user not viewing
+            nextRunning.delete(payload.conversation_id);
+            if (!isActiveConv) {
+              nextUnread.add(payload.conversation_id);
+            }
           }
-          if (Object.keys(updates).length > 0) {
+
+          // Preserve model/mode metadata if a state refresh omits unstable ACP fields.
+          let newState = payload.state;
+          const currentModels = state.activeConversationState?.models;
+          const currentAvailableModels = currentModels?.available_models;
+          const currentModes = state.activeConversationState?.modes;
+          const currentAvailableModes = currentModes?.available_modes;
+          if (state.activeConversationId === payload.conversation_id) {
+            const payloadAvailableModels = payload.state.models?.available_models;
+            const payloadAvailableModes = payload.state.modes?.available_modes;
+            if (currentAvailableModels && currentAvailableModels.length > 0 &&
+                (!payloadAvailableModels || payloadAvailableModels.length === 0)) {
+              newState = {
+                ...newState,
+                models: currentModels,
+              };
+            }
+            if (currentAvailableModes && currentAvailableModes.length > 0 &&
+                (!payloadAvailableModes || payloadAvailableModes.length === 0)) {
+              newState = {
+                ...newState,
+                modes: currentModes,
+              };
+            }
+          }
+
+          return {
+            workspaceConversations: newWorkspaceConversations,
+            conversations: updatedConversations,
+            runningConversations: nextRunning,
+            unreadCompletedConversations: nextUnread,
+            activeConversationState: state.activeConversationId === payload.conversation_id
+              ? newState
+              : state.activeConversationState,
+            activeAgentProfileId: state.activeConversationId === payload.conversation_id
+              ? payload.state.conversation.agent_profile_id
+              : state.activeAgentProfileId,
+          };
+        });
+        if (get().activeConversationId === payload.conversation_id && isConversationActive(payload.state)) {
+          startConversationSync(payload.conversation_id, set, get);
+        }
+      }));
+
+      unlistens.push(await Events.onAgentProfileProbed((payload) => {
+        set((state) => ({
+          agentProfiles: state.agentProfiles.map((profile) =>
+            profile.id === payload.profile_id
+              ? { ...profile, capabilities_cache: payload.capabilities }
+              : profile
+          ),
+        }));
+      }));
+
+      unlistens.push(await Events.onConversationConfigUpdated((payload) => {
+        set((state) => {
+          if (state.activeConversationId === payload.conversation_id && state.activeConversationState) {
+            const updates: Partial<Types.ConversationState> = {};
+            if (payload.config_options) {
+              updates.config_options = payload.config_options;
+            }
+            if (payload.models) {
+              updates.models = payload.models;
+            }
+            if (payload.modes) {
+              updates.modes = payload.modes;
+            }
+            if (Object.keys(updates).length > 0) {
+              return {
+                activeConversationState: {
+                  ...state.activeConversationState,
+                  ...updates,
+                },
+              };
+            }
+          }
+          return {};
+        });
+      }));
+
+      unlistens.push(await Events.onConversationCommandsUpdated((payload) => {
+        set((state) => {
+          if (state.activeConversationId === payload.conversation_id && state.activeConversationState) {
             return {
               activeConversationState: {
                 ...state.activeConversationState,
-                ...updates,
+                available_commands: payload.available_commands,
               },
             };
           }
-        }
-        return {};
-      });
-    });
+          return {};
+        });
+      }));
 
-    Events.onConversationCommandsUpdated((payload) => {
-      set((state) => {
-        if (state.activeConversationId === payload.conversation_id && state.activeConversationState) {
+      unlistens.push(await Events.onConversationDeleted((payload) => {
+        const activeWsId = get().activeWorkspace?.id;
+        set((state) => {
+          const newWorkspaceConversations = new Map(state.workspaceConversations);
+          if (activeWsId) {
+            const convs = newWorkspaceConversations.get(activeWsId) ?? [];
+            newWorkspaceConversations.set(activeWsId, convs.filter((c) => c.id !== payload.conversation_id));
+          }
+          const nextConversations = state.conversations.filter((c) => c.id !== payload.conversation_id);
+          const isActive = state.activeConversationId === payload.conversation_id;
+          const nextUnread = new Set(state.unreadCompletedConversations);
+          nextUnread.delete(payload.conversation_id);
+          const nextRunning = new Set(state.runningConversations);
+          nextRunning.delete(payload.conversation_id);
+          return {
+            workspaceConversations: newWorkspaceConversations,
+            conversations: nextConversations,
+            unreadCompletedConversations: nextUnread,
+            runningConversations: nextRunning,
+            activeConversationId: isActive ? null : state.activeConversationId,
+            activeConversationState: isActive ? null : state.activeConversationState,
+            activeTimeline: isActive ? null : state.activeTimeline,
+            activeTimelineItems: isActive ? [] : state.activeTimelineItems,
+          };
+        });
+      }));
+
+      unlistens.push(await Events.onConversationToolCallChanged((payload) => {
+        set((state) => {
+          if (state.activeConversationId !== payload.conversation_id || !state.activeTimeline) return state;
+          return {
+            activeTimeline: mergeToolCall(state.activeTimeline, payload.tool_call),
+            activeTimelineItems: upsertTimelineItem(state.activeTimelineItems, {
+              type: 'tool_call',
+              key: timelineItemKey('tool_call', payload.tool_call.tool_call_id || payload.tool_call.id),
+              data: payload.tool_call,
+            }),
+          };
+        });
+      }));
+
+      unlistens.push(await Events.onConversationPermissionRequested((payload) => {
+        set((state) => {
+          if (state.activeConversationId !== payload.conversation_id) return state;
+          return {
+            activeTimeline: state.activeTimeline
+              ? {
+                  ...state.activeTimeline,
+                  pending_permissions: mergePendingPermission(state.activeTimeline.pending_permissions, payload.request),
+                }
+              : state.activeTimeline,
+            activeTimelineItems: upsertTimelineItem(state.activeTimelineItems, {
+              type: 'permission',
+              key: timelineItemKey('permission', payload.request.id),
+              data: payload.request,
+            }),
+            activeConversationState: state.activeConversationState
+              ? {
+                  ...state.activeConversationState,
+                  pending_permissions: mergePendingPermission(state.activeConversationState.pending_permissions, payload.request),
+                }
+              : state.activeConversationState,
+          };
+        });
+      }));
+
+      unlistens.push(await Events.onConversationPermissionResolved((payload) => {
+        set((state) => {
+          if (state.activeConversationId !== payload.conversation_id) return state;
+          const markResolved = (requests: Types.PendingPermissionRequest[]) =>
+            requests.map((request) =>
+              request.tool_call_id === payload.decision.tool_call_id
+                ? {
+                    ...request,
+                    status: 'resolved' as const,
+                    resolved_at: payload.decision.created_at,
+                  }
+                : request,
+            );
+          return {
+            activeTimeline: state.activeTimeline
+              ? {
+                  ...state.activeTimeline,
+                  pending_permissions: markResolved(state.activeTimeline.pending_permissions),
+                }
+              : state.activeTimeline,
+            activeTimelineItems: state.activeTimelineItems.map((item) =>
+              item.type === 'permission' && item.data.tool_call_id === payload.decision.tool_call_id
+                ? {
+                    ...item,
+                    data: {
+                      ...item.data,
+                      status: 'resolved',
+                      resolved_at: payload.decision.created_at,
+                    },
+                  }
+                : item
+            ),
+            activeConversationState: state.activeConversationState
+              ? {
+                  ...state.activeConversationState,
+                  pending_permissions: markResolved(state.activeConversationState.pending_permissions),
+                }
+              : state.activeConversationState,
+          };
+        });
+      }));
+
+      unlistens.push(await Events.onConversationTurnFinished((payload) => {
+        if (get().activeConversationId === payload.conversation_id) {
+          void refreshActiveConversation(payload.conversation_id, set, get);
+        }
+      }));
+
+      unlistens.push(await Events.onTaskRunStateChanged((payload) => {
+        set((state) => {
+          if (state.activeConversationId !== payload.conversation_id || !state.activeConversationState) {
+            return state;
+          }
           return {
             activeConversationState: {
               ...state.activeConversationState,
-              available_commands: payload.available_commands,
+              task_run: payload.task_run,
             },
           };
-        }
-        return {};
-      });
-    });
+        });
+      }));
 
-    Events.onConversationDeleted((payload) => {
-      const activeWsId = get().activeWorkspace?.id;
-      set((state) => {
-        const newWorkspaceConversations = new Map(state.workspaceConversations);
-        if (activeWsId) {
-          const convs = newWorkspaceConversations.get(activeWsId) ?? [];
-          newWorkspaceConversations.set(activeWsId, convs.filter((c) => c.id !== payload.conversation_id));
-        }
-        const nextConversations = state.conversations.filter((c) => c.id !== payload.conversation_id);
-        const isActive = state.activeConversationId === payload.conversation_id;
-        const nextUnread = new Set(state.unreadCompletedConversations);
-        nextUnread.delete(payload.conversation_id);
-        const nextRunning = new Set(state.runningConversations);
-        nextRunning.delete(payload.conversation_id);
-        return {
-          workspaceConversations: newWorkspaceConversations,
-          conversations: nextConversations,
-          unreadCompletedConversations: nextUnread,
-          runningConversations: nextRunning,
-          activeConversationId: isActive ? null : state.activeConversationId,
-          activeConversationState: isActive ? null : state.activeConversationState,
-          activeTimeline: isActive ? null : state.activeTimeline,
-          activeTimelineItems: isActive ? [] : state.activeTimelineItems,
-        };
-      });
-    });
+      // Store all unlisten functions for cleanup
+      eventUnlisteners = unlistens;
+    })();
+  },
 
-    Events.onConversationToolCallChanged((payload) => {
-      set((state) => {
-        if (state.activeConversationId !== payload.conversation_id || !state.activeTimeline) return state;
-        return {
-          activeTimeline: mergeToolCall(state.activeTimeline, payload.tool_call),
-          activeTimelineItems: upsertTimelineItem(state.activeTimelineItems, {
-            type: 'tool_call',
-            key: timelineItemKey('tool_call', payload.tool_call.tool_call_id || payload.tool_call.id),
-            data: payload.tool_call,
-          }),
-        };
-      });
-    });
-
-    Events.onConversationPermissionRequested((payload) => {
-      set((state) => {
-        if (state.activeConversationId !== payload.conversation_id) return state;
-        return {
-          activeTimeline: state.activeTimeline
-            ? {
-                ...state.activeTimeline,
-                pending_permissions: mergePendingPermission(state.activeTimeline.pending_permissions, payload.request),
-              }
-            : state.activeTimeline,
-          activeTimelineItems: upsertTimelineItem(state.activeTimelineItems, {
-            type: 'permission',
-            key: timelineItemKey('permission', payload.request.id),
-            data: payload.request,
-          }),
-          activeConversationState: state.activeConversationState
-            ? {
-                ...state.activeConversationState,
-                pending_permissions: mergePendingPermission(state.activeConversationState.pending_permissions, payload.request),
-              }
-            : state.activeConversationState,
-        };
-      });
-    });
-
-    Events.onConversationPermissionResolved((payload) => {
-      set((state) => {
-        if (state.activeConversationId !== payload.conversation_id) return state;
-        const markResolved = (requests: Types.PendingPermissionRequest[]) =>
-          requests.map((request) =>
-            request.tool_call_id === payload.decision.tool_call_id
-              ? {
-                  ...request,
-                  status: 'resolved' as const,
-                  resolved_at: payload.decision.created_at,
-                }
-              : request,
-          );
-        return {
-          activeTimeline: state.activeTimeline
-            ? {
-                ...state.activeTimeline,
-                pending_permissions: markResolved(state.activeTimeline.pending_permissions),
-              }
-            : state.activeTimeline,
-          activeTimelineItems: state.activeTimelineItems.map((item) =>
-            item.type === 'permission' && item.data.tool_call_id === payload.decision.tool_call_id
-              ? {
-                  ...item,
-                  data: {
-                    ...item.data,
-                    status: 'resolved',
-                    resolved_at: payload.decision.created_at,
-                  },
-                }
-              : item
-          ),
-          activeConversationState: state.activeConversationState
-            ? {
-                ...state.activeConversationState,
-                pending_permissions: markResolved(state.activeConversationState.pending_permissions),
-              }
-            : state.activeConversationState,
-        };
-      });
-    });
-
-    Events.onConversationTurnFinished((payload) => {
-      if (get().activeConversationId === payload.conversation_id) {
-        void refreshActiveConversation(payload.conversation_id, set, get);
-      }
-    });
-
-    Events.onTaskRunStateChanged((payload) => {
-      set((state) => {
-        if (state.activeConversationId !== payload.conversation_id || !state.activeConversationState) {
-          return state;
-        }
-        return {
-          activeConversationState: {
-            ...state.activeConversationState,
-            task_run: payload.task_run,
-          },
-        };
-      });
-    });
+  _teardownEventSubscriptions: () => {
+    // Clean up all event listeners
+    eventUnlisteners.forEach((fn) => fn());
+    eventUnlisteners = [];
+    set({ hasEventSubscriptions: false });
   }
 }));
 

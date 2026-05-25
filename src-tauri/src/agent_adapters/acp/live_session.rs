@@ -85,7 +85,7 @@ pub(crate) enum LiveSessionCommand {
 /// A live ACP session handle with command channel.
 #[derive(Clone)]
 pub struct AcpLiveSession {
-    command_tx: mpsc::UnboundedSender<LiveSessionCommand>,
+    command_tx: mpsc::Sender<LiveSessionCommand>,
     pub handle: AgentSessionHandle,
 }
 
@@ -291,6 +291,7 @@ impl AcpLiveSession {
                 event_tx,
                 completion_tx,
             })
+            .await
             .map_err(|_| AdapterError::Protocol("live ACP session stopped".to_string()))?;
         Ok((event_rx, completion_rx))
     }
@@ -308,6 +309,7 @@ impl AcpLiveSession {
                 decision,
                 resp: resp_tx,
             })
+            .await
             .map_err(|_| AdapterError::Protocol("live ACP session stopped".to_string()))?;
         resp_rx
             .await
@@ -319,6 +321,7 @@ impl AcpLiveSession {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.command_tx
             .send(LiveSessionCommand::Cancel { resp: resp_tx })
+            .await
             .map_err(|_| AdapterError::Protocol("live ACP session stopped".to_string()))?;
         resp_rx
             .await
@@ -338,6 +341,7 @@ impl AcpLiveSession {
                 value: value.clone(),
                 resp: resp_tx,
             })
+            .await
             .map_err(|_| AdapterError::Protocol("live ACP session stopped".to_string()))?;
         resp_rx
             .await
@@ -352,6 +356,7 @@ impl AcpLiveSession {
                 model_id: model_id.to_string(),
                 resp: resp_tx,
             })
+            .await
             .map_err(|_| AdapterError::Protocol("live ACP session stopped".to_string()))?;
         resp_rx
             .await
@@ -366,6 +371,7 @@ impl AcpLiveSession {
                 mode_id: mode_id.to_string(),
                 resp: resp_tx,
             })
+            .await
             .map_err(|_| AdapterError::Protocol("live ACP session stopped".to_string()))?;
         resp_rx
             .await
@@ -378,6 +384,7 @@ impl AcpLiveSession {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.command_tx
             .send(LiveSessionCommand::Delete { resp: resp_tx })
+            .await
             .map_err(|_| AdapterError::Protocol("live ACP session stopped".to_string()))?;
         resp_rx
             .await
@@ -385,15 +392,30 @@ impl AcpLiveSession {
     }
 
     /// Close the session.
+    /// Uses try_send for synchronous operation - if channel is full, the close
+    /// command may be dropped but the actor will eventually process other commands.
     pub fn close(&self) {
-        let _ = self.command_tx.send(LiveSessionCommand::Close);
+        // Use try_send for synchronous close - best effort
+        match self.command_tx.try_send(LiveSessionCommand::Close) {
+            Ok(_) => {}
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                tracing::warn!("Live session channel full, close command dropped");
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                // Channel already closed - session already stopped
+            }
+        }
     }
 }
 
 // Actor functions (spawn_live_actor and run_turn_loop)
 
+/// Maximum number of commands that can be queued for a live session actor.
+/// Using a bounded channel prevents memory exhaustion under heavy load.
+const LIVE_SESSION_CHANNEL_CAPACITY: usize = 64;
+
 fn spawn_live_actor(process: JsonRpcProcess, handle: AgentSessionHandle) -> AcpLiveSession {
-    let (command_tx, mut command_rx) = mpsc::unbounded_channel();
+    let (command_tx, mut command_rx) = mpsc::channel(LIVE_SESSION_CHANNEL_CAPACITY);
     let live_handle = handle.clone();
     tokio::spawn(async move {
         let mut process = process;
@@ -510,7 +532,9 @@ fn spawn_live_actor(process: JsonRpcProcess, handle: AgentSessionHandle) -> AcpL
                     let _ = resp.send(result);
                 }
                 LiveSessionCommand::Close => {
-                    let _ = process.close().await;
+                    if let Err(e) = process.close().await {
+                        tracing::warn!("Failed to close ACP process: {}", e);
+                    }
                     break;
                 }
             }
@@ -524,7 +548,7 @@ async fn run_turn_loop(
     handle: &AgentSessionHandle,
     prompt: Vec<Value>,
     event_tx: &mpsc::UnboundedSender<RuntimeStreamEvent>,
-    command_rx: &mut mpsc::UnboundedReceiver<LiveSessionCommand>,
+    command_rx: &mut mpsc::Receiver<LiveSessionCommand>,
 ) -> AdapterResult<()> {
     let turn_id = Uuid::new_v4().to_string();
     process.bind_turn(&turn_id, event_tx);
@@ -645,7 +669,9 @@ async fn run_turn_loop(
                         let _ = resp.send(result);
                     }
                     Some(LiveSessionCommand::Close) => {
-                        let _ = process.close().await;
+                        if let Err(e) = process.close().await {
+                            tracing::warn!("Failed to close ACP process in turn loop: {}", e);
+                        }
                         return Ok(());
                     }
                     None => return Ok(()),
