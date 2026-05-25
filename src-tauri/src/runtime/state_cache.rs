@@ -247,11 +247,14 @@ impl StateCache {
         self.streaming_messages.lock().contains_key(key)
     }
 
-    /// Append content to streaming message.
-    pub fn append_streaming_content(&self, key: &str, content: &str) {
+    /// Append content to streaming message, returning the updated message.
+    pub fn append_streaming_content(&self, key: &str, content: &str) -> Option<ActiveStreamMessage> {
         let mut cache = self.streaming_messages.lock();
         if let Some(msg) = cache.get_mut(key) {
             msg.content.push_str(content);
+            Some(msg.clone())
+        } else {
+            None
         }
     }
 

@@ -12,7 +12,7 @@ pub mod im;
 pub use im::{list_im_plugins, start_im_plugin, stop_im_plugin, approve_im_pairing, start_weixin_login, stop_weixin_login, update_im_plugin_config};
 
 use crate::{
-    domain::{BackendError, *},
+    domain::{BackendError, FileContentResult, *},
     gateway::Gateway,
 };
 
@@ -344,6 +344,89 @@ pub async fn git_diff(cwd: String) -> Result<GitDiffResult, BackendError> {
     )?;
 
     Ok(GitDiffResult { unstaged, staged })
+}
+
+/// Read file content for preview
+/// Safety: ensures the file is within workspace root and limits file size to 1MB
+#[tauri::command]
+pub async fn read_file_content(
+    cwd: String,
+    file_path: String,
+) -> Result<FileContentResult, BackendError> {
+    let workspace_path = std::path::PathBuf::from(&cwd);
+    if !workspace_path.exists() {
+        return Err(BackendError::new(
+            ErrorCode::InvalidWorkspacePath,
+            format!("Workspace path does not exist: {cwd}"),
+        ));
+    }
+
+    let workspace_root = workspace_path.canonicalize().map_err(|error| {
+        BackendError::new(
+            ErrorCode::InvalidWorkspacePath,
+            format!("Failed to resolve workspace root: {error}"),
+        )
+    })?;
+
+    let target_path = std::path::PathBuf::from(&file_path);
+    if !target_path.exists() {
+        return Err(BackendError::new(
+            ErrorCode::InvalidInput,
+            format!("File does not exist: {file_path}"),
+        ));
+    }
+
+    let canonical_target = target_path.canonicalize().map_err(|error| {
+        BackendError::new(
+            ErrorCode::InvalidInput,
+            format!("Failed to resolve file path: {error}"),
+        )
+    })?;
+
+    // Security check: ensure file is within workspace root
+    if !canonical_target.starts_with(&workspace_root) {
+        return Err(BackendError::new(
+            ErrorCode::InvalidInput,
+            "File is outside workspace root",
+        ));
+    }
+
+    // Check if it's a file (not a directory)
+    if !canonical_target.is_file() {
+        return Err(BackendError::new(
+            ErrorCode::InvalidInput,
+            "Path is not a file",
+        ));
+    }
+
+    // Check file size limit (1MB)
+    let metadata = fs::metadata(&canonical_target).map_err(|error| {
+        BackendError::new(
+            ErrorCode::RuntimeError,
+            format!("Failed to read file metadata: {error}"),
+        )
+    })?;
+
+    const MAX_FILE_SIZE: u64 = 1_048_576; // 1MB
+    if metadata.len() > MAX_FILE_SIZE {
+        return Err(BackendError::new(
+            ErrorCode::InvalidInput,
+            format!("File too large: {} bytes (max {} bytes)", metadata.len(), MAX_FILE_SIZE),
+        ));
+    }
+
+    // Read file content
+    let content = fs::read_to_string(&canonical_target).map_err(|error| {
+        BackendError::new(
+            ErrorCode::RuntimeError,
+            format!("Failed to read file content: {error}"),
+        )
+    })?;
+
+    Ok(FileContentResult {
+        content,
+        size_bytes: metadata.len(),
+    })
 }
 
 #[tauri::command]

@@ -1,8 +1,11 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Loader2, FileCode, GitCompareArrows } from 'lucide-react';
+import { Loader2, FileCode, GitCompareArrows, Eye } from 'lucide-react';
 import type * as Types from '../../lib/backend/types';
+import type { SelectedFileInfo, ContextMenuState } from '../../hooks/useWorkspaceFileTree';
 import { WorkspaceFileTree } from './WorkspaceFileTree';
 import { DiffPanel } from './DiffPanel';
+import { FilePreviewPanel } from './FilePreviewPanel';
+import { WorkspaceFileContextMenu } from './WorkspaceFileContextMenu';
 
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 600;
@@ -23,9 +26,18 @@ interface WorkspacePanelProps {
   isGitDiffLoading: boolean;
   gitDiffError: string | null;
   onRefreshGitDiff: () => void;
+  // File preview props
+  selectedFile: SelectedFileInfo | null;
+  onSelectFile: (filePath: string, fileName: string) => void;
+  onClearSelection: () => void;
+  // Context menu props
+  contextMenuState: ContextMenuState | null;
+  onShowContextMenu: (entry: Types.WorkspaceFileEntry, event: React.MouseEvent) => void;
+  onHideContextMenu: () => void;
+  onNotice: (message: string | null) => void;
 }
 
-type SidebarTab = 'files' | 'diff';
+type SidebarTab = 'files' | 'diff' | 'preview';
 
 export function WorkspacePanel({
   isOpen,
@@ -42,11 +54,25 @@ export function WorkspacePanel({
   isGitDiffLoading,
   gitDiffError,
   onRefreshGitDiff,
+  selectedFile,
+  onSelectFile,
+  onClearSelection,
+  contextMenuState,
+  onShowContextMenu,
+  onHideContextMenu,
+  onNotice,
 }: WorkspacePanelProps) {
   const [activeTab, setActiveTab] = useState<SidebarTab>('files');
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [isDragging, setIsDragging] = useState(false);
   const dragCleanupRef = useRef<(() => void) | null>(null);
+
+  // Switch to preview tab when file is selected
+  useEffect(() => {
+    if (selectedFile && !selectedFile.isLoading) {
+      setActiveTab('preview');
+    }
+  }, [selectedFile?.isLoading, selectedFile?.path]);
 
   useEffect(() => {
     return () => { dragCleanupRef.current?.(); };
@@ -118,6 +144,17 @@ export function WorkspacePanel({
             >
               <GitCompareArrows className="w-3.5 h-3.5" />
             </button>
+            <button
+              onClick={() => setActiveTab('preview')}
+              className={`p-1.5 rounded-interactive transition-colors ${
+                activeTab === 'preview'
+                  ? 'bg-light-gray text-pure-black'
+                  : 'text-stone hover:bg-light-gray/40 hover:text-pure-black'
+              }`}
+              title="Preview"
+            >
+              <Eye className="w-3.5 h-3.5" />
+            </button>
           </div>
           <div className="text-[11px] text-stone truncate min-w-0 text-right" title={cwd ?? ''}>
             {cwd ?? 'No active workspace'}
@@ -147,18 +184,36 @@ export function WorkspacePanel({
                 dirChildren={dirChildren}
                 dirErrors={dirErrors}
                 onToggleDirectory={onToggleDirectory}
+                onSelectFile={onSelectFile}
+                onContextMenu={onShowContextMenu}
               />
             )
-          ) : (
+          ) : activeTab === 'diff' ? (
             <DiffPanel
               data={gitDiffData}
               isLoading={isGitDiffLoading}
               error={gitDiffError}
               onRefresh={onRefreshGitDiff}
             />
+          ) : (
+            <FilePreviewPanel
+              selectedFile={selectedFile}
+              onClear={onClearSelection}
+            />
           )}
         </div>
       </div>
+
+      {/* Context menu (rendered outside the panel for proper positioning) */}
+      {contextMenuState && cwd && (
+        <WorkspaceFileContextMenu
+          entry={contextMenuState.entry}
+          cwd={cwd}
+          position={contextMenuState.position}
+          onClose={onHideContextMenu}
+          onNotice={onNotice}
+        />
+      )}
     </aside>
   );
 }

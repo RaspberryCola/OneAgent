@@ -1,7 +1,7 @@
 import { ChevronDown, ChevronRight, Code, Folder, Loader2 } from 'lucide-react';
 import type * as Types from '../../lib/backend/types';
 
-function formatBytes(bytes: number): string {
+export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   const units = ['KB', 'MB', 'GB', 'TB'];
   let value = bytes;
@@ -21,6 +21,8 @@ interface WorkspaceFileTreeNodeProps {
   dirChildren: Record<string, Types.WorkspaceFileEntry[]>;
   dirErrors: Record<string, string>;
   onToggleDirectory: (path: string) => void;
+  onSelectFile?: (filePath: string, fileName: string) => void;
+  onContextMenu?: (entry: Types.WorkspaceFileEntry, event: React.MouseEvent) => void;
 }
 
 export function WorkspaceFileTreeNode({
@@ -31,21 +33,35 @@ export function WorkspaceFileTreeNode({
   dirChildren,
   dirErrors,
   onToggleDirectory,
+  onSelectFile,
+  onContextMenu,
 }: WorkspaceFileTreeNodeProps) {
   const isExpanded = expandedDirs.has(entry.path);
   const isLoadingChildren = loadingDirs.has(entry.path);
   const children = dirChildren[entry.path] ?? [];
   const childError = dirErrors[entry.path];
 
+  const handleClick = () => {
+    if (entry.is_dir) {
+      onToggleDirectory(entry.path);
+    } else if (onSelectFile) {
+      onSelectFile(entry.path, entry.name);
+    }
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (onContextMenu) {
+      onContextMenu(entry, e);
+    }
+  };
+
   return (
     <div>
       <button
         type="button"
-        onClick={() => {
-          if (entry.is_dir) {
-            onToggleDirectory(entry.path);
-          }
-        }}
+        onClick={handleClick}
+        onContextMenu={handleContextMenu}
         className="w-full text-left px-2 py-1.5 rounded-interactive hover:bg-snow/90 transition-colors"
         title={entry.path}
       >
@@ -97,6 +113,8 @@ export function WorkspaceFileTreeNode({
                 dirChildren={dirChildren}
                 dirErrors={dirErrors}
                 onToggleDirectory={onToggleDirectory}
+                onSelectFile={onSelectFile}
+                onContextMenu={onContextMenu}
               />
             ))
           )}

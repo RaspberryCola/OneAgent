@@ -289,6 +289,12 @@ export default function App() {
     loadingDirs: workspaceLoadingDirs,
     dirErrors: workspaceDirErrors,
     toggleDirectory: toggleWorkspaceDirectory,
+    selectedFile: workspaceSelectedFile,
+    selectFile: workspaceSelectFile,
+    clearSelection: workspaceClearSelection,
+    contextMenuState: workspaceContextMenuState,
+    showContextMenu: workspaceShowContextMenu,
+    hideContextMenu: workspaceHideContextMenu,
   } = useWorkspaceFileTree({
     workspaceId: activeWorkspace?.id ?? null,
     cwd: activeWorkspace?.cwd ?? null,
@@ -835,6 +841,13 @@ export default function App() {
             isGitDiffLoading={isGitDiffLoading}
             gitDiffError={gitDiffError}
             onRefreshGitDiff={refreshGitDiff}
+            selectedFile={workspaceSelectedFile}
+            onSelectFile={workspaceSelectFile}
+            onClearSelection={workspaceClearSelection}
+            contextMenuState={workspaceContextMenuState}
+            onShowContextMenu={workspaceShowContextMenu}
+            onHideContextMenu={workspaceHideContextMenu}
+            onNotice={setComposerNotice}
           />
         ) : null}
       />

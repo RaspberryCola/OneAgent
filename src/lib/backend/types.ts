@@ -65,6 +65,11 @@ export interface GitDiffResult {
   staged: string;
 }
 
+export interface FileContentResult {
+  content: string;
+  size_bytes: number;
+}
+
 export interface AgentProfile {
   id: string;
   kind: 'acp' | 'compat';

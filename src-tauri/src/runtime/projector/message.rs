@@ -22,7 +22,7 @@ impl Runtime {
         if is_new_stream {
             self.finalize_text_stream(conversation_id, turn_id)?;
         }
-        let (active, _) = self.state_cache.get_or_create_streaming_message(&stream_key, || {
+        let (_, _) = self.state_cache.get_or_create_streaming_message(&stream_key, || {
             crate::runtime::ActiveStreamMessage {
                 id: Uuid::new_v4().to_string(),
                 role: MessageRole::System,
@@ -31,7 +31,11 @@ impl Runtime {
                 started_at: Utc::now(),
             }
         });
-        self.state_cache.append_streaming_content(&stream_key, &content);
+        // append_streaming_content returns the updated message, avoiding an extra clone
+        let active = self
+            .state_cache
+            .append_streaming_content(&stream_key, &content)
+            .expect("streaming message must exist after get_or_create");
         let message = MessageProjection {
             id: active.id.clone(),
             conversation_id: conversation_id.to_string(),
@@ -73,7 +77,7 @@ impl Runtime {
         let stream_key =
             Self::stream_message_key(conversation_id, turn_id, &message_role, &MessageKind::Text);
         let is_new_stream = !self.state_cache.has_streaming_message(&stream_key);
-        let (active, _) = self.state_cache.get_or_create_streaming_message(&stream_key, || {
+        let (_, _) = self.state_cache.get_or_create_streaming_message(&stream_key, || {
             crate::runtime::ActiveStreamMessage {
                 id: Uuid::new_v4().to_string(),
                 role: message_role.clone(),
@@ -82,7 +86,11 @@ impl Runtime {
                 started_at: Utc::now(),
             }
         });
-        self.state_cache.append_streaming_content(&stream_key, &content);
+        // append_streaming_content returns the updated message, avoiding an extra clone
+        let active = self
+            .state_cache
+            .append_streaming_content(&stream_key, &content)
+            .expect("streaming message must exist after get_or_create");
         let message = MessageProjection {
             id: active.id.clone(),
             conversation_id: conversation_id.to_string(),

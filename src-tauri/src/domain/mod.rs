@@ -294,6 +294,12 @@ pub struct WorkspaceFileEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileContentResult {
+    pub content: String,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentProfile {
     pub id: String,
     pub kind: AgentKind,

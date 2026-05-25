@@ -1,11 +1,27 @@
 import { useState, useCallback, useEffect } from 'react';
 import * as API from '../lib/backend/commands';
 import type * as Types from '../lib/backend/types';
+import { detectLanguage } from '../lib/utils/languageDetection';
 
 export interface UseWorkspaceFileTreeOptions {
   workspaceId: string | null;
   cwd: string | null;
   enabled?: boolean;
+}
+
+export interface SelectedFileInfo {
+  path: string;
+  name: string;
+  content: string;
+  language: string;
+  sizeBytes: number;
+  isLoading: boolean;
+  error: string | null;
+}
+
+export interface ContextMenuState {
+  entry: Types.WorkspaceFileEntry;
+  position: { x: number; y: number };
 }
 
 export interface UseWorkspaceFileTreeReturn {
@@ -20,6 +36,16 @@ export interface UseWorkspaceFileTreeReturn {
   loadingDirs: Set<string>;
   dirErrors: Record<string, string>;
 
+  // File preview state
+  selectedFile: SelectedFileInfo | null;
+  selectFile: (filePath: string, fileName: string) => Promise<void>;
+  clearSelection: () => void;
+
+  // Context menu state
+  contextMenuState: ContextMenuState | null;
+  showContextMenu: (entry: Types.WorkspaceFileEntry, event: React.MouseEvent) => void;
+  hideContextMenu: () => void;
+
   // Methods
   toggleDirectory: (dirPath: string) => Promise<void>;
   refreshRoot: () => Promise<void>;
@@ -33,6 +59,8 @@ export interface UseWorkspaceFileTreeReturn {
  * - 管理工作区根文件列表加载
  * - 处理目录展开/折叠状态
  * - 按需加载子目录内容
+ * - 文件预览选择状态
+ * - 右键菜单状态
  * - 错误处理和加载状态管理
  */
 export function useWorkspaceFileTree(options: UseWorkspaceFileTreeOptions): UseWorkspaceFileTreeReturn {
@@ -52,6 +80,12 @@ export function useWorkspaceFileTree(options: UseWorkspaceFileTreeOptions): UseW
   const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set());
   const [dirErrors, setDirErrors] = useState<Record<string, string>>({});
 
+  // File preview state
+  const [selectedFile, setSelectedFile] = useState<SelectedFileInfo | null>(null);
+
+  // Context menu state
+  const [contextMenuState, setContextMenuState] = useState<ContextMenuState | null>(null);
+
   // Reset all state when panel is closed or workspace changes
   useEffect(() => {
     if (!isPanelOpen || !workspaceId || !cwd) {
@@ -62,6 +96,8 @@ export function useWorkspaceFileTree(options: UseWorkspaceFileTreeOptions): UseW
       setDirChildren({});
       setLoadingDirs(new Set());
       setDirErrors({});
+      setSelectedFile(null);
+      setContextMenuState(null);
       return;
     }
   }, [isPanelOpen, workspaceId, cwd]);
@@ -76,6 +112,7 @@ export function useWorkspaceFileTree(options: UseWorkspaceFileTreeOptions): UseW
       setDirChildren({});
       setLoadingDirs(new Set());
       setDirErrors({});
+      setSelectedFile(null);
       return;
     }
 
@@ -86,6 +123,7 @@ export function useWorkspaceFileTree(options: UseWorkspaceFileTreeOptions): UseW
     setDirChildren({});
     setLoadingDirs(new Set());
     setDirErrors({});
+    setSelectedFile(null);
 
     void API.listWorkspaceFiles(cwd)
       .then((entries) => {
@@ -194,6 +232,57 @@ export function useWorkspaceFileTree(options: UseWorkspaceFileTreeOptions): UseW
       });
   }, [cwd, dirChildren, expandedDirs, loadingDirs, collapseDirectory]);
 
+  const selectFile = useCallback(async (filePath: string, fileName: string) => {
+    if (!cwd) return;
+
+    // Set loading state immediately
+    setSelectedFile({
+      path: filePath,
+      name: fileName,
+      content: '',
+      language: detectLanguage(filePath),
+      sizeBytes: 0,
+      isLoading: true,
+      error: null,
+    });
+
+    try {
+      const result = await API.readFileContent(cwd, filePath);
+      setSelectedFile({
+        path: filePath,
+        name: fileName,
+        content: result.content,
+        language: detectLanguage(filePath),
+        sizeBytes: result.size_bytes,
+        isLoading: false,
+        error: null,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to read file';
+      setSelectedFile((prev) =>
+        prev
+          ? { ...prev, isLoading: false, error: message }
+          : null
+      );
+    }
+  }, [cwd]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedFile(null);
+  }, []);
+
+  const showContextMenu = useCallback((entry: Types.WorkspaceFileEntry, event: React.MouseEvent) => {
+    event.preventDefault();
+    setContextMenuState({
+      entry,
+      position: { x: event.clientX, y: event.clientY },
+    });
+  }, []);
+
+  const hideContextMenu = useCallback(() => {
+    setContextMenuState(null);
+  }, []);
+
   return {
     // State
     isPanelOpen,
@@ -205,6 +294,16 @@ export function useWorkspaceFileTree(options: UseWorkspaceFileTreeOptions): UseW
     dirChildren,
     loadingDirs,
     dirErrors,
+
+    // File preview state
+    selectedFile,
+    selectFile,
+    clearSelection,
+
+    // Context menu state
+    contextMenuState,
+    showContextMenu,
+    hideContextMenu,
 
     // Methods
     toggleDirectory,

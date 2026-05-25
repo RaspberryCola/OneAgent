@@ -10,5 +10,14 @@
   "refresh": "Refresh",
   "loading": "Loading...",
   "noChanges": "No changes",
-  "openFile": "Open file"
+  "openFile": "Open file",
+  "preview": "Preview",
+  "selectFileToPreview": "Select a file to preview",
+  "close": "Close",
+  "copyRelativePath": "Copy Relative Path",
+  "copyAbsolutePath": "Copy Absolute Path",
+  "revealInFinder": "Reveal in Finder",
+  "revealInExplorer": "Reveal in Explorer",
+  "openInFileManager": "Open in File Manager",
+  "pathCopied": "Path copied to clipboard"
 }

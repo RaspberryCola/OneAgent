@@ -88,6 +88,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_shell::init())
         .manage(AppState {
             gateway: managed_gateway.clone(),
             terminal_manager,
@@ -160,6 +161,7 @@ pub fn run() {
             channel_api::pick_workspace_directory,
             channel_api::list_workspace_files,
             channel_api::git_diff,
+            channel_api::read_file_content,
             channel_api::list_conversations,
             channel_api::search_conversations,
             channel_api::list_discovered_sessions,

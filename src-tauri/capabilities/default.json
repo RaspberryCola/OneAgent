@@ -5,6 +5,42 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "dialog:default"
+    "dialog:default",
+    "shell:allow-open",
+    "shell:allow-execute",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "open-in-finder",
+          "cmd": "open",
+          "args": [
+            "-R",
+            {
+              "validator": ".+"
+            }
+          ]
+        },
+        {
+          "name": "open-in-explorer",
+          "cmd": "explorer",
+          "args": [
+            "/select,",
+            {
+              "validator": ".+"
+            }
+          ]
+        },
+        {
+          "name": "open-file-manager",
+          "cmd": "xdg-open",
+          "args": [
+            {
+              "validator": ".+"
+            }
+          ]
+        }
+      ]
+    }
   ]
 }

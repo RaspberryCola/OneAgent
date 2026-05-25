@@ -54,6 +54,10 @@ export async function getGitDiff(cwd: string): Promise<Types.GitDiffResult> {
   return invoke('git_diff', { cwd });
 }
 
+export async function readFileContent(cwd: string, filePath: string): Promise<Types.FileContentResult> {
+  return invoke('read_file_content', { cwd, filePath });
+}
+
 // Conversation / Task
 export async function listConversations(workspaceId: string, filter?: Types.ConversationFilter): Promise<Types.Conversation[]> {
   return invoke('list_conversations', { workspaceId, filter });
