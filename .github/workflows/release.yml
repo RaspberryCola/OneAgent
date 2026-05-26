@@ -18,9 +18,9 @@ jobs:
           - platform: macos-latest
             args: ""
           - platform: ubuntu-22.04
-            args: ""
+            args: "--bundles deb"
           - platform: windows-latest
-            args: ""
+            args: "--bundles nsis"
 
     runs-on: ${{ matrix.platform }}
 
@@ -30,26 +30,14 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Sync version from tag
-        run: |
-          VERSION=${GITHUB_REF_NAME#v}
-          echo "Syncing version: $VERSION"
-          # Update tauri.conf.json
-          sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json || \
-            sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
-          # Update Cargo.toml
-          sed -i '' "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml || \
-            sed -i "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" src-tauri/Cargo.toml
-          # Update package.json
-          sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" package.json || \
-            sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" package.json
-          echo "Version sync complete"
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
+
+      - name: Sync version from tag
+        run: node scripts/sync-version.mjs
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
