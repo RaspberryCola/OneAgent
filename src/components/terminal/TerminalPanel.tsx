@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Terminal } from 'xterm';
-import { FitAddon } from 'xterm-addon-fit';
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
 import { listen } from '../../lib/backend/transport';
 import { Plus, X, Terminal as TerminalIcon } from 'lucide-react';
 import * as API from '../../lib/backend/commands';
-import 'xterm/css/xterm.css';
+import '@xterm/xterm/css/xterm.css';
 
 interface TerminalTab {
   id: string;
@@ -213,7 +213,7 @@ function SingleTerminalInstance({ id, cwd, isActive }: SingleTerminalInstancePro
     });
 
     // Handle user input
-    const onDataDisposable = term.onData((data) => {
+    const onDataDisposable = term.onData((data: string) => {
       void API.writeToTerminal(id, data);
     });
 
