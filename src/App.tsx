@@ -228,6 +228,8 @@ export default function App() {
     archiveWorkspace,
     alwaysExpandThinking,
     setAlwaysExpandThinking,
+    showAgentIconInList,
+    setShowAgentIconInList,
     webuiEnabled,
     webuiPassword,
     webuiInfo,
@@ -663,6 +665,7 @@ export default function App() {
         renderAgentLogo={(agentCommand, className) => (
           <AgentLogo agent={agentCommand} className={className} />
         )}
+        showAgentIcon={showAgentIconInList}
         onCloseMobileSidebar={() => setMobileSidebarOpen(false)}
         onCloseDesktopSidebar={() => setDesktopSidebarOpen(false)}
         onNewChat={() => {
@@ -864,6 +867,8 @@ export default function App() {
             onClose={() => setIsSettingsOpen(false)}
             onSelectTab={setSettingsTab}
             onToggleAlwaysExpandThinking={() => setAlwaysExpandThinking(!alwaysExpandThinking)}
+            showAgentIconInList={showAgentIconInList}
+            onToggleShowAgentIconInList={() => setShowAgentIconInList(!showAgentIconInList)}
             renderAgentLogo={(agent, className) => (
               <AgentLogo agent={agent} className={className} />
             )}

@@ -23,6 +23,8 @@ import * as events from '../../lib/backend/events';
 import { IS_TAURI } from '../../lib/backend/transport';
 import { SettingSelect } from './SettingSelect';
 import { SettingSelectWithSearch } from './SettingSelectWithSearch';
+import { ChannelSessionRouting } from './ChannelSessionRouting';
+import { ChannelPairingRequests } from './ChannelPairingRequests';
 
 interface ImSettingsPaneProps {
   webuiEnabled: boolean;
@@ -620,7 +622,7 @@ export function ImSettingsPane({
               <div className="border border-light-gray/60 rounded-container p-4 bg-pure-white">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="font-display font-medium text-[13px] text-pure-black">Configuration</span>
+                    <span className="font-display font-medium text-[13px] text-pure-black">{t('wechat.connected')}</span>
                     {weixinPlugin.status !== 'connected' && (
                       <span className={`text-[11px] ${
                         weixinPlugin.status === 'connecting' ? 'text-yellow' :
@@ -786,125 +788,26 @@ export function ImSettingsPane({
           )}
 
           {/* Session Routing Configuration */}
-          <div className="border border-light-gray/60 rounded-container p-4 bg-pure-white space-y-4">
-            <span className="font-display font-medium text-[13px] text-pure-black">Session Routing</span>
-            <div className="grid grid-cols-3 gap-4">
-              <SettingSelect
-                value={wxWorkspaceId}
-                onChange={(v) => handleUpdateWeixinConfig(v, wxAgentProfileId, wxModelId)}
-                placeholder="Default Workspace (First Available)"
-                label="Workspace"
-                options={[
-                  { value: '', label: 'Default Workspace (First Available)' },
-                  ...workspaces.map((ws) => ({ value: ws.id, label: ws.display_name || ws.cwd })),
-                ]}
-              />
-              <SettingSelect
-                value={wxAgentProfileId}
-                onChange={(v) => handleUpdateWeixinConfig(wxWorkspaceId, v, wxModelId)}
-                placeholder="Default Agent (First Enabled)"
-                label="Agent Profile"
-                options={[
-                  { value: '', label: 'Default Agent (First Enabled)' },
-                  ...agents.map((a) => ({ value: a.id, label: a.name })),
-                ]}
-              />
-              <SettingSelectWithSearch
-                value={wxModelId}
-                onChange={(v) => handleUpdateWeixinConfig(wxWorkspaceId, wxAgentProfileId, v)}
-                placeholder="Default Model (Agent Default)"
-                label="Model"
-                searchPlaceholder="Search models..."
-                options={[
-                  { value: '', label: 'Default Model (Agent Default)' },
-                  ...wxAvailableModels.map((m) => ({ value: m.id ?? m.model_id ?? '', label: m.name ?? m.id ?? '' })),
-                ]}
-              />
-            </div>
-          </div>
+          <ChannelSessionRouting
+            workspaceId={wxWorkspaceId}
+            agentProfileId={wxAgentProfileId}
+            modelId={wxModelId}
+            availableModels={wxAvailableModels}
+            workspaces={workspaces}
+            agents={agents}
+            onUpdateConfig={handleUpdateWeixinConfig}
+          />
 
           {/* Pairing Requests Section - 仅当有待处理请求时显示 */}
-          {weixinPendingPairings.length > 0 && (
-            <div className="border border-light-gray/60 rounded-container p-4 bg-pure-white space-y-4 mt-4">
-              <div className="flex flex-col gap-1">
-                <span className="font-display font-medium text-[13px] text-pure-black">Pairing Requests</span>
-                <span className="text-[11px] text-stone">
-                  Users from WeChat requesting authorization to use this bot.
-                </span>
-              </div>
-
-              {/* 手动输入区 */}
-              <div className="flex gap-2 max-w-sm">
-                <input
-                  type="text"
-                  maxLength={6}
-                  value={pairingCodeInput}
-                  onChange={(e) => setPairingCodeInput(e.target.value.trim())}
-                  placeholder="Enter 6-digit code"
-                  className="w-full px-3 py-1.5 border border-light-gray/60 rounded-interactive text-[12px] bg-pure-white text-pure-black focus:outline-none focus:border-pure-black transition-colors font-mono tracking-widest text-center text-lg"
-                />
-                <button
-                  onClick={() => handleApprovePairing(pairingCodeInput)}
-                  disabled={pairingCodeInput.length !== 6}
-                  className="flex items-center justify-center gap-1.5 px-4 py-1.5 rounded-interactive text-[11px] font-medium bg-pure-black text-pure-white border border-pure-black hover:bg-near-black disabled:opacity-50 shrink-0"
-                >
-                  <UserCheck className="w-3.5 h-3.5" />
-                  <span>Approve</span>
-                </button>
-              </div>
-
-              {/* 消息反馈 */}
-              {pairingMessage && (
-                <div className="flex gap-3 p-3 rounded-container bg-light-gray/20 border border-light-gray text-near-black text-[11px] leading-relaxed">
-                  {pairingMessageType === 'success' ? (
-                    <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                  ) : (
-                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                  )}
-                  <div>{pairingMessage}</div>
-                </div>
-              )}
-
-              {/* 待处理列表 */}
-              <div className="space-y-3 border-t border-light-gray/40 pt-3">
-                <div className="flex items-center justify-between">
-                  <div className="text-[10px] text-silver font-medium uppercase tracking-wider">
-                    Pending Requests ({weixinPendingPairings.length})
-                  </div>
-                  <button
-                    onClick={() => clearChannelPairings('weixin')}
-                    className="text-[10px] text-stone hover:text-pure-black"
-                  >
-                    Clear
-                  </button>
-                </div>
-
-                <div className="divide-y divide-light-gray/30">
-                  {weixinPendingPairings.map((req) => (
-                    <div key={req.code} className="flex items-center justify-between py-2.5 first:pt-0 last:pb-0">
-                      <div className="flex flex-col gap-0.5">
-                        <span className="font-display font-medium text-[12px] text-pure-black">
-                          {req.display_name} ({req.platform_user_id})
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="font-mono text-[13px] font-medium text-pure-black tracking-widest bg-snow border border-light-gray/40 px-2 py-0.5 rounded-interactive">
-                          {req.code}
-                        </span>
-                        <button
-                          onClick={() => handleApprovePairing(req.code)}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-interactive text-[10px] font-medium border border-light-gray text-stone hover:bg-snow hover:text-pure-black bg-pure-white transition-colors"
-                        >
-                          <Check className="w-3 h-3" />
-                          <span>Approve</span>
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
+          <ChannelPairingRequests
+            pendingPairings={weixinPendingPairings}
+            onApprove={handleApprovePairing}
+            onClear={() => clearChannelPairings('weixin')}
+            pairingCodeInput={pairingCodeInput}
+            onInputChange={setPairingCodeInput}
+            pairingMessage={pairingMessage}
+            pairingMessageType={pairingMessageType}
+          />
         </div>
       )}
 
@@ -938,10 +841,7 @@ export function ImSettingsPane({
             </div>
           ) : (
             <div className="border border-light-gray/60 rounded-container p-4 bg-pure-white space-y-4">
-              <div className="flex flex-col gap-1">
-                <span className="font-display font-medium text-[13px] text-pure-black">Feishu Configuration</span>
-                <span className="text-[11px] text-stone">Provide your self-built Feishu Application App ID and Secret.</span>
-              </div>
+              <span className="font-display font-medium text-[13px] text-pure-black">{t('lark.configuration')}</span>
 
               <form onSubmit={handleStartLark} className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">
@@ -992,17 +892,16 @@ export function ImSettingsPane({
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-medium text-stone uppercase tracking-wide">Platform Domain</label>
-                  <select
-                    value={larkDomain}
-                    onChange={(e) => setLarkDomain(e.target.value as 'feishu' | 'lark')}
-                    className="w-full px-3 py-1.5 border border-light-gray/60 rounded-interactive text-[12px] bg-pure-white text-pure-black focus:outline-none focus:border-pure-black transition-colors"
-                  >
-                    <option value="feishu">Feishu (open.feishu.cn)</option>
-                    <option value="lark">Lark Global (open.larksuite.com)</option>
-                  </select>
-                </div>
+                <SettingSelect
+                  value={larkDomain}
+                  onChange={(v) => setLarkDomain(v as 'feishu' | 'lark')}
+                  placeholder={t('lark.selectDomain')}
+                  label={t('lark.platformDomain')}
+                  options={[
+                    { value: 'feishu', label: t('lark.feishuDomain') },
+                    { value: 'lark', label: t('lark.larkDomain') },
+                  ]}
+                />
 
                 <div className="pt-2">
                   <button
@@ -1011,7 +910,7 @@ export function ImSettingsPane({
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-interactive text-[11px] font-medium bg-pure-black text-pure-white border border-pure-black hover:bg-near-black disabled:opacity-50"
                   >
                     <Play className="w-3 h-3" />
-                    <span>Save & Start Feishu Bot</span>
+                    <span>{t('lark.saveAndStart')}</span>
                   </button>
                 </div>
               </form>
@@ -1019,128 +918,26 @@ export function ImSettingsPane({
           )}
 
           {/* Session Routing Configuration */}
-          <div className="border border-light-gray/60 rounded-container p-4 bg-pure-white space-y-4">
-            <div className="flex flex-col gap-1 border-b border-light-gray/40 pb-2 mb-1">
-              <span className="font-display font-medium text-[13px] text-pure-black">Session Routing Configuration</span>
-              <span className="text-[11px] text-stone">Specify which Workspace, Agent Profile, and Model will handle incoming Feishu messages on this channel.</span>
-            </div>
-            <div className="grid grid-cols-3 gap-4">
-              <SettingSelect
-                value={larkWorkspaceId}
-                onChange={(v) => handleUpdateLarkConfig(v, larkAgentProfileId, larkModelId)}
-                placeholder="Default Workspace (First Available)"
-                label="Workspace"
-                options={[
-                  { value: '', label: 'Default Workspace (First Available)' },
-                  ...workspaces.map((ws) => ({ value: ws.id, label: ws.display_name || ws.cwd })),
-                ]}
-              />
-              <SettingSelect
-                value={larkAgentProfileId}
-                onChange={(v) => handleUpdateLarkConfig(larkWorkspaceId, v, larkModelId)}
-                placeholder="Default Agent (First Enabled)"
-                label="Agent Profile"
-                options={[
-                  { value: '', label: 'Default Agent (First Enabled)' },
-                  ...agents.map((a) => ({ value: a.id, label: a.name })),
-                ]}
-              />
-              <SettingSelectWithSearch
-                value={larkModelId}
-                onChange={(v) => handleUpdateLarkConfig(larkWorkspaceId, larkAgentProfileId, v)}
-                placeholder="Default Model (Agent Default)"
-                label="Model"
-                searchPlaceholder="Search models..."
-                options={[
-                  { value: '', label: 'Default Model (Agent Default)' },
-                  ...larkAvailableModels.map((m) => ({ value: m.id ?? m.model_id ?? '', label: m.name ?? m.id ?? '' })),
-                ]}
-              />
-            </div>
-          </div>
+          <ChannelSessionRouting
+            workspaceId={larkWorkspaceId}
+            agentProfileId={larkAgentProfileId}
+            modelId={larkModelId}
+            availableModels={larkAvailableModels}
+            workspaces={workspaces}
+            agents={agents}
+            onUpdateConfig={handleUpdateLarkConfig}
+          />
 
           {/* Pairing Requests Section - 仅当有待处理请求时显示 */}
-          {larkPendingPairings.length > 0 && (
-            <div className="border border-light-gray/60 rounded-container p-4 bg-pure-white space-y-4 mt-4">
-              <div className="flex flex-col gap-1">
-                <span className="font-display font-medium text-[13px] text-pure-black">Pairing Requests</span>
-                <span className="text-[11px] text-stone">
-                  Users from Feishu requesting authorization to use this bot.
-                </span>
-              </div>
-
-              {/* 手动输入区 */}
-              <div className="flex gap-2 max-w-sm">
-                <input
-                  type="text"
-                  maxLength={6}
-                  value={pairingCodeInput}
-                  onChange={(e) => setPairingCodeInput(e.target.value.trim())}
-                  placeholder="Enter 6-digit code"
-                  className="w-full px-3 py-1.5 border border-light-gray/60 rounded-interactive text-[12px] bg-pure-white text-pure-black focus:outline-none focus:border-pure-black transition-colors font-mono tracking-widest text-center text-lg"
-                />
-                <button
-                  onClick={() => handleApprovePairing(pairingCodeInput)}
-                  disabled={pairingCodeInput.length !== 6}
-                  className="flex items-center justify-center gap-1.5 px-4 py-1.5 rounded-interactive text-[11px] font-medium bg-pure-black text-pure-white border border-pure-black hover:bg-near-black disabled:opacity-50 shrink-0"
-                >
-                  <UserCheck className="w-3.5 h-3.5" />
-                  <span>Approve</span>
-                </button>
-              </div>
-
-              {/* 消息反馈 */}
-              {pairingMessage && (
-                <div className="flex gap-3 p-3 rounded-container bg-light-gray/20 border border-light-gray text-near-black text-[11px] leading-relaxed">
-                  {pairingMessageType === 'success' ? (
-                    <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                  ) : (
-                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                  )}
-                  <div>{pairingMessage}</div>
-                </div>
-              )}
-
-              {/* 待处理列表 */}
-              <div className="space-y-3 border-t border-light-gray/40 pt-3">
-                <div className="flex items-center justify-between">
-                  <div className="text-[10px] text-silver font-medium uppercase tracking-wider">
-                    Pending Requests ({larkPendingPairings.length})
-                  </div>
-                  <button
-                    onClick={() => clearChannelPairings('lark')}
-                    className="text-[10px] text-stone hover:text-pure-black"
-                  >
-                    Clear
-                  </button>
-                </div>
-
-                <div className="divide-y divide-light-gray/30">
-                  {larkPendingPairings.map((req) => (
-                    <div key={req.code} className="flex items-center justify-between py-2.5 first:pt-0 last:pb-0">
-                      <div className="flex flex-col gap-0.5">
-                        <span className="font-display font-medium text-[12px] text-pure-black">
-                          {req.display_name} ({req.platform_user_id})
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="font-mono text-[13px] font-medium text-pure-black tracking-widest bg-snow border border-light-gray/40 px-2 py-0.5 rounded-interactive">
-                          {req.code}
-                        </span>
-                        <button
-                          onClick={() => handleApprovePairing(req.code)}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-interactive text-[10px] font-medium border border-light-gray text-stone hover:bg-snow hover:text-pure-black bg-pure-white transition-colors"
-                        >
-                          <Check className="w-3 h-3" />
-                          <span>Approve</span>
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
+          <ChannelPairingRequests
+            pendingPairings={larkPendingPairings}
+            onApprove={handleApprovePairing}
+            onClear={() => clearChannelPairings('lark')}
+            pairingCodeInput={pairingCodeInput}
+            onInputChange={setPairingCodeInput}
+            pairingMessage={pairingMessage}
+            pairingMessageType={pairingMessageType}
+          />
         </div>
       )}
       </div>

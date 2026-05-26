@@ -8,6 +8,7 @@ type SidebarItemProps = {
   imSource?: string;
   unread?: boolean;
   active?: boolean;
+  showAgentIcon?: boolean;
   onClick?: () => void;
   deletePending?: boolean;
   onDelete?: () => void;
@@ -22,6 +23,7 @@ export function SidebarItem({
   imSource,
   unread = false,
   active = false,
+  showAgentIcon = true,
   onClick,
   deletePending = false,
   onDelete,
@@ -41,17 +43,19 @@ export function SidebarItem({
         onClick={onClick}
         className="md:min-h-0 min-h-[44px] flex-1 text-left px-3 py-2 flex items-center gap-2.5 min-w-0 rounded-container"
       >
-        <div className={`relative w-4 h-4 flex items-center justify-center shrink-0 ${active ? "opacity-100" : "opacity-40"}`}>
-          {agentCommand && renderAgentLogo ? renderAgentLogo(agentCommand, "w-3.5 h-3.5") : <Bot className="w-3.5 h-3.5" />}
-          {(isRunning || isCancelling) && (
-            <div
-              className={`absolute left-0 top-1/2 -translate-y-1/2 -translate-x-[calc(100%+3px)] w-1.5 h-1.5 rounded-full ${isRunning ? "bg-blue-500" : "bg-amber-500"} animate-pulse`}
-            />
-          )}
-          {showCompletedDot && (
-            <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-[calc(100%+3px)] w-1.5 h-1.5 rounded-full bg-emerald-500" />
-          )}
-        </div>
+        {showAgentIcon && (
+          <div className={`relative w-4 h-4 flex items-center justify-center shrink-0 ${active ? "opacity-100" : "opacity-40"}`}>
+            {agentCommand && renderAgentLogo ? renderAgentLogo(agentCommand, "w-3.5 h-3.5") : <Bot className="w-3.5 h-3.5" />}
+          </div>
+        )}
+        {(isRunning || isCancelling) && (
+          <div
+            className={`w-1.5 h-1.5 rounded-full shrink-0 ${isRunning ? "bg-blue-500" : "bg-amber-500"} animate-pulse`}
+          />
+        )}
+        {showCompletedDot && (
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+        )}
         {(imSource === 'weixin' || imSource === 'lark') && (
           <img
             src={imSource === 'weixin' ? '/logos/channels/weixin.svg' : '/logos/channels/lark.svg'}

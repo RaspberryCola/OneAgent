@@ -10,6 +10,8 @@
   "display": "Display",
   "alwaysShowThinking": "Always Show Model Thinking Content",
   "alwaysShowThinkingDesc": "When enabled, all thinking blocks are expanded by default, including completed conversations",
+  "showAgentIcons": "Show Agent Icons",
+  "showAgentIconsDesc": "Show agent icons in the conversation list",
   "agents": {
     "title": "Agents",
     "ready": "Ready",
@@ -19,7 +21,7 @@
   },
   "language": {
     "title": "Language",
-    "description": "Choose your preferred language for the interface",
+    "description": "Preferred Language",
     "english": "English",
     "chinese": "中文"
   },
@@ -36,7 +38,16 @@
     "startScanLogin": "Start WeChat Scan Login",
     "scanInstruction": "Please scan this code using your phone's WeChat app.",
     "cancelLogin": "Cancel Login",
-    "saveAndStart": "Save & Start"
+    "saveAndStart": "Save & Start",
+    "connected": "Connected"
+  },
+  "lark": {
+    "configuration": "Configuration",
+    "saveAndStart": "Save & Start Feishu Bot",
+    "platformDomain": "Platform Domain",
+    "selectDomain": "Select platform domain",
+    "feishuDomain": "Feishu (open.feishu.cn)",
+    "larkDomain": "Lark Global (open.larksuite.com)"
   },
   "mcp": {
     "title": "MCP Servers",
@@ -67,5 +78,16 @@
     "tools": "tools"
   },
   "cancel": "Cancel",
-  "save": "Save"
+  "save": "Save",
+  "sessionRouting": {
+    "title": "Session Routing",
+    "workspace": "Workspace"
+  },
+  "pairingRequests": {
+    "title": "Pairing Requests",
+    "enterCode": "Enter 6-digit code",
+    "approve": "Approve",
+    "pending": "Pending Requests",
+    "clear": "Clear"
+  }
 }

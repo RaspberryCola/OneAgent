@@ -1,10 +1,10 @@
 import { STORAGE_KEYS } from '../constants';
 
-export function readSettingsStorage(): { alwaysExpandThinking?: boolean } | null {
+export function readSettingsStorage(): { alwaysExpandThinking?: boolean; showAgentIconInList?: boolean } | null {
   const raw = window.localStorage.getItem(STORAGE_KEYS.SETTINGS);
   return raw ? JSON.parse(raw) : null;
 }
 
-export function writeSettingsStorage(value: { alwaysExpandThinking: boolean }): void {
+export function writeSettingsStorage(value: { alwaysExpandThinking?: boolean; showAgentIconInList?: boolean }): void {
   window.localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(value));
 }

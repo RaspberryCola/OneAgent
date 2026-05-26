@@ -165,6 +165,7 @@ interface AppState {
 
   // User Settings
   alwaysExpandThinking: boolean;
+  showAgentIconInList: boolean;
   webuiEnabled: boolean;
   webuiPassword: string | null;
   webuiInfo: { port: number; urls: string[] } | null;
@@ -193,6 +194,7 @@ interface AppState {
 
   // Settings Actions
   setAlwaysExpandThinking: (value: boolean) => void;
+  setShowAgentIconInList: (value: boolean) => void;
   setWebuiEnabled: (value: boolean) => Promise<string | null>;
 
   // MCP Actions
@@ -235,6 +237,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Initialize settings from localStorage
   alwaysExpandThinking: readSettingsStorage()?.alwaysExpandThinking ?? false,
+  showAgentIconInList: readSettingsStorage()?.showAgentIconInList ?? true,
   webuiEnabled: false,
   webuiPassword: null,
   webuiInfo: null,
@@ -1066,6 +1069,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   setAlwaysExpandThinking: (value: boolean) => {
     writeSettingsStorage({ alwaysExpandThinking: value });
     set({ alwaysExpandThinking: value });
+  },
+
+  setShowAgentIconInList: (value: boolean) => {
+    writeSettingsStorage({ showAgentIconInList: value });
+    set({ showAgentIconInList: value });
   },
 
   setWebuiEnabled: async (value: boolean) => {

@@ -14,6 +14,7 @@ interface WorkspaceConversationGroupProps {
   agentProfiles: Types.AgentProfile[];
   getWorkspaceLabel: (workspace: Types.Workspace | null | undefined) => string;
   renderAgentLogo: (agentCommand: string, className: string) => React.ReactNode;
+  showAgentIcon?: boolean;
   onToggleExpand: (workspaceId: string) => void;
   onStartWorkspaceChat: (workspace: Types.Workspace) => void;
   onSelectConversation: (conversationId: string) => void;
@@ -32,6 +33,7 @@ export function WorkspaceConversationGroup({
   agentProfiles,
   getWorkspaceLabel,
   renderAgentLogo,
+  showAgentIcon = true,
   onToggleExpand,
   onStartWorkspaceChat,
   onSelectConversation,
@@ -146,6 +148,7 @@ export function WorkspaceConversationGroup({
                     status={conversation.status}
                     imSource={conversation.source && conversation.source !== 'oneagent' ? conversation.source : undefined}
                     renderAgentLogo={renderAgentLogo}
+                    showAgentIcon={showAgentIcon}
                     unread={unreadCompletedConversations.has(conversation.id)}
                     active={activeConversationId === conversation.id}
                     onClick={() => onSelectConversation(conversation.id)}

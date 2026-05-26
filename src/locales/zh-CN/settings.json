@@ -10,6 +10,8 @@
   "display": "显示",
   "alwaysShowThinking": "始终显示模型思考内容",
   "alwaysShowThinkingDesc": "启用后,所有思考块默认展开,包括已完成的对话",
+  "showAgentIcons": "显示 Agent 图标",
+  "showAgentIconsDesc": "在会话列表中显示 Agent 图标",
   "agents": {
     "title": "Agent",
     "ready": "就绪",
@@ -19,7 +21,7 @@
   },
   "language": {
     "title": "语言",
-    "description": "选择界面首选语言",
+    "description": "首选语言",
     "english": "English",
     "chinese": "中文"
   },
@@ -36,7 +38,16 @@
     "startScanLogin": "启动微信扫码登录",
     "scanInstruction": "请使用手机微信扫描此二维码。",
     "cancelLogin": "取消登录",
-    "saveAndStart": "保存并启动"
+    "saveAndStart": "保存并启动",
+    "connected": "已连接"
+  },
+  "lark": {
+    "configuration": "配置",
+    "saveAndStart": "保存并启动飞书 Bot",
+    "platformDomain": "平台域名",
+    "selectDomain": "选择平台域名",
+    "feishuDomain": "飞书 (open.feishu.cn)",
+    "larkDomain": "Lark 全球版 (open.larksuite.com)"
   },
   "mcp": {
     "title": "MCP 服务器",
@@ -67,5 +78,16 @@
     "tools": "个工具"
   },
   "cancel": "取消",
-  "save": "保存"
+  "save": "保存",
+  "sessionRouting": {
+    "title": "会话分配",
+    "workspace": "工作区"
+  },
+  "pairingRequests": {
+    "title": "配对请求",
+    "enterCode": "输入6位验证码",
+    "approve": "批准",
+    "pending": "待处理请求",
+    "clear": "清除"
+  }
 }

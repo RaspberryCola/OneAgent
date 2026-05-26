@@ -17,6 +17,7 @@ interface WorkspaceSidebarProps {
   agentProfiles: Types.AgentProfile[];
   getWorkspaceLabel: (workspace: Types.Workspace | null | undefined) => string;
   renderAgentLogo: (agentCommand: string, className: string) => React.ReactNode;
+  showAgentIcon?: boolean;
   onCloseMobileSidebar: () => void;
   onCloseDesktopSidebar: () => void;
   onNewChat: () => void;
@@ -44,6 +45,7 @@ export function WorkspaceSidebar({
   agentProfiles,
   getWorkspaceLabel,
   renderAgentLogo,
+  showAgentIcon = true,
   onCloseMobileSidebar,
   onCloseDesktopSidebar,
   onNewChat,
@@ -200,6 +202,7 @@ export function WorkspaceSidebar({
                   agentProfiles={agentProfiles}
                   getWorkspaceLabel={getWorkspaceLabel}
                   renderAgentLogo={renderAgentLogo}
+                  showAgentIcon={showAgentIcon}
                   onToggleExpand={onToggleWorkspaceExpand}
                   onStartWorkspaceChat={onStartWorkspaceChat}
                   onSelectConversation={onSelectConversation}

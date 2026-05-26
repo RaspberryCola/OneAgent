@@ -15,12 +15,14 @@ interface SettingsDialogProps {
   isOpen: boolean;
   settingsTab: SettingsTab;
   alwaysExpandThinking: boolean;
+  showAgentIconInList: boolean;
   sortedDiscoveryStatus: Types.AgentDiscoveryStatus[];
   availableAgentsCount: number;
   activeWorkspaceId: string | null;
   onClose: () => void;
   onSelectTab: (tab: SettingsTab) => void;
   onToggleAlwaysExpandThinking: () => void;
+  onToggleShowAgentIconInList: () => void;
   renderAgentLogo: (agent: Types.AgentDiscoveryStatus, className: string) => ReactNode;
   webuiEnabled: boolean;
   webuiPassword: string | null;
@@ -32,12 +34,14 @@ export function SettingsDialog({
   isOpen,
   settingsTab,
   alwaysExpandThinking,
+  showAgentIconInList,
   sortedDiscoveryStatus,
   availableAgentsCount,
   activeWorkspaceId,
   onClose,
   onSelectTab,
   onToggleAlwaysExpandThinking,
+  onToggleShowAgentIconInList,
   renderAgentLogo,
   webuiEnabled,
   webuiPassword,
@@ -170,6 +174,8 @@ export function SettingsDialog({
                   <GeneralSettingsPane
                     alwaysExpandThinking={alwaysExpandThinking}
                     onToggleAlwaysExpandThinking={onToggleAlwaysExpandThinking}
+                    showAgentIconInList={showAgentIconInList}
+                    onToggleShowAgentIconInList={onToggleShowAgentIconInList}
                   />
                 )}
                 {settingsTab === 'agents' && (
