@@ -6,6 +6,7 @@ import { WorkspaceFileTree } from './WorkspaceFileTree';
 import { DiffPanel } from './DiffPanel';
 import { FilePreviewPanel } from './FilePreviewPanel';
 import { WorkspaceFileContextMenu } from './WorkspaceFileContextMenu';
+import { CustomScrollbar } from '../ui/CustomScrollbar';
 
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 600;
@@ -161,7 +162,7 @@ export function WorkspacePanel({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3">
+        <CustomScrollbar className="flex-1 p-3">
           {activeTab === 'files' ? (
             isRootLoading ? (
               <div className="h-full flex items-center justify-center gap-2 text-[12px] text-stone">
@@ -201,7 +202,7 @@ export function WorkspacePanel({
               onClear={onClearSelection}
             />
           )}
-        </div>
+        </CustomScrollbar>
       </div>
 
       {/* Context menu (rendered outside the panel for proper positioning) */}

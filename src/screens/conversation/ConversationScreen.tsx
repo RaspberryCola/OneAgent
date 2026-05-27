@@ -9,6 +9,7 @@ import { ThoughtDisplay } from '../../components/chat/ThoughtDisplay';
 import { ToolCallDisplay } from '../../components/chat/ToolCallDisplay';
 import { TimelineMessage } from '../../components/timeline/TimelineMessage';
 import { PlanMessage } from '../../components/timeline/PlanMessage';
+import { CustomScrollbar } from '../../components/ui/CustomScrollbar';
 
 interface PermissionRequestMeta {
   toolKind?: string;
@@ -105,9 +106,11 @@ export function ConversationScreen({
   const latestPlanMessage = planItems.length > 0 ? planItems[planItems.length - 1].data as any : null;
 
   return (
-    <div
-      ref={setScrollAreaRef}
-      className="relative flex-1 overflow-y-auto min-w-0 w-full flex flex-col scroll-smooth scrollbar-chat"
+    <CustomScrollbar
+      scrollRef={setScrollAreaRef}
+      contentRef={scrollContentRef}
+      className="relative flex-1 min-w-0 w-full flex flex-col"
+      scrollSpeed={1.5}
     >
       <div ref={scrollContentRef} className="max-w-[768px] mx-auto w-full flex-1 flex flex-col min-h-full">
         <div className="flex-1 space-y-4 px-4 md:px-6 pt-4 pb-4">
@@ -230,6 +233,6 @@ export function ConversationScreen({
           </div>
         </div>
       </div>
-    </div>
+    </CustomScrollbar>
   );
 }

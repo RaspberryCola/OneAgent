@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type * as Types from '../../lib/backend/types';
 import { WorkspaceConversationGroup } from './WorkspaceConversationGroup';
 import { STORAGE_KEYS, SIDEBAR_CONFIG } from '../../lib/constants';
+import { CustomScrollbar } from '../ui/CustomScrollbar';
 
 interface WorkspaceSidebarProps {
   isMobileSidebarOpen: boolean;
@@ -187,7 +188,7 @@ export function WorkspaceSidebar({
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-3 pb-4 no-scrollbar">
+          <CustomScrollbar className="flex-1 px-3 pb-4">
             <div className="space-y-1">
               {workspaces.length === 0 && <div className="px-2 py-1 text-[13px] text-silver">{t("noWorkspaces")}</div>}
               {workspaces.map((workspace) => (
@@ -212,7 +213,7 @@ export function WorkspaceSidebar({
                 />
               ))}
             </div>
-          </div>
+          </CustomScrollbar>
 
           <div className="p-3 shrink-0 space-y-1">
             <button

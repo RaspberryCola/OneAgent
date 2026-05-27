@@ -8,6 +8,7 @@ import { AgentSettingsPane } from './AgentSettingsPane';
 import { GeneralSettingsPane } from './GeneralSettingsPane';
 import { McpSettingsPane } from './McpSettingsPane';
 import { ImSettingsPane } from './ImSettingsPane';
+import { CustomScrollbar } from '../ui/CustomScrollbar';
 
 type SettingsTab = 'general' | 'agents' | 'mcp' | 'im';
 
@@ -169,7 +170,7 @@ export function SettingsDialog({
                 />
               </div>
             ) : (
-              <div className="flex-1 overflow-y-auto p-6">
+              <CustomScrollbar className="flex-1 p-6">
                 {settingsTab === 'general' && (
                   <GeneralSettingsPane
                     alwaysExpandThinking={alwaysExpandThinking}
@@ -193,7 +194,7 @@ export function SettingsDialog({
                     {t("mcp.noWorkspace")}
                   </div>
                 )}
-              </div>
+              </CustomScrollbar>
             )}
           </div>
         </div>

@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { ChevronRight, Loader2, Search, X } from "lucide-react";
 import { motion } from "framer-motion";
 import type * as Types from "../../lib/backend/types";
+import { CustomScrollbar } from "../ui/CustomScrollbar";
 
 type SearchOverlayProps = {
   query: string;
@@ -73,7 +74,7 @@ export function SearchOverlay({
           </button>
         </div>
 
-        <div className="max-h-[60vh] overflow-y-auto p-2 no-scrollbar">
+        <CustomScrollbar className="max-h-[60vh] p-2">
           {query.trim() === "" ? (
             <div className="py-12 text-center text-stone text-caption">
               Type to search your conversations
@@ -129,7 +130,7 @@ export function SearchOverlay({
               })}
             </div>
           )}
-        </div>
+        </CustomScrollbar>
 
         <div className="p-3 bg-snow border-t border-light-gray flex items-center justify-between text-[11px] text-silver">
           <div className="flex items-center gap-4">

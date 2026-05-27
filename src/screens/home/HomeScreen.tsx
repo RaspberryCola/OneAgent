@@ -5,6 +5,7 @@ import type { AttachmentState, ModelSelectorState } from '../../hooks';
 import type * as Types from '../../lib/backend/types';
 import { Composer } from '../../components/composer/Composer';
 import { WorkspaceDropdown } from '../../components/ui/WorkspaceDropdown';
+import { CustomScrollbar } from '../../components/ui/CustomScrollbar';
 
 interface HomeScreenProps {
   workspaces: Types.Workspace[];
@@ -88,8 +89,9 @@ export function HomeScreen({
   const { t } = useTranslation("common");
   
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-4 pb-32 w-full max-w-3xl mx-auto overflow-y-auto overflow-x-hidden">
-      <div className="flex flex-col items-center mb-10 gap-8 w-full">
+    <CustomScrollbar className="flex-1 w-full max-w-3xl mx-auto p-4 pb-32">
+      <div className="flex flex-col items-center justify-center min-h-full">
+        <div className="flex flex-col items-center mb-10 gap-8 w-full">
         <WorkspaceDropdown
           workspaces={workspaces}
           activeWorkspace={activeWorkspace}
@@ -181,6 +183,7 @@ export function HomeScreen({
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </CustomScrollbar>
   );
 }

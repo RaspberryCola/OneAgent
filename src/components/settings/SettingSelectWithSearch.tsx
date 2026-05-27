@@ -77,7 +77,7 @@ export function SettingSelectWithSearch({
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 4 }}
               transition={{ duration: 0.15, ease: 'easeOut' }}
-              className="absolute top-full left-0 mt-1 w-full min-w-[200px] max-h-[280px] overflow-y-auto bg-pure-white border border-light-gray rounded-container z-50 py-1.5 flex flex-col scrollbar-thin"
+              className="absolute top-full left-0 mt-1 w-full min-w-[200px] max-h-[280px] overflow-y-auto bg-pure-white border border-light-gray rounded-container z-50 py-1.5 flex flex-col no-scrollbar"
             >
               {/* Search Input */}
               <div className="px-2 pb-1.5">

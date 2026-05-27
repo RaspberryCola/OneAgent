@@ -95,7 +95,7 @@ export function GeneralSettingsPane({
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 4 }}
               transition={{ duration: 0.15, ease: 'easeOut' }}
-              className="fixed w-32 overflow-y-auto bg-pure-white border border-light-gray rounded-container z-[150] py-1.5 flex flex-col scrollbar-thin shadow-lg"
+              className="fixed w-32 overflow-y-auto bg-pure-white border border-light-gray rounded-container z-[150] py-1.5 flex flex-col no-scrollbar shadow-lg"
               style={{
                 top: dropdownPosition.top,
                 right: dropdownPosition.right,
