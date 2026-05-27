@@ -771,6 +771,7 @@ pub enum ErrorCode {
     EmptyCommand,
     InvalidWorkspacePath,
     InvalidInput,
+    NotAGitRepository,
     // State errors
     ActiveTurnRunning,
     ConversationNotReady,

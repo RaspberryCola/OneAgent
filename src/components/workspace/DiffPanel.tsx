@@ -4,8 +4,11 @@ import {
   RefreshCw,
   FileCode,
   ChevronRight,
+  GitBranch,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type * as Types from '../../lib/backend/types';
+import type { GitDiffErrorType } from '../../hooks/useGitDiff';
 
 // --- Types ---
 
@@ -228,19 +231,40 @@ function DiffSection({ title, diff, actions }: DiffSectionProps) {
   );
 }
 
-// --- Empty state ---
+// --- Not Git Repository state ---
 
-function EmptyState({ onRefresh }: { onRefresh: () => void }) {
+function NotGitRepositoryState({ onRefresh }: { onRefresh: () => void }) {
+  const { t } = useTranslation('workspace');
   return (
     <div className="h-full flex flex-col items-center justify-center gap-3 text-[12px] text-stone">
-      <FileCode className="w-8 h-8 text-stone/30" />
-      <span>No changes detected</span>
+      <GitBranch className="w-8 h-8 text-stone/30" />
+      <span>{t('diff.not_a_git_repository')}</span>
+      <span className="text-[11px] text-center">{t('diff.not_a_git_repository_hint')}</span>
       <button
         onClick={onRefresh}
         className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-stone hover:text-pure-black rounded-interactive hover:bg-light-gray/40 transition-colors"
       >
         <RefreshCw className="w-3 h-3" />
-        Refresh
+        {t('refresh')}
+      </button>
+    </div>
+  );
+}
+
+// --- Empty state ---
+
+function EmptyState({ onRefresh }: { onRefresh: () => void }) {
+  const { t } = useTranslation('workspace');
+  return (
+    <div className="h-full flex flex-col items-center justify-center gap-3 text-[12px] text-stone">
+      <FileCode className="w-8 h-8 text-stone/30" />
+      <span>{t('diff.no_changes')}</span>
+      <button
+        onClick={onRefresh}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-stone hover:text-pure-black rounded-interactive hover:bg-light-gray/40 transition-colors"
+      >
+        <RefreshCw className="w-3 h-3" />
+        {t('refresh')}
       </button>
     </div>
   );
@@ -252,17 +276,24 @@ interface DiffPanelProps {
   data: Types.GitDiffResult | null;
   isLoading: boolean;
   error: string | null;
+  errorType: GitDiffErrorType;
   onRefresh: () => void;
 }
 
-export function DiffPanel({ data, isLoading, error, onRefresh }: DiffPanelProps) {
+export function DiffPanel({ data, isLoading, error, errorType, onRefresh }: DiffPanelProps) {
+  const { t } = useTranslation('workspace');
+  
   if (isLoading) {
     return (
       <div className="h-full flex items-center justify-center gap-2 text-[12px] text-stone">
         <Loader2 className="w-4 h-4 animate-spin" />
-        <span>Loading diff...</span>
+        <span>{t('diff.loading')}</span>
       </div>
     );
+  }
+
+  if (errorType === 'not_a_git_repository') {
+    return <NotGitRepositoryState onRefresh={onRefresh} />;
   }
 
   if (error) {
@@ -280,7 +311,7 @@ export function DiffPanel({ data, isLoading, error, onRefresh }: DiffPanelProps)
   return (
     <div className="space-y-4">
       <DiffSection
-        title="Staged Changes"
+        title={t('diff.staged_changes')}
         diff={data.staged}
         actions={
           <button
@@ -288,11 +319,11 @@ export function DiffPanel({ data, isLoading, error, onRefresh }: DiffPanelProps)
             className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-stone hover:text-pure-black rounded-interactive hover:bg-light-gray/40 transition-colors"
           >
             <RefreshCw className="w-3 h-3" />
-            Refresh
+            {t('refresh')}
           </button>
         }
       />
-      <DiffSection title="Unstaged Changes" diff={data.unstaged} />
+      <DiffSection title={t('diff.unstaged_changes')} diff={data.unstaged} />
     </div>
   );
 }

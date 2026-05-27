@@ -17,6 +17,7 @@ export type ErrorCode =
   | 'empty_command'
   | 'invalid_workspace_path'
   | 'invalid_input'
+  | 'not_a_git_repository'
   | 'active_turn_running'
   | 'conversation_not_ready'
   | 'missing_binding'
@@ -344,7 +345,7 @@ export interface SkillRecord {
 
 export interface BackendError {
   code: 
-    | 'empty_message' | 'empty_command' | 'invalid_workspace_path' | 'invalid_input'
+    | 'empty_message' | 'empty_command' | 'invalid_workspace_path' | 'invalid_input' | 'not_a_git_repository'
     | 'active_turn_running' | 'conversation_not_ready' | 'missing_binding'
     | 'workspace_not_found' | 'agent_profile_not_found' | 'conversation_not_found' | 'pending_permission_not_found'
     | 'permission_not_pending' | 'permission_fingerprint_mismatch'

@@ -355,7 +355,8 @@ pub async fn invoke_handler(
             "git_diff" => {
                 let input: GitDiffInput = serde_json::from_value(params).map_err(|e| e.to_string())?;
                 
-                async fn git_output(cwd: &str, args: &[&str]) -> Result<String, String> {
+                // Helper to run git commands and capture output
+                async fn git_output_raw(cwd: &str, args: &[&str]) -> Result<std::process::Output, String> {
                     let mut cmd = tokio::process::Command::new("git");
                     cmd.args(args).current_dir(cwd);
                     #[cfg(target_os = "windows")]
@@ -364,7 +365,27 @@ pub async fn invoke_handler(
                         const CREATE_NO_WINDOW: u32 = 0x08000000;
                         cmd.creation_flags(CREATE_NO_WINDOW);
                     }
-                    let o = cmd.output().await.map_err(|e| format!("Failed to run git: {e}"))?;
+                    cmd.output().await.map_err(|e| format!("Failed to run git: {e}"))
+                }
+
+                // Pre-flight check: verify this is a git repository
+                let check_output = git_output_raw(&input.cwd, &["rev-parse", "--git-dir"]).await?;
+                if !check_output.status.success() {
+                    let stderr = String::from_utf8_lossy(&check_output.stderr);
+                    if stderr.contains("not a git repository") {
+                        // Return structured error matching BackendError format
+                        return Err(serde_json::to_string(&BackendError::new(
+                            ErrorCode::NotAGitRepository,
+                            "Not a Git repository",
+                        )).unwrap_or_else(|_| r#"{"code":"not_a_git_repository","message":"Not a Git repository"}"#.to_string()));
+                    }
+                    // Other git errors
+                    return Err(stderr.to_string());
+                }
+
+                // Helper for diff commands (exit code 0 or 1 is success)
+                async fn git_output(cwd: &str, args: &[&str]) -> Result<String, String> {
+                    let o = git_output_raw(cwd, args).await?;
                     if o.status.success() || o.status.code() == Some(1) {
                         Ok(String::from_utf8_lossy(&o.stdout).to_string())
                     } else {

@@ -312,7 +312,8 @@ pub async fn git_diff(cwd: String) -> Result<GitDiffResult, BackendError> {
         ));
     }
 
-    async fn git_output(cwd: &str, args: &[&str]) -> Result<String, BackendError> {
+    // Helper to run git commands and capture stdout
+    async fn git_output_raw(cwd: &str, args: &[&str]) -> Result<std::process::Output, BackendError> {
         let mut cmd = tokio::process::Command::new("git");
         cmd.args(args).current_dir(cwd);
         #[cfg(target_os = "windows")]
@@ -321,12 +322,34 @@ pub async fn git_diff(cwd: String) -> Result<GitDiffResult, BackendError> {
             const CREATE_NO_WINDOW: u32 = 0x08000000;
             cmd.creation_flags(CREATE_NO_WINDOW);
         }
-        let o = cmd.output().await.map_err(|e| {
+        cmd.output().await.map_err(|e| {
             BackendError::new(
                 ErrorCode::RuntimeError,
                 format!("Failed to run git: {e}"),
             )
-        })?;
+        })
+    }
+
+    // Pre-flight check: verify this is a git repository
+    let check_output = git_output_raw(&cwd, &["rev-parse", "--git-dir"]).await?;
+    if !check_output.status.success() {
+        let stderr = String::from_utf8_lossy(&check_output.stderr);
+        if stderr.contains("not a git repository") {
+            return Err(BackendError::new(
+                ErrorCode::NotAGitRepository,
+                "Not a Git repository",
+            ));
+        }
+        // Other git errors
+        return Err(BackendError::new(
+            ErrorCode::RuntimeError,
+            stderr.to_string(),
+        ));
+    }
+
+    // Helper for diff commands (exit code 0 or 1 is success)
+    async fn git_output(cwd: &str, args: &[&str]) -> Result<String, BackendError> {
+        let o = git_output_raw(cwd, args).await?;
         if o.status.success() || o.status.code() == Some(1) {
             // git diff exits 1 when there are differences
             Ok(String::from_utf8_lossy(&o.stdout).to_string())

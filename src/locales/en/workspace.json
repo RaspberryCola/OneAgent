@@ -6,7 +6,6 @@
   "build": "Build",
   "fileTree": "File Tree",
   "changes": "Changes",
-  "diff": "Diff",
   "refresh": "Refresh",
   "loading": "Loading...",
   "noChanges": "No changes",
@@ -19,5 +18,13 @@
   "revealInFinder": "Reveal in Finder",
   "revealInExplorer": "Reveal in Explorer",
   "openInFileManager": "Open in File Manager",
-  "pathCopied": "Path copied to clipboard"
+  "pathCopied": "Path copied to clipboard",
+  "diff": {
+    "loading": "Loading diff...",
+    "no_changes": "No changes detected",
+    "staged_changes": "Staged Changes",
+    "unstaged_changes": "Unstaged Changes",
+    "not_a_git_repository": "Not a Git repository",
+    "not_a_git_repository_hint": "Open a Git-tracked project to see changes"
+  }
 }

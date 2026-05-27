@@ -307,6 +307,7 @@ export default function App() {
     data: gitDiffData,
     isLoading: isGitDiffLoading,
     error: gitDiffError,
+    errorType: gitDiffErrorType,
     refresh: refreshGitDiff,
   } = useGitDiff({
     cwd: activeWorkspace?.cwd ?? null,
@@ -843,6 +844,7 @@ export default function App() {
             gitDiffData={gitDiffData}
             isGitDiffLoading={isGitDiffLoading}
             gitDiffError={gitDiffError}
+            gitDiffErrorType={gitDiffErrorType}
             onRefreshGitDiff={refreshGitDiff}
             selectedFile={workspaceSelectedFile}
             onSelectFile={workspaceSelectFile}

@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { Loader2, FileCode, GitCompareArrows, Eye } from 'lucide-react';
 import type * as Types from '../../lib/backend/types';
 import type { SelectedFileInfo, ContextMenuState } from '../../hooks/useWorkspaceFileTree';
+import type { GitDiffErrorType } from '../../hooks/useGitDiff';
 import { WorkspaceFileTree } from './WorkspaceFileTree';
 import { DiffPanel } from './DiffPanel';
 import { FilePreviewPanel } from './FilePreviewPanel';
@@ -26,6 +27,7 @@ interface WorkspacePanelProps {
   gitDiffData: Types.GitDiffResult | null;
   isGitDiffLoading: boolean;
   gitDiffError: string | null;
+  gitDiffErrorType: GitDiffErrorType;
   onRefreshGitDiff: () => void;
   // File preview props
   selectedFile: SelectedFileInfo | null;
@@ -54,6 +56,7 @@ export function WorkspacePanel({
   gitDiffData,
   isGitDiffLoading,
   gitDiffError,
+  gitDiffErrorType,
   onRefreshGitDiff,
   selectedFile,
   onSelectFile,
@@ -194,6 +197,7 @@ export function WorkspacePanel({
               data={gitDiffData}
               isLoading={isGitDiffLoading}
               error={gitDiffError}
+              errorType={gitDiffErrorType}
               onRefresh={onRefreshGitDiff}
             />
           ) : (

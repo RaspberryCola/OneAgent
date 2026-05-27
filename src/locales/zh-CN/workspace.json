@@ -6,7 +6,6 @@
   "build": "构建",
   "fileTree": "文件树",
   "changes": "更改",
-  "diff": "差异",
   "refresh": "刷新",
   "loading": "加载中...",
   "noChanges": "无更改",
@@ -19,5 +18,13 @@
   "revealInFinder": "在 Finder 中显示",
   "revealInExplorer": "在资源管理器中显示",
   "openInFileManager": "在文件管理器中打开",
-  "pathCopied": "路径已复制到剪贴板"
+  "pathCopied": "路径已复制到剪贴板",
+  "diff": {
+    "loading": "加载差异...",
+    "no_changes": "无更改检测",
+    "staged_changes": "已暂存更改",
+    "unstaged_changes": "未暂存更改",
+    "not_a_git_repository": "不是 Git 仓库",
+    "not_a_git_repository_hint": "打开一个 Git 管理的项目以查看更改"
+  }
 }
