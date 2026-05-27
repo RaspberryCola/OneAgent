@@ -1,0 +1,6 @@
+{
+  "emptyState": "No terminals running. Click '+' to start one.",
+  "newTerminal": "New Terminal",
+  "closePanel": "Close Terminal Panel",
+  "dragToResize": "Drag to resize terminal"
+}

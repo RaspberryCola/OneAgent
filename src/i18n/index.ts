@@ -12,6 +12,7 @@ import enSearch from '../locales/en/search.json';
 import enChat from '../locales/en/chat.json';
 import enWorkspace from '../locales/en/workspace.json';
 import enTimeline from '../locales/en/timeline.json';
+import enTerminal from '../locales/en/terminal.json';
 
 // 导入中文翻译
 import zhCommon from '../locales/zh-CN/common.json';
@@ -23,6 +24,7 @@ import zhSearch from '../locales/zh-CN/search.json';
 import zhChat from '../locales/zh-CN/chat.json';
 import zhWorkspace from '../locales/zh-CN/workspace.json';
 import zhTimeline from '../locales/zh-CN/timeline.json';
+import zhTerminal from '../locales/zh-CN/terminal.json';
 
 // 从 localStorage 读取用户语言偏好
 const getStoredLanguage = (): string | undefined => {
@@ -57,6 +59,7 @@ i18n
         chat: enChat,
         workspace: enWorkspace,
         timeline: enTimeline,
+        terminal: enTerminal,
       },
       zh: {
         common: zhCommon,
@@ -68,6 +71,7 @@ i18n
         chat: zhChat,
         workspace: zhWorkspace,
         timeline: zhTimeline,
+        terminal: zhTerminal,
       },
     },
     lng: getStoredLanguage(),

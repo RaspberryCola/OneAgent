@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { listen } from '../../lib/backend/transport';
@@ -33,6 +34,7 @@ export function TerminalPanel({
   onCloseTab,
   onSelectTab,
 }: TerminalPanelProps) {
+  const { t } = useTranslation('terminal');
   const [height, setHeight] = useState(300);
   const isDragging = useRef(false);
 
@@ -69,7 +71,7 @@ export function TerminalPanel({
       <div
         onMouseDown={handleMouseDown}
         className="absolute -top-1 left-0 right-0 h-2 cursor-ns-resize z-30 group"
-        title="Drag to resize terminal"
+        title={t('dragToResize')}
       >
         <div className="w-full h-[2px] bg-transparent group-hover:bg-stone/30 transition-colors" />
       </div>
@@ -105,7 +107,7 @@ export function TerminalPanel({
             type="button"
             onClick={onAddTab}
             className="p-1.5 text-stone hover:text-pure-black rounded-interactive hover:bg-light-gray/40 transition-colors"
-            title="New Terminal"
+            title={t('newTerminal')}
           >
             <Plus className="w-4 h-4" />
           </button>
@@ -115,7 +117,7 @@ export function TerminalPanel({
           type="button"
           onClick={onClose}
           className="p-1.5 text-stone hover:text-pure-black rounded-interactive hover:bg-light-gray/40 transition-colors"
-          title="Close Terminal Panel"
+          title={t('closePanel')}
         >
           <X className="w-4 h-4" />
         </button>
@@ -138,7 +140,7 @@ export function TerminalPanel({
         ))}
         {tabs.length === 0 && (
           <div className="w-full h-full flex items-center justify-center text-[13px] text-stone">
-            No terminals running. Click '+' to start one.
+            {t('emptyState')}
           </div>
         )}
       </div>

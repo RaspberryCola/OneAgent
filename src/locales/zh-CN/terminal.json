@@ -1,0 +1,6 @@
+{
+  "emptyState": "没有运行中的终端，点击 '+' 启动一个。",
+  "newTerminal": "新建终端",
+  "closePanel": "关闭终端面板",
+  "dragToResize": "拖拽调整终端大小"
+}
