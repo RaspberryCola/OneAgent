@@ -28,6 +28,7 @@ const languageFactories: Record<string, () => Extension> = {
   scss: () => css(),
   sass: () => css(),
   less: () => css(),
+  vue: () => html(), // Vue SFC uses HTML-like syntax
 
   // Data formats
   json: () => json(),
@@ -35,6 +36,7 @@ const languageFactories: Record<string, () => Extension> = {
 
   // Programming languages
   python: () => python(),
+  ruby: () => javascript(), // Ruby shares similar syntax patterns
   rust: () => rust(),
   go: () => go(),
   java: () => java(),
@@ -44,6 +46,13 @@ const languageFactories: Record<string, () => Extension> = {
   sql: () => sql(),
   markdown: () => markdown(),
   yaml: () => yaml(),
+  toml: () => yaml(), // TOML is similar to YAML
+
+  // Shell
+  bash: () => javascript(), // Shell scripts use similar syntax patterns
+
+  // Config/Docker
+  docker: () => yaml(), // Dockerfiles have similar syntax patterns
 };
 
 // Cache for loaded extensions

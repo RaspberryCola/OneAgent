@@ -224,7 +224,7 @@ export function WorkspacePanel({
 
               {/* Split divider */}
               <div
-                className={`w-1 flex-shrink-0 cursor-col-resize hover:bg-light-gray/60 z-10 ${
+                className={`w-px flex-shrink-0 cursor-col-resize hover:bg-light-gray/60 z-10 border-r border-light-gray/40 ${
                   isSplitDragging ? 'bg-light-gray/60' : ''
                 }`}
                 onMouseDown={handleSplitMouseDown}
