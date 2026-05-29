@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Loader2, FileCode, GitCompareArrows, Eye } from 'lucide-react';
+import { Loader2, FileCode, GitCompareArrows } from 'lucide-react';
 import type * as Types from '../../lib/backend/types';
 import type { SelectedFileInfo, ContextMenuState } from '../../hooks/useWorkspaceFileTree';
 import type { GitDiffErrorType } from '../../hooks/useGitDiff';
@@ -9,9 +9,11 @@ import { FilePreviewPanel } from './FilePreviewPanel';
 import { WorkspaceFileContextMenu } from './WorkspaceFileContextMenu';
 import { CustomScrollbar } from '../ui/CustomScrollbar';
 
-const MIN_WIDTH = 200;
-const MAX_WIDTH = 600;
-const DEFAULT_WIDTH = 320;
+const MIN_WIDTH = 320;
+const MAX_WIDTH = 900;
+const DEFAULT_WIDTH = 480;
+
+const TREE_MIN_WIDTH = 160;
 
 interface WorkspacePanelProps {
   isOpen: boolean;
@@ -40,7 +42,7 @@ interface WorkspacePanelProps {
   onNotice: (message: string | null) => void;
 }
 
-type SidebarTab = 'files' | 'diff' | 'preview';
+type SidebarTab = 'files' | 'diff';
 
 export function WorkspacePanel({
   isOpen,
@@ -69,14 +71,11 @@ export function WorkspacePanel({
   const [activeTab, setActiveTab] = useState<SidebarTab>('files');
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [isDragging, setIsDragging] = useState(false);
+  const [treeWidth, setTreeWidth] = useState(0);
+  const [isSplitDragging, setIsSplitDragging] = useState(false);
   const dragCleanupRef = useRef<(() => void) | null>(null);
 
-  // Switch to preview tab when file is selected
-  useEffect(() => {
-    if (selectedFile && !selectedFile.isLoading) {
-      setActiveTab('preview');
-    }
-  }, [selectedFile?.isLoading, selectedFile?.path]);
+  const hasPreview = selectedFile != null;
 
   useEffect(() => {
     return () => { dragCleanupRef.current?.(); };
@@ -110,6 +109,36 @@ export function WorkspacePanel({
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
   }, [width]);
+
+  const handleSplitMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsSplitDragging(true);
+
+    const startX = e.clientX;
+    const startTreeWidth = treeWidth;
+
+    const onMouseMove = (e: MouseEvent) => {
+      const delta = e.clientX - startX;
+      const newTreeWidth = Math.max(TREE_MIN_WIDTH, startTreeWidth + delta);
+      setTreeWidth(newTreeWidth);
+    };
+
+    const onMouseUp = () => {
+      setIsSplitDragging(false);
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      dragCleanupRef.current = null;
+    };
+
+    dragCleanupRef.current = onMouseUp;
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [treeWidth]);
 
   return (
     <aside
@@ -148,51 +177,98 @@ export function WorkspacePanel({
             >
               <GitCompareArrows className="w-3.5 h-3.5" />
             </button>
-            <button
-              onClick={() => setActiveTab('preview')}
-              className={`p-1.5 rounded-interactive transition-colors ${
-                activeTab === 'preview'
-                  ? 'bg-light-gray text-pure-black'
-                  : 'text-stone hover:bg-light-gray/40 hover:text-pure-black'
-              }`}
-              title="Preview"
-            >
-              <Eye className="w-3.5 h-3.5" />
-            </button>
           </div>
           <div className="text-[11px] text-stone truncate min-w-0 text-right" title={cwd ?? ''}>
             {cwd ?? 'No active workspace'}
           </div>
         </div>
 
-        <CustomScrollbar className="flex-1 p-3">
-          {activeTab === 'files' ? (
-            isRootLoading ? (
-              <div className="h-full flex items-center justify-center gap-2 text-[12px] text-stone">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Loading files...</span>
+        {activeTab === 'files' ? (
+          hasPreview ? (
+            <div className="flex-1 flex min-h-0">
+              {/* Left: file tree */}
+              <div
+                className="overflow-hidden flex-shrink-0"
+                style={{ width: treeWidth || undefined, minWidth: TREE_MIN_WIDTH }}
+              >
+                <CustomScrollbar className="h-full p-3">
+                  {isRootLoading ? (
+                    <div className="h-full flex items-center justify-center gap-2 text-[12px] text-stone">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Loading files...</span>
+                    </div>
+                  ) : rootError ? (
+                    <div className="p-3 rounded-container border border-light-gray/60 bg-snow text-[12px] text-stone">
+                      {rootError}
+                    </div>
+                  ) : rootFiles.length === 0 ? (
+                    <div className="p-3 rounded-container border border-light-gray/60 bg-snow text-[12px] text-stone">
+                      No files found in this workspace root.
+                    </div>
+                  ) : (
+                    <WorkspaceFileTree
+                      entries={rootFiles}
+                      expandedDirs={expandedDirs}
+                      loadingDirs={loadingDirs}
+                      dirChildren={dirChildren}
+                      dirErrors={dirErrors}
+                      onToggleDirectory={onToggleDirectory}
+                      onSelectFile={onSelectFile}
+                      onContextMenu={onShowContextMenu}
+                      selectedFilePath={selectedFile?.path}
+                    />
+                  )}
+                </CustomScrollbar>
               </div>
-            ) : rootError ? (
-              <div className="p-3 rounded-container border border-light-gray/60 bg-snow text-[12px] text-stone">
-                {rootError}
-              </div>
-            ) : rootFiles.length === 0 ? (
-              <div className="p-3 rounded-container border border-light-gray/60 bg-snow text-[12px] text-stone">
-                No files found in this workspace root.
-              </div>
-            ) : (
-              <WorkspaceFileTree
-                entries={rootFiles}
-                expandedDirs={expandedDirs}
-                loadingDirs={loadingDirs}
-                dirChildren={dirChildren}
-                dirErrors={dirErrors}
-                onToggleDirectory={onToggleDirectory}
-                onSelectFile={onSelectFile}
-                onContextMenu={onShowContextMenu}
+
+              {/* Split divider */}
+              <div
+                className={`w-1 flex-shrink-0 cursor-col-resize hover:bg-light-gray/60 z-10 ${
+                  isSplitDragging ? 'bg-light-gray/60' : ''
+                }`}
+                onMouseDown={handleSplitMouseDown}
               />
-            )
-          ) : activeTab === 'diff' ? (
+
+              {/* Right: preview */}
+              <div className="flex-1 min-w-0 overflow-hidden">
+                <FilePreviewPanel
+                  selectedFile={selectedFile}
+                  onClear={onClearSelection}
+                />
+              </div>
+            </div>
+          ) : (
+            <CustomScrollbar className="flex-1 p-3">
+              {isRootLoading ? (
+                <div className="h-full flex items-center justify-center gap-2 text-[12px] text-stone">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Loading files...</span>
+                </div>
+              ) : rootError ? (
+                <div className="p-3 rounded-container border border-light-gray/60 bg-snow text-[12px] text-stone">
+                  {rootError}
+                </div>
+              ) : rootFiles.length === 0 ? (
+                <div className="p-3 rounded-container border border-light-gray/60 bg-snow text-[12px] text-stone">
+                  No files found in this workspace root.
+                </div>
+              ) : (
+                <WorkspaceFileTree
+                  entries={rootFiles}
+                  expandedDirs={expandedDirs}
+                  loadingDirs={loadingDirs}
+                  dirChildren={dirChildren}
+                  dirErrors={dirErrors}
+                  onToggleDirectory={onToggleDirectory}
+                  onSelectFile={onSelectFile}
+                  onContextMenu={onShowContextMenu}
+                  selectedFilePath={null}
+                />
+              )}
+            </CustomScrollbar>
+          )
+        ) : (
+          <div className="flex-1 overflow-hidden p-3">
             <DiffPanel
               data={gitDiffData}
               isLoading={isGitDiffLoading}
@@ -200,13 +276,8 @@ export function WorkspacePanel({
               errorType={gitDiffErrorType}
               onRefresh={onRefreshGitDiff}
             />
-          ) : (
-            <FilePreviewPanel
-              selectedFile={selectedFile}
-              onClear={onClearSelection}
-            />
-          )}
-        </CustomScrollbar>
+          </div>
+        )}
       </div>
 
       {/* Context menu (rendered outside the panel for proper positioning) */}

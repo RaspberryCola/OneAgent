@@ -1,5 +1,6 @@
-import { ChevronDown, ChevronRight, Code, Folder, Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Folder, Loader2 } from 'lucide-react';
 import type * as Types from '../../lib/backend/types';
+import { getFileIcon } from '../../lib/utils/fileIcons';
 
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -23,6 +24,7 @@ interface WorkspaceFileTreeNodeProps {
   onToggleDirectory: (path: string) => void;
   onSelectFile?: (filePath: string, fileName: string) => void;
   onContextMenu?: (entry: Types.WorkspaceFileEntry, event: React.MouseEvent) => void;
+  selectedFilePath?: string | null;
 }
 
 export function WorkspaceFileTreeNode({
@@ -35,11 +37,13 @@ export function WorkspaceFileTreeNode({
   onToggleDirectory,
   onSelectFile,
   onContextMenu,
+  selectedFilePath,
 }: WorkspaceFileTreeNodeProps) {
   const isExpanded = expandedDirs.has(entry.path);
   const isLoadingChildren = loadingDirs.has(entry.path);
   const children = dirChildren[entry.path] ?? [];
   const childError = dirErrors[entry.path];
+  const isSelected = !entry.is_dir && entry.path === selectedFilePath;
 
   const handleClick = () => {
     if (entry.is_dir) {
@@ -62,10 +66,12 @@ export function WorkspaceFileTreeNode({
         type="button"
         onClick={handleClick}
         onContextMenu={handleContextMenu}
-        className="w-full text-left px-2 py-1.5 rounded-interactive hover:bg-snow/90 transition-colors"
+        className={`w-full text-left px-2 py-1 rounded-interactive transition-colors ${
+          isSelected ? 'bg-light-gray' : 'hover:bg-light-gray/60'
+        }`}
         title={entry.path}
       >
-        <div className="flex items-center gap-2 min-w-0" style={{ paddingLeft: `${depth * 14}px` }}>
+        <div className="flex items-center gap-1.5 min-w-0" style={{ paddingLeft: `${depth * 14}px` }}>
           {entry.is_dir ? (
             isExpanded ? (
               <ChevronDown className="w-3.5 h-3.5 text-stone shrink-0" />
@@ -77,13 +83,11 @@ export function WorkspaceFileTreeNode({
           )}
           {entry.is_dir ? (
             <Folder className="w-3.5 h-3.5 text-stone shrink-0" />
-          ) : (
-            <Code className="w-3.5 h-3.5 text-stone shrink-0" />
-          )}
+          ) : (() => {
+            const Icon = getFileIcon(entry.name);
+            return <Icon className="w-3.5 h-3.5 text-stone shrink-0" />;
+          })()}
           <span className="text-[12px] text-pure-black truncate flex-1 min-w-0">{entry.name}</span>
-          {!entry.is_dir && (
-            <span className="text-[10px] text-silver shrink-0">{formatBytes(entry.size_bytes ?? 0)}</span>
-          )}
         </div>
       </button>
 
@@ -115,6 +119,7 @@ export function WorkspaceFileTreeNode({
                 onToggleDirectory={onToggleDirectory}
                 onSelectFile={onSelectFile}
                 onContextMenu={onContextMenu}
+                selectedFilePath={selectedFilePath}
               />
             ))
           )}

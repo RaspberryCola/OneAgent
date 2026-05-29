@@ -157,3 +157,54 @@ pre code > span {
   margin: 0;
 }
 
+/* CodeMirror 6 global overrides */
+.cm-editor {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  height: 100%;
+}
+
+.cm-editor .cm-scroller {
+  font-family: inherit;
+  overflow: auto;
+}
+
+.cm-editor .cm-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Custom scrollbar matching project style */
+.cm-editor .cm-scroller::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.cm-editor .cm-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.cm-editor .cm-scroller::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.15);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.cm-editor .cm-scroller::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.25);
+}
+
+/* MergeView diff styles */
+.cm-mergeView .cm-mergeViewInserted {
+  background-color: rgba(236, 253, 245, 0.8); /* emerald-50/80 */
+}
+
+.cm-mergeView .cm-mergeViewDeleted {
+  background-color: rgba(255, 241, 242, 0.8); /* rose-50/80 */
+}
+
+.cm-mergeView .cm-mergeViewUnchanged {
+  opacity: 0.7;
+}
+
+

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Loader2,
   RefreshCw,
@@ -7,8 +7,15 @@ import {
   GitBranch,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { EditorView, keymap } from '@codemirror/view';
+import { EditorState } from '@codemirror/state';
+import { unifiedMergeView } from '@codemirror/merge';
+import { defaultKeymap } from '@codemirror/commands';
 import type * as Types from '../../lib/backend/types';
 import type { GitDiffErrorType } from '../../hooks/useGitDiff';
+import { detectLanguage } from '../../lib/utils/languageDetection';
+import { getCodeMirrorLanguageExtensions } from '../../lib/utils/codemirrorLanguages';
+import { oneAgentDiffExtensions } from '../../lib/utils/codemirrorTheme';
 
 // --- Types ---
 
@@ -108,6 +115,31 @@ function parseDiffFile(fileDiff: string): DiffFile {
   return { oldPath, newPath, status, hunks, added, removed };
 }
 
+// --- Extract diff content for MergeView ---
+
+function extractDiffContent(file: DiffFile): { a: string; b: string } {
+  const oldLines: string[] = [];
+  const newLines: string[] = [];
+
+  for (const hunk of file.hunks) {
+    for (const line of hunk.lines) {
+      if (line.type === 'context') {
+        oldLines.push(line.content);
+        newLines.push(line.content);
+      } else if (line.type === 'remove') {
+        oldLines.push(line.content);
+      } else if (line.type === 'add') {
+        newLines.push(line.content);
+      }
+    }
+  }
+
+  return {
+    a: oldLines.join('\n'),
+    b: newLines.join('\n'),
+  };
+}
+
 // --- Diff line gutter ---
 
 function LineNum({ n }: { n: number | null }) {
@@ -118,10 +150,61 @@ function LineNum({ n }: { n: number | null }) {
   );
 }
 
+// --- Diff MergeView wrapper ---
+
+function DiffMergeView({ oldContent, newContent, filePath }: { oldContent: string; newContent: string; filePath: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const viewRef = useRef<EditorView | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const language = detectLanguage(filePath);
+    const extensions = getCodeMirrorLanguageExtensions(language);
+
+    const state = EditorState.create({
+      doc: newContent,
+      extensions: [
+        ...oneAgentDiffExtensions,
+        ...extensions,
+        unifiedMergeView({
+          original: oldContent,
+          highlightChanges: true,
+          gutter: true,
+          collapseUnchanged: { margin: 3, minSize: 50 },
+        }),
+        keymap.of(defaultKeymap),
+        EditorView.editable.of(false),
+        EditorState.readOnly.of(true),
+      ],
+    });
+
+    const view = new EditorView({
+      state,
+      parent: containerRef.current,
+    });
+
+    viewRef.current = view;
+
+    return () => {
+      view.destroy();
+      viewRef.current = null;
+    };
+  }, [oldContent, newContent, filePath]);
+
+  return <div ref={containerRef} className="min-h-[100px]" />;
+}
+
 // --- File viewer ---
 
 function DiffFileViewer({ file }: { file: DiffFile }) {
   const [expanded, setExpanded] = useState(false);
+
+  // Extract diff content for MergeView
+  const { a: oldContent, b: newContent } = useMemo(
+    () => extractDiffContent(file),
+    [file]
+  );
 
   return (
     <div>
@@ -149,37 +232,12 @@ function DiffFileViewer({ file }: { file: DiffFile }) {
       </button>
 
       {expanded && (
-        <div className="ml-2 mt-0.5 mb-1 border border-light-gray/60 rounded overflow-hidden overflow-x-auto">
-          {file.hunks.map((hunk, hi) => (
-            <div key={hi}>
-              <div className="bg-sky-50/60 text-sky-700 text-[11px] font-mono px-3 py-1 border-b border-light-gray/30 select-none">
-                @@ -{hunk.oldStart} +{hunk.newStart} @@ {hunk.header}
-              </div>
-              {hunk.lines.map((line, li) => {
-                const lineClass =
-                  line.type === 'add'
-                    ? 'bg-emerald-50/80'
-                    : line.type === 'remove'
-                      ? 'bg-rose-50/80'
-                      : '';
-                return (
-                  <div
-                    key={li}
-                    className={`flex items-stretch font-mono text-[12px] leading-[20px] ${lineClass}`}
-                  >
-                    <LineNum n={line.oldLine} />
-                    <LineNum n={line.newLine} />
-                    <span className="inline-block w-5 text-center shrink-0 text-stone/40 select-none">
-                      {line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' '}
-                    </span>
-                    <span className="flex-1 whitespace-pre pr-4 py-px">
-                      {line.content}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          ))}
+        <div className="ml-2 mt-0.5 mb-1 border border-light-gray/60 rounded overflow-hidden">
+          <DiffMergeView
+            oldContent={oldContent}
+            newContent={newContent}
+            filePath={file.newPath || file.oldPath}
+          />
         </div>
       )}
     </div>

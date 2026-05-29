@@ -10,6 +10,7 @@ interface WorkspaceFileTreeProps {
   onToggleDirectory: (path: string) => void;
   onSelectFile?: (filePath: string, fileName: string) => void;
   onContextMenu?: (entry: Types.WorkspaceFileEntry, event: React.MouseEvent) => void;
+  selectedFilePath?: string | null;
 }
 
 export function WorkspaceFileTree({
@@ -21,6 +22,7 @@ export function WorkspaceFileTree({
   onToggleDirectory,
   onSelectFile,
   onContextMenu,
+  selectedFilePath,
 }: WorkspaceFileTreeProps) {
   return (
     <div className="space-y-0.5">
@@ -36,6 +38,7 @@ export function WorkspaceFileTree({
           onToggleDirectory={onToggleDirectory}
           onSelectFile={onSelectFile}
           onContextMenu={onContextMenu}
+          selectedFilePath={selectedFilePath}
         />
       ))}
     </div>

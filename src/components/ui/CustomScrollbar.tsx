@@ -9,9 +9,11 @@ interface CustomScrollbarProps {
   contentRef?: React.RefObject<HTMLDivElement | null>;
   /** Scroll speed multiplier (1 = normal, 1.5 = 50% faster) */
   scrollSpeed?: number;
+  /** External scrollable element (e.g., CodeMirror's .cm-scroller) */
+  externalScrollElement?: HTMLElement | null;
 }
 
-export function CustomScrollbar({ children, className = '', scrollRef, contentRef, scrollSpeed = 1 }: CustomScrollbarProps) {
+export function CustomScrollbar({ children, className = '', scrollRef, contentRef, scrollSpeed = 1, externalScrollElement }: CustomScrollbarProps) {
   const internalRef = useRef<HTMLDivElement>(null);
   const thumbRef = useRef<HTMLDivElement>(null);
   const [thumbHeight, setThumbHeight] = useState(0);
@@ -21,13 +23,18 @@ export function CustomScrollbar({ children, className = '', scrollRef, contentRe
   const dragStartY = useRef(0);
   const dragStartScrollTop = useRef(0);
 
+  // Get the active scroll element (external or internal)
+  const getScrollElement = useCallback(() => {
+    return externalScrollElement || internalRef.current;
+  }, [externalScrollElement]);
+
   const setRef = useCallback((node: HTMLDivElement | null) => {
     (internalRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
     scrollRef?.(node);
   }, [scrollRef]);
 
   const updateThumb = useCallback(() => {
-    const el = internalRef.current;
+    const el = getScrollElement();
     if (!el) return;
     const { scrollTop, scrollHeight, clientHeight } = el;
     if (scrollHeight <= clientHeight) {
@@ -41,10 +48,10 @@ export function CustomScrollbar({ children, className = '', scrollRef, contentRe
     const top = (scrollTop / (scrollHeight - clientHeight)) * maxTop;
     setThumbHeight(height);
     setThumbTop(top);
-  }, []);
+  }, [getScrollElement]);
 
   useEffect(() => {
-    const el = internalRef.current;
+    const el = getScrollElement();
     if (!el) return;
 
     updateThumb();
@@ -66,7 +73,7 @@ export function CustomScrollbar({ children, className = '', scrollRef, contentRe
       el.removeEventListener('scroll', updateThumb);
       el.removeEventListener('wheel', handleWheel);
     };
-  }, [updateThumb, scrollSpeed]);
+  }, [getScrollElement, updateThumb, scrollSpeed]);
 
   useEffect(() => {
     const content = contentRef?.current;
@@ -80,11 +87,13 @@ export function CustomScrollbar({ children, className = '', scrollRef, contentRe
     e.preventDefault();
     isDragging.current = true;
     dragStartY.current = e.clientY;
-    dragStartScrollTop.current = internalRef.current?.scrollTop || 0;
+    const el = getScrollElement();
+    dragStartScrollTop.current = el?.scrollTop || 0;
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
-      if (!isDragging.current || !internalRef.current) return;
-      const el = internalRef.current;
+      if (!isDragging.current) return;
+      const el = getScrollElement();
+      if (!el) return;
       const deltaY = moveEvent.clientY - dragStartY.current;
       const scrollRatio = (el.scrollHeight - el.clientHeight) / (el.clientHeight - thumbHeight);
       el.scrollTop = dragStartScrollTop.current + deltaY * scrollRatio;
@@ -98,24 +107,29 @@ export function CustomScrollbar({ children, className = '', scrollRef, contentRe
 
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
-  }, [thumbHeight]);
+  }, [thumbHeight, getScrollElement]);
 
   const handleTrackClick = useCallback((e: React.MouseEvent) => {
-    if (!internalRef.current || e.target === thumbRef.current) return;
+    const el = getScrollElement();
+    if (!el || e.target === thumbRef.current) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const clickY = e.clientY - rect.top;
-    const el = internalRef.current;
     el.scrollTop = (clickY / rect.height) * el.scrollHeight;
-  }, []);
+  }, [getScrollElement]);
 
   return (
     <div className={`relative flex flex-col min-h-0 group/scroll ${className}`}>
-      <div
-        ref={setRef}
-        className="flex-1 min-h-0 overflow-y-auto no-scrollbar"
-      >
-        {children}
-      </div>
+      {externalScrollElement ? (
+        // When using external scroll element, just render children without internal scroll container
+        children
+      ) : (
+        <div
+          ref={setRef}
+          className="flex-1 min-h-0 overflow-y-auto no-scrollbar"
+        >
+          {children}
+        </div>
+      )}
 
       {visible && (
         <div
