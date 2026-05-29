@@ -14,6 +14,7 @@ const MAX_WIDTH = 900;
 const DEFAULT_WIDTH = 480;
 
 const TREE_MIN_WIDTH = 160;
+const TREE_DEFAULT_RATIO = 0.4;
 
 interface WorkspacePanelProps {
   isOpen: boolean;
@@ -71,7 +72,7 @@ export function WorkspacePanel({
   const [activeTab, setActiveTab] = useState<SidebarTab>('files');
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [isDragging, setIsDragging] = useState(false);
-  const [treeWidth, setTreeWidth] = useState(0);
+  const [treeWidth, setTreeWidth] = useState(Math.round(DEFAULT_WIDTH * TREE_DEFAULT_RATIO));
   const [isSplitDragging, setIsSplitDragging] = useState(false);
   const dragCleanupRef = useRef<(() => void) | null>(null);
 
@@ -189,7 +190,7 @@ export function WorkspacePanel({
               {/* Left: file tree */}
               <div
                 className="overflow-hidden flex-shrink-0"
-                style={{ width: treeWidth || undefined, minWidth: TREE_MIN_WIDTH }}
+                style={{ width: treeWidth, minWidth: TREE_MIN_WIDTH }}
               >
                 <CustomScrollbar className="h-full p-3">
                   {isRootLoading ? (
