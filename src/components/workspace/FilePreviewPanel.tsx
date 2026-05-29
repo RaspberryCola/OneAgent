@@ -99,7 +99,7 @@ export function FilePreviewPanel({ selectedFile }: FilePreviewPanelProps) {
                 ? 'bg-light-gray text-pure-black'
                 : 'text-stone hover:bg-light-gray/40 hover:text-pure-black'
             }`}
-            title="Source"
+            title={t('source')}
           >
             <Code className="w-3.5 h-3.5" />
           </button>
@@ -110,7 +110,7 @@ export function FilePreviewPanel({ selectedFile }: FilePreviewPanelProps) {
                 ? 'bg-light-gray text-pure-black'
                 : 'text-stone hover:bg-light-gray/40 hover:text-pure-black'
             }`}
-            title="Preview"
+            title={t('preview')}
           >
             <Eye className="w-3.5 h-3.5" />
           </button>

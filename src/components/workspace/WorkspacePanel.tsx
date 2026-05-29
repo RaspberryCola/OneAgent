@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Loader2, FileCode, GitCompareArrows } from 'lucide-react';
 import type * as Types from '../../lib/backend/types';
 import type { SelectedFileInfo, ContextMenuState } from '../../hooks/useWorkspaceFileTree';
@@ -69,6 +70,7 @@ export function WorkspacePanel({
   onHideContextMenu,
   onNotice,
 }: WorkspacePanelProps) {
+  const { t } = useTranslation('workspace');
   const [activeTab, setActiveTab] = useState<SidebarTab>('files');
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [isDragging, setIsDragging] = useState(false);
@@ -163,7 +165,7 @@ export function WorkspacePanel({
                   ? 'bg-light-gray text-pure-black'
                   : 'text-stone hover:bg-light-gray/40 hover:text-pure-black'
               }`}
-              title="Files"
+              title={t('fileTree')}
             >
               <FileCode className="w-3.5 h-3.5" />
             </button>
@@ -174,7 +176,7 @@ export function WorkspacePanel({
                   ? 'bg-light-gray text-pure-black'
                   : 'text-stone hover:bg-light-gray/40 hover:text-pure-black'
               }`}
-              title="Diff"
+              title={t('changes')}
             >
               <GitCompareArrows className="w-3.5 h-3.5" />
             </button>
