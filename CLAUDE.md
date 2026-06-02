@@ -21,6 +21,10 @@ npm run tauri build          # Full production build
 # Tauri-specific
 cd src-tauri && cargo build  # Build Rust backend only
 cd src-tauri && cargo test   # Run Rust tests
+cd src-tauri && cargo clippy # Lint Rust code (configured in rust-toolchain.toml)
+
+# IM sidecar (Lark/WeChat integration)
+cd im-sidecar && npm install && npm run build  # Build IM sidecar
 
 # Frontend tests
 npm run test                 # Run Vitest in watch mode
@@ -39,6 +43,7 @@ npm run test -- src/lib/utils/__tests__/conversation.test.ts
 - `src/lib/store.ts` - Zustand state management (workspace, conversations, agents, timeline)
 - `src/lib/backend/commands.ts` - Tauri command invocations
 - `src/lib/backend/events.ts` - Tauri event subscriptions
+- `src/lib/backend/transport.ts` - Transport abstraction (Tauri IPC vs Web REST/WS for WebUI mode)
 - `src/lib/backend/types.ts` - TypeScript types matching Rust domain types
 
 **Custom Hooks:**
@@ -48,12 +53,16 @@ npm run test -- src/lib/utils/__tests__/conversation.test.ts
 - `useModeSelector` - Agent mode selection
 - `useAttachmentHandler` - File attachment handling
 - `useScrollManager` - Chat scroll behavior management
+- `useConversationComposer` - Message composition and sending
+- `useGitDiff` - Git diff display
 
 **Utilities:**
 - `src/lib/utils/conversation.ts` - Conversation helpers (title building, status checks, cross-workspace lookup)
 - `src/lib/utils/timeline.ts` - Timeline item merging, key generation, message/tool_call/terminal merging
 - `src/lib/utils/settings.ts` - LocalStorage-based settings persistence
 - `src/lib/utils/constants.ts` - Sync configuration (poll intervals, grace periods)
+
+**Path Alias:** `@/*` maps to `./src/*` (configured in `tsconfig.json`).
 
 State management uses a Map-based multi-workspace architecture where conversations are keyed by workspace_id for cross-workspace navigation.
 
@@ -64,13 +73,21 @@ State management uses a Map-based multi-workspace architecture where conversatio
 | Module | Purpose |
 |--------|---------|
 | `domain/` | Core domain types (Workspace, AgentProfile, Conversation, MessageProjection, etc.) and BackendError definitions |
-| `gateway/` | API layer coordinating storage and runtime operations |
-| `runtime/` | Session orchestration, message handling, event emission, permission management |
-| `channel_api/` | Tauri IPC commands exposed to frontend |
+| `gateway/` | Facade layer — aggregates services, does lightweight validation; NOT a business orchestration layer |
+| `application/` | Use-case services (create/import/send/cancel, permissions, attachments) — owns transaction boundaries |
+| `runtime/` | Session orchestration, streaming, event projection, recovery |
+| `channel_api/` | Tauri IPC commands exposed to frontend — must stay thin |
 | `storage/` | SQLite database operations (workspaces, profiles, conversations, bindings, events) |
-| `agent_adapters/` | Protocol adapters for AI agents |
-| `capability_services/` | MCP registry, skill discovery, policy engine, agent discovery |
-| `application/` | Application services layer (workspaces, agents, conversations, permissions, attachments, task_runs) |
+| `agent_adapters/` | Protocol adapters for AI agents (ACP, compat) |
+| `capability_services/` | MCP registry, skill discovery, policy engine, agent discovery, browser CDP, terminal |
+
+**Dependency direction (strict, no exceptions):**
+```
+channel_api -> gateway -> application -> runtime / capability_services / storage / agent_adapters
+domain is shared by all backend modules but depends on none of the above
+```
+- `channel_api` must NOT directly access `storage`
+- `domain` must NOT depend on Tauri, SQLite, or tokio subprocess details
 
 **Storage Layer:**
 - `storage/sqlite/` - Database connection, migrations, transaction management
@@ -83,17 +100,20 @@ State management uses a Map-based multi-workspace architecture where conversatio
 - `runtime/stream_processor.rs` - Processes streaming events from agent subprocesses
 - `runtime/projector/` - Event projection to timeline (message, tool_call, terminal, permission)
 - `runtime/recovery.rs` - Session recovery and state reconstruction
+- `runtime/event_bus.rs` - Event emission to frontend
+- `runtime/snapshot_manager.rs` - Conversation snapshot persistence
+- `runtime/turn.rs` - Turn lifecycle management
 
 **Agent Adapters:**
 
-- `acp.rs` - ACP protocol adapter (JSON-RPC over stdin/stdout) for agents like Claude Code
-- `compat.rs` - Compatibility adapter for legacy agent protocols
-
-The ACP adapter handles:
-- Session initialization with `initialize`, `session/new`, `session/load`
-- Prompt streaming with text, thinking, tool_call, permission_request events
-- Config options (model selection, etc.)
-- Permission resolution
+- `agent_adapters/acp/` - ACP protocol adapter (JSON-RPC over stdin/stdout) for agents like Claude Code
+  - `adapter.rs` - Adapter trait implementation
+  - `process.rs` - Subprocess spawning and management
+  - `parser.rs` - JSON-RPC message parsing
+  - `permission.rs` - Permission request mapping
+  - `live_session.rs` - Live session state
+  - `types.rs` - ACP-specific types
+- `agent_adapters/compat.rs` - Compatibility adapter for legacy agent protocols
 
 **Agent Launch Flow:**
 
@@ -128,15 +148,19 @@ These are bundled with the app for offline-ready agent execution.
 
 See `FRONTEND_DESIGN.md` for the Ollama-inspired design system:
 - Pure grayscale palette (no chromatic colors except focus ring)
-- Binary border-radius: 12px (containers) or 9999px (pill-shaped interactive elements)
+- Three-tier border-radius: 12px (containers/cards), 8px (interactive elements — buttons, inputs, tabs, tags), 9999px (pill — reserved for homepage Agent switcher and toggle switches only)
 - SF Pro Rounded for headlines, zero shadows
-- Pill-shaped buttons/inputs/tabs/tags
+- Font weights: only 400 (body) and 500 (headings) — no bold
 
 ## Configuration Files
 
 - `src-tauri/tauri.conf.json` - Tauri app configuration, window settings, bundle resources
 - `src-tauri/Cargo.toml` - Rust dependencies
+- `src-tauri/capabilities/default.json` - Tauri v2 permissions for the main window
 - `package.json` - Frontend dependencies and scripts
+- `tailwind.config.ts` - Tailwind config with custom grayscale palette and 3-tier border-radius
+- `rust-toolchain.toml` - Rust stable toolchain with clippy + rustfmt
+- `.claude/agents/frontend-developer.md` - Custom Claude Code agent for frontend work
 
 ## Event System
 
@@ -169,6 +193,10 @@ When agents request permissions (file operations, commands, etc.), the runtime:
 - Agent profiles are auto-discovered on startup from installed tools
 - MCP servers are configured per-workspace
 - Skills are discovered from `.claude/skills/` directories
+- **IM Sidecar:** `im-sidecar/` is a separate Node.js process for Lark and WeChat bot integration (depends on `@larksuiteoapi/node-sdk`). Build with `cd im-sidecar && npm run build`.
+- **WebUI mode:** The app can also run as a web application (not just desktop) with JWT-based authentication, served via an embedded axum HTTP server (see `channel_api/web/`).
+- **CI/CD:** GitHub Actions release workflow (`.github/workflows/release.yml`) builds for macOS, Ubuntu (deb), and Windows (nsis) on `v*` tags.
+- **Git submodule:** `src-tauri/wechatbot/` — WeChat bot protocol library from corespeed-io. Run `git submodule update --init` after cloning.
 
 ## Troubleshooting
 

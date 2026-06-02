@@ -18,6 +18,7 @@ src-tauri/resources/external_agents/*
 .claude/
 .qoder/
 .trae/
+.docs/
 
 .DS_Store
 Thumbs.db
