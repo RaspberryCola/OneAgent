@@ -222,6 +222,25 @@ impl Gateway {
         Ok(self.app.workspaces.delete_workspace_mcp(id)?)
     }
 
+    pub async fn test_mcp_connection(
+        &self,
+        config: McpServerConfig,
+    ) -> GatewayResult<McpServerStatus> {
+        Ok(self.app.workspaces.test_mcp_connection(config).await?)
+    }
+
+    pub async fn import_mcp_configs(
+        &self,
+        workspace_id: &str,
+        json_string: &str,
+    ) -> GatewayResult<Vec<McpServerConfig>> {
+        Ok(self
+            .app
+            .workspaces
+            .import_mcp_configs(workspace_id, json_string)
+            .await?)
+    }
+
     pub fn list_workspace_skills(&self, workspace_id: &str) -> GatewayResult<Vec<SkillRecord>> {
         Ok(self.app.workspaces.list_workspace_skills(workspace_id)?)
     }

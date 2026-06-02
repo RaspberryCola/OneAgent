@@ -15,6 +15,7 @@ import { HomeScreen } from "./screens/home/HomeScreen";
 import { LoginScreen } from "./screens/LoginScreen";
 import { IS_TAURI } from "./lib/backend/transport";
 import { TerminalPanel } from "./components/terminal/TerminalPanel";
+import { BrowserPanel } from "./components/browser/BrowserPanel";
 import { useScrollManager, useAttachmentHandler, useModelSelector, useModeSelector, useWorkspaceFileTree, useGitDiff, useSearch, useConversationComposer } from "./hooks";
 
 const AGENT_LOGOS: Record<string, string> = {
@@ -184,7 +185,7 @@ export default function App() {
   const [isMobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isDesktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'general' | 'agents' | 'mcp' | 'im'>('general');
+  const [settingsTab, setSettingsTab] = useState<'general' | 'agents' | 'mcp' | 'im' | 'browser'>('general');
   const [composerNotice, setComposerNotice] = useState<string | null>(null);
   const [pendingDeleteConversationId, setPendingDeleteConversationId] = useState<string | null>(null);
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(new Set());
@@ -518,6 +519,10 @@ export default function App() {
     });
   };
 
+  // Browser panel state
+  const [isBrowserOpen, setIsBrowserOpen] = useState(false);
+  const handleToggleBrowser = () => setIsBrowserOpen((prev) => !prev);
+
   // Calculate the last agent text message ID for each turn (for copy functionality)
   // Exclude the currently running turn (if any) from showing copy button
   const lastAgentMessageIdsPerTurn = useMemo(() => {
@@ -741,6 +746,14 @@ export default function App() {
             onAddTab={handleAddTerminalTab}
             onCloseTab={handleCloseTerminalTab}
             onSelectTab={setActiveTerminalTabId}
+          />
+        }
+        isBrowserOpen={isBrowserOpen}
+        onToggleBrowser={handleToggleBrowser}
+        browserContent={
+          <BrowserPanel
+            isOpen={isBrowserOpen}
+            onClose={() => setIsBrowserOpen(false)}
           />
         }
         homeContent={

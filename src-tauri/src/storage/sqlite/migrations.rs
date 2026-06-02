@@ -227,6 +227,54 @@ impl<'a> MigrationManager<'a> {
             "archived",
             "ALTER TABLE workspaces ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
         )?;
+        // MCP server config schema upgrade
+        self.ensure_column(
+            "mcp_server_configs",
+            "transport_type",
+            "ALTER TABLE mcp_server_configs ADD COLUMN transport_type TEXT NOT NULL DEFAULT 'stdio'",
+        )?;
+        self.ensure_column(
+            "mcp_server_configs",
+            "args_array",
+            "ALTER TABLE mcp_server_configs ADD COLUMN args_array TEXT NOT NULL DEFAULT '[]'",
+        )?;
+        self.ensure_column(
+            "mcp_server_configs",
+            "url",
+            "ALTER TABLE mcp_server_configs ADD COLUMN url TEXT NOT NULL DEFAULT ''",
+        )?;
+        self.ensure_column(
+            "mcp_server_configs",
+            "headers_json",
+            "ALTER TABLE mcp_server_configs ADD COLUMN headers_json TEXT NOT NULL DEFAULT '{}'",
+        )?;
+        self.ensure_column(
+            "mcp_server_configs",
+            "builtin",
+            "ALTER TABLE mcp_server_configs ADD COLUMN builtin INTEGER NOT NULL DEFAULT 0",
+        )?;
+        // Migrate existing data: populate new columns from old ones
+        {
+            let conn = self.conn.lock();
+            conn.execute_batch(
+                r#"
+                UPDATE mcp_server_configs SET
+                    transport_type = CASE
+                        WHEN command IN ('http', 'sse') THEN command
+                        ELSE 'stdio'
+                    END,
+                    url = CASE
+                        WHEN command IN ('http', 'sse') THEN args_json
+                        ELSE ''
+                    END,
+                    args_array = CASE
+                        WHEN command NOT IN ('http', 'sse') THEN args_json
+                        ELSE '[]'
+                    END
+                WHERE transport_type = 'stdio';
+                "#,
+            )?;
+        }
         self.conn.lock().execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS im_authorized_users (

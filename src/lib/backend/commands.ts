@@ -153,6 +153,14 @@ export async function deleteWorkspaceMcp(configId: string): Promise<void> {
   return invoke('delete_workspace_mcp', { configId });
 }
 
+export async function testMcpConnection(config: Types.McpServerConfig): Promise<Types.McpServerStatus> {
+  return invoke('test_mcp_connection', { config });
+}
+
+export async function importMcpConfigs(workspaceId: string, jsonString: string): Promise<Types.McpServerConfig[]> {
+  return invoke('import_mcp_configs', { workspaceId, jsonString });
+}
+
 export async function listWorkspaceSkills(workspaceId: string): Promise<Types.SkillRecord[]> {
   return invoke('list_workspace_skills', { workspaceId });
 }
@@ -218,6 +226,59 @@ export async function getWebuiPassword(): Promise<string | null> {
 
 export async function getWebuiInfo(): Promise<{ port: number; urls: string[] } | null> {
   return invoke('get_webui_info');
+}
+
+// Browser Use Commands
+export async function startBrowserSession(config: Types.BrowserSessionConfig): Promise<Types.BrowserSessionStatus> {
+  return invoke('start_browser_session', { config });
+}
+
+export async function stopBrowserSession(): Promise<void> {
+  return invoke('stop_browser_session');
+}
+
+export async function getBrowserStatus(): Promise<Types.BrowserSessionStatus> {
+  return invoke('get_browser_status');
+}
+
+export async function getBrowserConfig(workspaceId: string): Promise<Types.BrowserSessionConfig> {
+  return invoke('get_browser_config', { workspaceId });
+}
+
+export async function saveBrowserConfig(workspaceId: string, config: Types.BrowserSessionConfig): Promise<void> {
+  return invoke('save_browser_config', { workspaceId, config });
+}
+
+export async function getBrowserMcpConfig(): Promise<Types.McpServerConfig | null> {
+  return invoke('get_browser_mcp_config');
+}
+
+export async function navigateBrowser(url: string): Promise<void> {
+  return invoke('navigate_browser', { url });
+}
+
+export async function browserClick(selector: string): Promise<void> {
+  return invoke('browser_click', { selector });
+}
+
+export async function browserFill(selector: string, value: string): Promise<void> {
+  return invoke('browser_fill', { selector, value });
+}
+
+export async function browserScroll(deltaX: number, deltaY: number): Promise<void> {
+  return invoke('browser_scroll', { deltaX, deltaY });
+}
+
+export async function browserReload(): Promise<void> {
+  return invoke('browser_reload');
+}
+
+export async function browserGoBack(): Promise<void> {
+  return invoke('browser_go_back');
+}
+
+export async function browserGoForward(): Promise<void> {
+  return invoke('browser_go_forward');
 }
 
 

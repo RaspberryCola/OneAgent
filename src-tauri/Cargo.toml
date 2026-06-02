@@ -36,6 +36,8 @@ sha2 = "0.10"
 futures-util = "0.3"
 wechatbot = { path = "./wechatbot/rust" }
 qrcode = "0.14"
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+which = "7"
 
 
 

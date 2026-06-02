@@ -11,7 +11,79 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::{agent_adapters::{AdapterError, AdapterResult}, domain::{McpServerConfig, PermissionOptionKind, PlanEntryPriority, PlanEntryStatus, StopReason, ToolCallStatus, ToolKind}};
+use crate::{agent_adapters::{AdapterError, AdapterResult}, domain::{McpServerConfig, McpTransportType, PermissionOptionKind, PlanEntryPriority, PlanEntryStatus, StopReason, ToolCallStatus, ToolKind}};
+
+/// Convert a `McpServerConfig` to the JSON format expected by the ACP protocol.
+///
+/// ACP agents expect all fields to be present, with transport-specific values:
+/// - `type`: "stdio", "sse", or "http" (preserved as-is)
+/// - `command`: executable for stdio, empty string for sse/http
+/// - `args`: array of strings for stdio, empty array for sse/http
+/// - `env`: [{name, value}] pairs
+/// - `url`: URL for sse/http, empty string for stdio
+/// - `headers`: [{name, value}] pairs for sse/http, empty array for stdio
+pub(crate) fn mcp_config_to_acp(config: &McpServerConfig) -> Value {
+    let transport_type_str = match config.transport_type {
+        McpTransportType::Stdio => "stdio",
+        McpTransportType::Sse => "sse",
+        McpTransportType::Http => "http",
+    };
+
+    match config.transport_type {
+        McpTransportType::Sse | McpTransportType::Http => {
+            json!({
+                "type": transport_type_str,
+                "name": config.name,
+                "url": config.url,
+                "command": "",
+                "args": [],
+                "env": [],
+                "headers": headers_to_acp_pairs(&config.headers),
+            })
+        }
+        McpTransportType::Stdio => {
+            json!({
+                "type": "stdio",
+                "name": config.name,
+                "command": config.command,
+                "args": config.args,
+                "env": env_to_acp_pairs(&config.env),
+                "headers": [],
+            })
+        }
+    }
+}
+
+/// Convert env JSON (flat object `{"KEY": "val"}`) to ACP format (`[{name: "KEY", value: "val"}]`).
+fn env_to_acp_pairs(env: &Value) -> Value {
+    match env {
+        Value::Object(map) => {
+            let pairs: Vec<Value> = map
+                .iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| json!({"name": k, "value": s})))
+                .collect();
+            Value::Array(pairs)
+        }
+        Value::Array(_) => env.clone(),
+        _ => json!([]),
+    }
+}
+
+/// Convert headers JSON (flat object `{"Authorization": "Bearer ..."}`) to ACP format
+/// (`[{name: "Authorization", value: "Bearer ..."}]`).
+fn headers_to_acp_pairs(headers: &Value) -> Value {
+    match headers {
+        Value::Object(map) => {
+            let pairs: Vec<Value> = map
+                .iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| json!({"name": k, "value": s})))
+                .collect();
+            Value::Array(pairs)
+        }
+        Value::Array(_) => headers.clone(),
+        _ => json!([]),
+    }
+}
 
 /// Serialize a typed params struct into a JSON `Value`, wrapping errors
 /// as `AdapterError::Protocol` with a descriptive label.
@@ -26,6 +98,7 @@ pub(crate) fn jsonrpc_request(id: i64, method: &str, params: Value) -> Value {
 }
 
 /// Build a JSON-RPC 2.0 notification envelope (no id).
+#[allow(dead_code)]
 pub(crate) fn jsonrpc_notification(method: &str, params: Value) -> Value {
     json!({"jsonrpc": "2.0", "method": method, "params": params})
 }
@@ -74,7 +147,7 @@ pub(crate) struct InitializeParams {
 pub(crate) struct NewSessionParams {
     pub(crate) cwd: String,
     #[serde(rename = "mcpServers")]
-    pub(crate) mcp_servers: Vec<McpServerConfig>,
+    pub(crate) mcp_servers: Vec<Value>,
 }
 
 /// Parameters for the `session/load` JSON-RPC request.
@@ -84,7 +157,7 @@ pub(crate) struct LoadSessionParams {
     pub(crate) session_id: String,
     pub(crate) cwd: String,
     #[serde(rename = "mcpServers")]
-    pub(crate) mcp_servers: Vec<McpServerConfig>,
+    pub(crate) mcp_servers: Vec<Value>,
 }
 
 /// Parameters for the `session/prompt` JSON-RPC request.
@@ -192,12 +265,16 @@ pub(crate) struct TerminalOutputParams {
 pub(crate) struct SessionResult {
     #[serde(default)]
     pub(crate) session_id: Option<String>,
+    #[allow(dead_code)]
     #[serde(default)]
     pub(crate) config_options: Option<Vec<Value>>,
+    #[allow(dead_code)]
     #[serde(default)]
     pub(crate) models: Option<Value>,
+    #[allow(dead_code)]
     #[serde(default)]
     pub(crate) modes: Option<Value>,
+    #[allow(dead_code)]
     #[serde(flatten)]
     pub(crate) extra: std::collections::HashMap<String, Value>,
 }
@@ -208,6 +285,7 @@ pub(crate) struct SessionResult {
 pub(crate) struct PromptResult {
     #[serde(default)]
     pub(crate) stop_reason: Option<StopReason>,
+    #[allow(dead_code)]
     #[serde(flatten)]
     pub(crate) extra: std::collections::HashMap<String, Value>,
 }

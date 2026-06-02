@@ -10,15 +10,14 @@ use uuid::Uuid;
 use crate::{
     agent_adapters::{
         acp::AcpLiveSession,
-        compat::CompatAdapter,
-        AgentAdapter, AgentSessionHandle, LoadedSession, RuntimeStreamEvent,
+        AgentSessionHandle, LoadedSession, RuntimeStreamEvent,
     },
     domain::*,
 };
 
 use super::{
     snapshot_model::RuntimeSnapshotState,
-    EventEmitter, ManagedSession, RuntimeError, RuntimeResult,
+    ManagedSession, RuntimeResult,
 };
 
 impl super::Runtime {
@@ -29,7 +28,10 @@ impl super::Runtime {
     ) -> RuntimeResult<ConversationState> {
         let workspace = self.db.get_workspace(&input.workspace_id)?;
         let profile = self.db.get_agent_profile(&input.agent_profile_id)?;
-        let mcp_servers = self.mcp_registry.list_for_workspace(&workspace.id)?;
+        let mcp_servers = self.filter_mcp_by_agent_caps(
+            self.resolve_mcp_servers(&workspace.id)?,
+            &profile.capabilities_cache,
+        );
         let (managed_session, startup_events) = match profile.kind {
             AgentKind::Acp => {
                 let (session, events) =
@@ -140,7 +142,10 @@ impl super::Runtime {
     ) -> RuntimeResult<PreviewSessionConfigResult> {
         let workspace = self.db.get_workspace(&input.workspace_id)?;
         let profile = self.db.get_agent_profile(&input.agent_profile_id)?;
-        let mcp_servers = self.mcp_registry.list_for_workspace(&workspace.id)?;
+        let mcp_servers = self.filter_mcp_by_agent_caps(
+            self.resolve_mcp_servers(&workspace.id)?,
+            &profile.capabilities_cache,
+        );
         match profile.kind {
             AgentKind::Acp => {
                 let (session, _events) =
@@ -178,7 +183,10 @@ impl super::Runtime {
     ) -> RuntimeResult<ConversationState> {
         let workspace = self.db.get_workspace(workspace_id)?;
         let profile = self.db.get_agent_profile(agent_profile_id)?;
-        let mcp_servers = self.mcp_registry.list_for_workspace(&workspace.id)?;
+        let mcp_servers = self.filter_mcp_by_agent_caps(
+            self.resolve_mcp_servers(&workspace.id)?,
+            &profile.capabilities_cache,
+        );
         let now = Utc::now();
         let conversation = Conversation {
             id: Uuid::new_v4().to_string(),
@@ -499,7 +507,10 @@ impl super::Runtime {
     ) -> RuntimeResult<ConversationState> {
         let workspace = self.db.get_workspace(&input.workspace_id)?;
         let profile = self.db.get_agent_profile(&input.agent_profile_id)?;
-        let mcp_servers = self.mcp_registry.list_for_workspace(&workspace.id)?;
+        let mcp_servers = self.filter_mcp_by_agent_caps(
+            self.resolve_mcp_servers(&workspace.id)?,
+            &profile.capabilities_cache,
+        );
         let (managed_session, startup_events) = match profile.kind {
             AgentKind::Acp => {
                 let (session, events) =

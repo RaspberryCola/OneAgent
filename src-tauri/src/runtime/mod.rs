@@ -3,14 +3,9 @@ use std::sync::Arc;
 use chrono::Utc;
 use serde_json::{json, Value};
 use tokio::time::{timeout, Duration};
-use uuid::Uuid;
 
 use crate::{
-    agent_adapters::{
-        acp::{AcpAdapter, AcpLiveSession},
-        compat::CompatAdapter,
-        AgentAdapter, AgentSessionHandle, LoadedSession, RuntimeStreamEvent,
-    },
+    agent_adapters::{acp::AcpAdapter, compat::CompatAdapter, AgentAdapter},
     capability_services::{mcp::McpRegistry, policy::PolicyEngine, skills::SkillRegistry},
     domain::*,
     storage::Database,
@@ -30,7 +25,7 @@ pub mod turn;
 pub mod types;
 
 use session_manager::{default_prompt_capabilities, SessionManager};
-use snapshot_manager::{get_snapshot_state, update_snapshot_field};
+use snapshot_manager::update_snapshot_field;
 use snapshot_model::RuntimeSnapshotState;
 use state_cache::StateCache;
 pub use types::{ActiveStreamMessage, EventEmitter, ManagedSession, RuntimeError, RuntimeResult};
@@ -68,15 +63,85 @@ pub struct Runtime {
 
 impl Runtime {
     pub fn new(db: Database) -> Self {
+        let event_bus = Arc::new(event_bus::EventBus::new());
+        let mut mcp_registry = McpRegistry::new(db.clone());
+        // Wire MCP registry to event bus for status change events
+        {
+            let eb = event_bus.clone();
+            mcp_registry.attach_emitter(Arc::new(move |event: &str, payload: serde_json::Value| {
+                eb.broadcast(event, &payload);
+            }));
+        }
         Self {
-            mcp_registry: McpRegistry::new(db.clone()),
+            mcp_registry,
             skill_registry: SkillRegistry::new(db.clone()),
             policy_engine: PolicyEngine::new(db.clone()),
             db,
-            event_bus: Arc::new(event_bus::EventBus::new()),
+            event_bus,
             session_manager: SessionManager::new(),
             state_cache: StateCache::new(),
         }
+    }
+
+    /// Get a reference to the MCP registry.
+    pub fn mcp_registry(&self) -> &McpRegistry {
+        &self.mcp_registry
+    }
+
+    /// Register a builtin MCP provider with the MCP registry.
+    /// The provider closure is called each time MCP servers are resolved.
+    pub fn register_builtin_mcp_provider(
+        &self,
+        provider: impl Fn() -> Option<McpServerConfig> + Send + Sync + 'static,
+    ) {
+        self.mcp_registry
+            .add_builtin_provider(Arc::new(provider));
+    }
+
+    /// Set the browser MCP provider callback (convenience wrapper).
+    pub fn set_browser_mcp_provider(
+        &self,
+        provider: impl Fn() -> Option<McpServerConfig> + Send + Sync + 'static,
+    ) {
+        self.register_builtin_mcp_provider(provider);
+    }
+
+    /// Resolve MCP servers for a workspace, including builtin providers.
+    /// Only returns enabled servers.
+    pub fn resolve_mcp_servers(&self, workspace_id: &str) -> RuntimeResult<Vec<McpServerConfig>> {
+        let servers = self.mcp_registry.resolve_all(workspace_id)?;
+        tracing::info!(
+            "Resolved {} MCP servers for workspace {}",
+            servers.len(),
+            workspace_id
+        );
+        Ok(servers)
+    }
+
+    /// Filter MCP servers by the agent's declared MCP transport capabilities.
+    /// If the agent declares `mcpCapabilities`, only servers with supported
+    /// transport types are retained. If no capabilities are declared, all servers pass.
+    pub fn filter_mcp_by_agent_caps(
+        &self,
+        servers: Vec<McpServerConfig>,
+        capabilities_cache: &serde_json::Value,
+    ) -> Vec<McpServerConfig> {
+        let caps = match serde_json::from_value::<AgentCapabilities>(capabilities_cache.clone()) {
+            Ok(caps) => caps,
+            Err(_) => return servers,
+        };
+        let mcp_caps = match caps.mcp_capabilities {
+            Some(caps) => caps,
+            None => return servers,
+        };
+        servers
+            .into_iter()
+            .filter(|s| match s.transport_type {
+                crate::domain::McpTransportType::Stdio => mcp_caps.stdio,
+                crate::domain::McpTransportType::Sse => mcp_caps.sse,
+                crate::domain::McpTransportType::Http => mcp_caps.http,
+            })
+            .collect()
     }
 
     pub fn attach_emitter(&self, emitter: EventEmitter) {

@@ -8,9 +8,10 @@ import { AgentSettingsPane } from './AgentSettingsPane';
 import { GeneralSettingsPane } from './GeneralSettingsPane';
 import { McpSettingsPane } from './McpSettingsPane';
 import { ImSettingsPane } from './ImSettingsPane';
+import { BrowserSettingsPane } from './BrowserSettingsPane';
 import { CustomScrollbar } from '../ui/CustomScrollbar';
 
-type SettingsTab = 'general' | 'agents' | 'mcp' | 'im';
+type SettingsTab = 'general' | 'agents' | 'mcp' | 'im' | 'browser';
 
 interface SettingsDialogProps {
   isOpen: boolean;
@@ -54,7 +55,11 @@ export function SettingsDialog({
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        // Don't close settings if a child dialog is open
+        if (document.querySelector('[data-settings-child-dialog]')) return;
+        onClose();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -145,6 +150,18 @@ export function SettingsDialog({
               >
                 {t("tabs.imChannels")}
               </button>
+              <button
+                onClick={() => onSelectTab('browser')}
+                className={`
+                  md:w-full md:text-left md:px-3 md:py-1.5 md:text-[12px]
+                  whitespace-nowrap px-3 py-2 text-[12px] rounded-interactive transition-colors flex items-center
+                  ${
+                    settingsTab === 'browser' ? 'bg-light-gray/60 text-pure-black' : 'text-stone hover:bg-light-gray/30'
+                  }
+                `}
+              >
+                Browser
+              </button>
             </nav>
             
             {/* Close button - desktop only */}
@@ -192,6 +209,14 @@ export function SettingsDialog({
                 {settingsTab === 'mcp' && !activeWorkspaceId && (
                   <div className="text-[12px] text-stone text-center py-8">
                     {t("mcp.noWorkspace")}
+                  </div>
+                )}
+                {settingsTab === 'browser' && activeWorkspaceId && (
+                  <BrowserSettingsPane workspaceId={activeWorkspaceId} />
+                )}
+                {settingsTab === 'browser' && !activeWorkspaceId && (
+                  <div className="text-[12px] text-stone text-center py-8">
+                    No workspace selected
                   </div>
                 )}
               </CustomScrollbar>

@@ -417,15 +417,61 @@ pub struct PendingPermissionRequest {
     pub resolved_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum McpTransportType {
+    Stdio,
+    Sse,
+    Http,
+}
+
+impl Default for McpTransportType {
+    fn default() -> Self {
+        Self::Stdio
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpServerConfig {
     pub id: String,
+    #[serde(rename = "workspaceId", default)]
     pub workspace_id: String,
     pub name: String,
+    /// Transport type: "stdio", "sse", or "http"
+    #[serde(rename = "type", default)]
+    pub transport_type: McpTransportType,
+    /// For stdio: command executable path. Empty for http/sse.
+    #[serde(default)]
     pub command: String,
-    pub args_json: serde_json::Value,
-    pub env_json: serde_json::Value,
+    /// For stdio: command arguments.
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// For http/sse: server URL. Empty for stdio.
+    #[serde(default)]
+    pub url: String,
+    /// Environment variables (flat key-value pairs)
+    #[serde(rename = "env", default)]
+    pub env: serde_json::Value,
+    /// HTTP headers for http/sse transport
+    #[serde(rename = "headers", default)]
+    pub headers: serde_json::Value,
+    #[serde(default)]
     pub enabled: bool,
+    /// Built-in servers cannot be edited or deleted by users
+    #[serde(default)]
+    pub builtin: bool,
+}
+
+impl McpServerConfig {
+    pub fn is_stdio(&self) -> bool {
+        self.transport_type == McpTransportType::Stdio
+    }
+    pub fn is_http(&self) -> bool {
+        matches!(
+            self.transport_type,
+            McpTransportType::Sse | McpTransportType::Http
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -452,6 +498,79 @@ pub struct McpServerStatus {
     pub tools: Vec<McpToolInfo>,
     pub error_message: Option<String>,
     pub last_updated: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowserState {
+    #[default]
+    Stopped,
+    Starting,
+    Running,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrowserSessionConfig {
+    pub enabled: bool,
+    #[serde(default = "default_true")]
+    pub headless: bool,
+    #[serde(default = "default_viewport_width")]
+    pub viewport_width: u32,
+    #[serde(default = "default_viewport_height")]
+    pub viewport_height: u32,
+    #[serde(default)]
+    pub browser_path: Option<String>,
+    #[serde(default)]
+    pub cdp_port: Option<u16>,
+    #[serde(default = "default_screenshot_interval")]
+    pub screenshot_interval_ms: u64,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_viewport_width() -> u32 {
+    1280
+}
+
+fn default_viewport_height() -> u32 {
+    720
+}
+
+fn default_screenshot_interval() -> u64 {
+    1000
+}
+
+impl Default for BrowserSessionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            headless: true,
+            viewport_width: 1280,
+            viewport_height: 720,
+            browser_path: None,
+            cdp_port: None,
+            screenshot_interval_ms: 1000,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrowserSessionStatus {
+    pub state: BrowserState,
+    pub cdp_port: Option<u16>,
+    pub current_url: Option<String>,
+    pub page_title: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrowserScreenshotPayload {
+    pub base64_png: String,
+    pub url: Option<String>,
+    pub timestamp: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -558,6 +677,18 @@ pub struct AgentSessionCapabilities {
     pub resume: bool,  // SDK 0.20.0 稳定化
     #[serde(default)]
     pub delete: bool,  // SDK 0.22.0 实验性
+    #[serde(default)]
+    pub mcp_capabilities: Option<AgentMcpCapabilities>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentMcpCapabilities {
+    #[serde(default)]
+    pub stdio: bool,
+    #[serde(default)]
+    pub http: bool,
+    #[serde(default)]
+    pub sse: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -622,6 +753,8 @@ pub struct AgentCapabilities {
     pub agent_info: serde_json::Value,
     pub prompt_capabilities: AgentPromptCapabilities,
     pub session_capabilities: AgentSessionCapabilities,
+    #[serde(default)]
+    pub mcp_capabilities: Option<AgentMcpCapabilities>,
     pub raw: serde_json::Value,
 }
 

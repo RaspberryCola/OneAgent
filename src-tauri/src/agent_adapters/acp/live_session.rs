@@ -28,9 +28,9 @@ use super::permission::{
 use super::process::JsonRpcProcess;
 use super::prompt_codec::build_prompt_blocks_from_message;
 use super::types::{
-    jsonrpc_notification, jsonrpc_request, to_value_or_err, CancelParams, DeleteSessionParams,
-    LoadSessionParams, NewSessionParams, PromptParams, PromptResult, SessionResult,
-    SetConfigOptionParams, SetModeParams, SetModelParams,
+    mcp_config_to_acp, to_value_or_err, CancelParams,
+    DeleteSessionParams, LoadSessionParams, NewSessionParams, PromptParams, PromptResult,
+    SessionResult, SetConfigOptionParams, SetModeParams, SetModelParams,
 };
 
 /// A permission option offered by the agent.
@@ -91,7 +91,46 @@ pub struct AcpLiveSession {
 
 impl AcpLiveSession {
     /// Start a new ACP session.
+    ///
+    /// If `session/new` fails and browser MCP servers are present, the call
+    /// is retried without them so that a browser startup failure never blocks
+    /// conversation creation.
     pub async fn start_new(
+        profile: &AgentProfile,
+        cwd: &str,
+        mcp_servers: &[McpServerConfig],
+    ) -> AdapterResult<(Self, Vec<RuntimeStreamEvent>)> {
+        // Split off browser-internal MCP servers so we can retry without them.
+        let (browser_mcps, core_mcps): (Vec<_>, Vec<_>) = mcp_servers
+            .iter()
+            .cloned()
+            .partition(|s| s.id == "browser-use-internal");
+
+        // First attempt: use all MCP servers (including browser).
+        if !browser_mcps.is_empty() {
+            tracing::info!(
+                "Attempting session/new with {} browser MCP server(s): {:?}",
+                browser_mcps.len(),
+                browser_mcps.iter().map(|s| &s.name).collect::<Vec<_>>()
+            );
+            match Self::try_start_new(profile, cwd, mcp_servers).await {
+                ok @ Ok(_) => return ok,
+                Err(err) => {
+                    tracing::warn!(
+                        "session/new with browser MCP failed: {err}\nBrowser MCP config: {:?}\nRetrying without browser MCP",
+                        browser_mcps
+                    );
+                    // Fall through to retry without browser MCP.
+                }
+            }
+        }
+
+        // Second attempt (or only attempt if no browser MCP): use core MCP servers only.
+        Self::try_start_new(profile, cwd, &core_mcps).await
+    }
+
+    /// Internal helper that performs one attempt at starting a new session.
+    async fn try_start_new(
         profile: &AgentProfile,
         cwd: &str,
         mcp_servers: &[McpServerConfig],
@@ -108,7 +147,7 @@ impl AcpLiveSession {
         let new_session_params = to_value_or_err(
             NewSessionParams {
                 cwd: cwd.to_string(),
-                mcp_servers: mcp_servers.to_vec(),
+                mcp_servers: mcp_servers.iter().map(mcp_config_to_acp).collect(),
             },
             "session/new",
         )?;
@@ -175,7 +214,43 @@ impl AcpLiveSession {
     }
 
     /// Load an existing ACP session.
+    ///
+    /// If `session/load` fails and browser MCP servers are present, the call
+    /// is retried without them so that a browser startup failure never blocks
+    /// conversation recovery.
     pub async fn start_loaded(
+        profile: &AgentProfile,
+        remote_session_id: &str,
+        cwd: &str,
+        mcp_servers: &[McpServerConfig],
+    ) -> AdapterResult<(Self, Vec<RuntimeStreamEvent>)> {
+        let (browser_mcps, core_mcps): (Vec<_>, Vec<_>) = mcp_servers
+            .iter()
+            .cloned()
+            .partition(|s| s.id == "browser-use-internal");
+
+        if !browser_mcps.is_empty() {
+            tracing::info!(
+                "Attempting session/load with {} browser MCP server(s): {:?}",
+                browser_mcps.len(),
+                browser_mcps.iter().map(|s| &s.name).collect::<Vec<_>>()
+            );
+            match Self::try_start_loaded(profile, remote_session_id, cwd, mcp_servers).await {
+                ok @ Ok(_) => return ok,
+                Err(err) => {
+                    tracing::warn!(
+                        "session/load with browser MCP failed: {err}\nBrowser MCP config: {:?}\nRetrying without browser MCP",
+                        browser_mcps
+                    );
+                }
+            }
+        }
+
+        Self::try_start_loaded(profile, remote_session_id, cwd, &core_mcps).await
+    }
+
+    /// Internal helper that performs one attempt at loading an existing session.
+    async fn try_start_loaded(
         profile: &AgentProfile,
         remote_session_id: &str,
         cwd: &str,
@@ -199,7 +274,7 @@ impl AcpLiveSession {
         let load_params = serde_json::to_value(LoadSessionParams {
             session_id: remote_session_id.to_string(),
             cwd: cwd.to_string(),
-            mcp_servers: mcp_servers.to_vec(),
+            mcp_servers: mcp_servers.iter().map(mcp_config_to_acp).collect(),
         })
         .map_err(|e| AdapterError::Protocol(format!("serialize session/load params: {e}")))?;
         process
@@ -211,26 +286,34 @@ impl AcpLiveSession {
             }))
             .await?;
         let mut replay_events = Vec::new();
-        let response_result = loop {
-            let message = process.read_message().await?;
-            if let Some(method) = message.get("method").and_then(Value::as_str) {
-                if method == "session/update" {
-                    replay_events.extend(parse_session_update(&message, "history"));
+        let deadline = std::time::Duration::from_secs(120);
+        let response_result = tokio::time::timeout(deadline, async {
+            loop {
+                let message = process.read_message().await?;
+                if let Some(method) = message.get("method").and_then(Value::as_str) {
+                    if method == "session/update" {
+                        replay_events.extend(parse_session_update(&message, "history"));
+                        continue;
+                    }
+                    process.handle_client_request(&message).await?;
                     continue;
                 }
-                process.handle_client_request(&message).await?;
-                continue;
-            }
-            if message.get("id").and_then(Value::as_i64) == Some(request_id) {
-                if let Some(error_message) = jsonrpc_error_message(&message) {
-                    process.close().await?;
-                    return Err(AdapterError::Protocol(format!(
-                        "session/load failed: {error_message}"
-                    )));
+                if message.get("id").and_then(Value::as_i64) == Some(request_id) {
+                    if let Some(error_message) = jsonrpc_error_message(&message) {
+                        process.close().await?;
+                        return Err(AdapterError::Protocol(format!(
+                            "session/load failed: {error_message}"
+                        )));
+                    }
+                    return Ok(message.get("result").cloned());
                 }
-                break message.get("result").cloned();
             }
-        };
+        })
+        .await
+        .map_err(|_| {
+            tracing::error!("session/load timed out after {}s", deadline.as_secs());
+            AdapterError::Protocol(format!("session/load timed out after {}s", deadline.as_secs()))
+        })??;
         let mut config_options = parse_config_options(response_result.as_ref());
         // Sanitize max_tokens to avoid OpenCode API errors.
         // OpenCode requires max_tokens in [1, 32768].

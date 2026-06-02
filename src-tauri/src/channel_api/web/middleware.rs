@@ -5,7 +5,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use tracing::{debug, info};
+use tracing::info;
 
 use super::ws::WebState;
 

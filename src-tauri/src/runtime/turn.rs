@@ -7,15 +7,12 @@ use chrono::Utc;
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::{
-    agent_adapters::{acp::AcpLiveSession, compat::CompatAdapter, AgentAdapter},
-    domain::*,
-};
+use crate::domain::*;
 
 use super::{
     snapshot_model::RuntimeSnapshotState,
     state_cache::StateCache,
-    EventEmitter, ManagedSession, RuntimeError, RuntimeResult,
+    ManagedSession, RuntimeError, RuntimeResult,
 };
 
 impl super::Runtime {

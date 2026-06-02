@@ -170,6 +170,14 @@ interface AppState {
   webuiPassword: string | null;
   webuiInfo: { port: number; urls: string[] } | null;
 
+  // Browser Use State
+  browserStatus: Types.BrowserSessionStatus;
+  browserConfig: Types.BrowserSessionConfig | null;
+  browserScreenshot: string | null;  // base64 PNG
+  browserUrl: string | null;
+  browserPageTitle: string | null;
+  browserNavigating: boolean;
+
   // Actions
   init: () => Promise<void>;
   selectConversation: (id: string | null) => Promise<void>;
@@ -201,6 +209,19 @@ interface AppState {
   refreshMcpServers: () => Promise<void>;
   upsertMcpServer: (config: Types.McpServerConfig) => Promise<void>;
   deleteMcpServer: (id: string) => Promise<void>;
+  testMcpConnection: (config: Types.McpServerConfig) => Promise<Types.McpServerStatus>;
+  importMcpConfigs: (jsonString: string) => Promise<void>;
+
+  // Browser Use Actions
+  startBrowser: (config?: Partial<Types.BrowserSessionConfig>) => Promise<void>;
+  stopBrowser: () => Promise<void>;
+  refreshBrowserStatus: () => Promise<void>;
+  loadBrowserConfig: (workspaceId: string) => Promise<void>;
+  saveBrowserConfig: (workspaceId: string, config: Types.BrowserSessionConfig) => Promise<void>;
+  navigateBrowser: (url: string) => Promise<void>;
+  browserReload: () => Promise<void>;
+  browserGoBack: () => Promise<void>;
+  browserGoForward: () => Promise<void>;
 
   login: (password: string) => Promise<boolean>;
   logout: () => Promise<void>;
@@ -241,6 +262,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   webuiEnabled: false,
   webuiPassword: null,
   webuiInfo: null,
+
+  // Browser Use initial state
+  browserStatus: { state: 'stopped' },
+  browserConfig: null,
+  browserScreenshot: null,
+  browserUrl: null,
+  browserPageTitle: null,
+  browserNavigating: false,
 
   init: async () => {
     if (!IS_TAURI && !getToken()) {
@@ -1141,6 +1170,116 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  testMcpConnection: async (config: Types.McpServerConfig): Promise<Types.McpServerStatus> => {
+    return API.testMcpConnection(config);
+  },
+
+  importMcpConfigs: async (jsonString: string): Promise<void> => {
+    const activeWorkspaceId = get().activeWorkspace?.id;
+    if (!activeWorkspaceId) return;
+    const imported = await API.importMcpConfigs(activeWorkspaceId, jsonString);
+    set((state) => ({
+      mcpServers: [...state.mcpServers, ...imported],
+    }));
+  },
+
+  // Browser Use Actions
+  startBrowser: async (configOverrides?: Partial<Types.BrowserSessionConfig>) => {
+    try {
+      const baseConfig = get().browserConfig || {
+        enabled: true,
+        headless: true,
+        viewport_width: 1280,
+        viewport_height: 720,
+        screenshot_interval_ms: 1000,
+      };
+      const config = { ...baseConfig, ...configOverrides, enabled: true };
+      set({ browserStatus: { state: 'starting' } });
+      const status = await API.startBrowserSession(config);
+      set({ browserStatus: status });
+    } catch (error) {
+      console.error('Failed to start browser', error);
+      set({ browserStatus: { state: 'error', error: String(error) } });
+      throw error;
+    }
+  },
+
+  stopBrowser: async () => {
+    try {
+      await API.stopBrowserSession();
+      set({ browserStatus: { state: 'stopped' }, browserScreenshot: null, browserUrl: null });
+    } catch (error) {
+      console.error('Failed to stop browser', error);
+      throw error;
+    }
+  },
+
+  refreshBrowserStatus: async () => {
+    try {
+      const status = await API.getBrowserStatus();
+      set({ browserStatus: status });
+    } catch (error) {
+      console.error('Failed to refresh browser status', error);
+    }
+  },
+
+  loadBrowserConfig: async (workspaceId: string) => {
+    try {
+      const config = await API.getBrowserConfig(workspaceId);
+      set({ browserConfig: config });
+    } catch (error) {
+      console.error('Failed to load browser config', error);
+    }
+  },
+
+  saveBrowserConfig: async (workspaceId: string, config: Types.BrowserSessionConfig) => {
+    try {
+      await API.saveBrowserConfig(workspaceId, config);
+      set({ browserConfig: config });
+    } catch (error) {
+      console.error('Failed to save browser config', error);
+      throw error;
+    }
+  },
+
+  navigateBrowser: async (url: string) => {
+    try {
+      set({ browserNavigating: true, browserUrl: url });
+      await API.navigateBrowser(url);
+    } catch (error) {
+      console.error('Failed to navigate browser', error);
+      set({ browserNavigating: false });
+      throw error;
+    }
+  },
+
+  browserReload: async () => {
+    try {
+      await API.browserReload();
+    } catch (error) {
+      console.error('Failed to reload browser', error);
+      throw error;
+    }
+  },
+
+  browserGoBack: async () => {
+    try {
+      await API.browserGoBack();
+    } catch (error) {
+      console.error('Failed to go back', error);
+      throw error;
+    }
+  },
+
+  browserGoForward: async () => {
+    try {
+      await API.browserGoForward();
+    } catch (error) {
+      console.error('Failed to go forward', error);
+      throw error;
+    }
+  },
+
   login: async (password: string) => {
     const success = await apiLogin(password);
     if (success) {
@@ -1479,6 +1618,31 @@ export const useAppStore = create<AppState>((set, get) => ({
               task_run: payload.task_run,
             },
           };
+        });
+      }));
+
+      // Browser screenshot event subscription
+      unlistens.push(await Events.onBrowserScreenshot((payload) => {
+        set({
+          browserScreenshot: payload.base64_png,
+          browserUrl: payload.url ?? null,
+          browserNavigating: false,
+        });
+      }));
+
+      // Browser state changed event subscription
+      unlistens.push(await Events.onBrowserStateChanged((payload) => {
+        set({
+          browserStatus: {
+            ...get().browserStatus,
+            state: payload.state,
+            current_url: payload.current_url ?? null,
+            page_title: payload.page_title ?? null,
+            cdp_port: payload.cdp_port ?? null,
+          },
+          browserUrl: payload.current_url ?? get().browserUrl,
+          browserPageTitle: payload.page_title ?? null,
+          browserNavigating: false,
         });
       }));
 

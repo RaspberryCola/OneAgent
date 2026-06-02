@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tokio::time::Instant;
 use crate::channel_api::im::plugin::{ImPlugin, OutgoingMessage, ActionButton};
 
 pub struct StreamThrottle {

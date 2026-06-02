@@ -9,7 +9,7 @@ use crate::{
     agent_adapters::RuntimeStreamEvent,
     domain::{
         AcpAvailableModel, AcpSessionMode, AcpSessionModeState, AcpSessionModels,
-        AcpToolCallLocations, AgentCapabilities, AgentPromptCapabilities,
+        AcpToolCallLocations, AgentCapabilities, AgentMcpCapabilities, AgentPromptCapabilities,
         AgentSessionCapabilities, AvailableCommand, SessionConfigOption, ToolCallStatus, ToolKind,
     },
 };
@@ -67,6 +67,7 @@ pub fn parse_agent_capabilities(response: &Value) -> AgentCapabilities {
             .unwrap_or_else(|| json!({})),
         prompt_capabilities: parse_prompt_capabilities(&result),
         session_capabilities: parse_session_capabilities(&result),
+        mcp_capabilities: parse_mcp_capabilities(&result),
         raw: response.clone(),
     }
 }
@@ -152,7 +153,34 @@ pub fn parse_session_capabilities(result: &Value) -> AgentSessionCapabilities {
         close: parse_cap_as_bool(&session_capabilities, "close"),    // SDK 0.20.0
         resume: parse_cap_as_bool(&session_capabilities, "resume"),  // SDK 0.20.0
         delete: parse_cap_as_bool(&session_capabilities, "delete"),  // SDK 0.22.0 实验性
+        mcp_capabilities: parse_mcp_capabilities(result),
     }
+}
+
+/// Parse MCP capabilities from the agent capabilities result.
+///
+/// Looks for `agentCapabilities.mcpCapabilities` with boolean fields
+/// `stdio`, `http`, `sse`. Defaults: stdio=true (always supported), http/sse=false.
+pub fn parse_mcp_capabilities(result: &Value) -> Option<AgentMcpCapabilities> {
+    let agent_caps = result.get("agentCapabilities")?;
+    let mcp_caps = agent_caps.get("mcpCapabilities")?;
+    if mcp_caps.is_null() {
+        return None;
+    }
+    Some(AgentMcpCapabilities {
+        stdio: mcp_caps
+            .get("stdio")
+            .and_then(Value::as_bool)
+            .unwrap_or(true),
+        http: mcp_caps
+            .get("http")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        sse: mcp_caps
+            .get("sse")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    })
 }
 
 /// Parse config options from a result value.

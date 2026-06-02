@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use crate::{
     domain::{
-        ConversationStatus, ExternalSession, McpServerConfig, SkillRecord, Workspace,
-        WorkspaceBootstrap, WorkspaceBootstrapInput,
+        ConversationStatus, ExternalSession, McpServerConfig, McpServerStatus, SkillRecord,
+        Workspace, WorkspaceBootstrap, WorkspaceBootstrapInput,
     },
     runtime::Runtime,
     storage::Database,
@@ -60,6 +60,28 @@ impl WorkspaceAppService {
 
     pub fn delete_workspace_mcp(&self, id: &str) -> ApplicationResult<()> {
         Ok(self.db.delete_workspace_mcp(id)?)
+    }
+
+    pub async fn test_mcp_connection(
+        &self,
+        config: McpServerConfig,
+    ) -> ApplicationResult<McpServerStatus> {
+        Ok(self.runtime.mcp_registry().test_connection(&config).await)
+    }
+
+    pub async fn import_mcp_configs(
+        &self,
+        workspace_id: &str,
+        json_string: &str,
+    ) -> ApplicationResult<Vec<McpServerConfig>> {
+        let configs = crate::capability_services::mcp::parse_mcp_config_json(json_string, workspace_id)
+            .map_err(ApplicationError::Validation)?;
+        let mut results = Vec::new();
+        for config in configs {
+            self.db.upsert_workspace_mcp(&config)?;
+            results.push(config);
+        }
+        Ok(results)
     }
 
     pub fn list_workspace_skills(&self, workspace_id: &str) -> ApplicationResult<Vec<SkillRecord>> {

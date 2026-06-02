@@ -304,14 +304,26 @@ export interface ExternalSession {
   // Other fields as defined by the protocol
 }
 
+export type McpTransportType = 'stdio' | 'sse' | 'http';
+
 export interface McpServerConfig {
   id: string;
-  workspace_id: string;
+  workspaceId: string;
   name: string;
+  type: McpTransportType;
   command: string;
-  args_json: any;
-  env_json: any;
+  args: string[];
+  url: string;
+  env: Record<string, string>;
+  headers: Record<string, string>;
   enabled: boolean;
+  builtin: boolean;
+}
+
+export interface AgentMcpCapabilities {
+  stdio: boolean;
+  http: boolean;
+  sse: boolean;
 }
 
 export type McpConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -329,6 +341,33 @@ export interface McpServerStatus {
   tools: McpToolInfo[];
   error_message?: string | null;
   last_updated: string;
+}
+
+// Browser Use Types
+export type BrowserState = 'stopped' | 'starting' | 'running' | 'error';
+
+export interface BrowserSessionConfig {
+  enabled: boolean;
+  headless: boolean;
+  viewport_width: number;
+  viewport_height: number;
+  browser_path?: string | null;
+  cdp_port?: number | null;
+  screenshot_interval_ms: number;
+}
+
+export interface BrowserSessionStatus {
+  state: BrowserState;
+  cdp_port?: number | null;
+  current_url?: string | null;
+  page_title?: string | null;
+  error?: string | null;
+}
+
+export interface BrowserScreenshotPayload {
+  base64_png: string;
+  url?: string | null;
+  timestamp: string;
 }
 
 export interface SkillRecord {

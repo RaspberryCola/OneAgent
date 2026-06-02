@@ -1,7 +1,7 @@
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::oneshot;
-use tracing::{info, error};
+use tracing::info;
 use crate::gateway::Gateway;
 use crate::capability_services::terminal::TerminalManager;
 use crate::channel_api::im::ImChannelManager;

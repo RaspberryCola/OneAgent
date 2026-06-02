@@ -65,7 +65,7 @@ pub fn bootstrap() -> Result<Arc<Gateway>, BootstrapError> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::fmt()
-        .with_env_filter("oneagent=debug")
+        .with_env_filter("oneagent=debug,oneagent_lib::agent_adapters::acp::parser=info")
         .init();
 
     // Handle bootstrap errors gracefully
@@ -85,6 +85,7 @@ pub fn run() {
     let terminal_manager = Arc::new(capability_services::terminal::TerminalManager::new());
     let im_manager = Arc::new(channel_api::im::ImChannelManager::new(gateway.clone()));
     let webui_manager = Arc::new(channel_api::web::manager::WebUiManager::new());
+    let browser_manager = Arc::new(capability_services::browser::BrowserManager::new());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -94,16 +95,26 @@ pub fn run() {
             terminal_manager,
             im_manager: im_manager.clone(),
             webui_manager: webui_manager.clone(),
+            browser_manager: browser_manager.clone(),
         })
         .setup(move |app| {
             let handle = app.handle().clone();
             let handle_for_emitter = handle.clone();
-            let emitter = Arc::new(move |event: &str, payload: serde_json::Value| {
+            let emitter: Arc<dyn Fn(&str, serde_json::Value) + Send + Sync> = Arc::new(move |event: &str, payload: serde_json::Value| {
                 if let Err(e) = handle_for_emitter.emit(event, payload) {
                     tracing::warn!("Failed to emit event '{}' to frontend: {}", event, e);
                 }
             });
-            managed_gateway.attach_emitter(emitter);
+            managed_gateway.attach_emitter(emitter.clone());
+
+            // Inject browser MCP provider into runtime
+            let bm_clone = browser_manager.clone();
+            managed_gateway.runtime.set_browser_mcp_provider(move || {
+                bm_clone.mcp_server_config()
+            });
+
+            // Attach event emitter to browser manager for screenshot events
+            browser_manager.attach_emitter(emitter);
 
             // Register IM event sink to the event bus
             let im_event_sink = Arc::new(channel_api::im::ImChannelEventSink::new(im_manager.clone()));
@@ -181,6 +192,8 @@ pub fn run() {
             channel_api::list_workspace_mcp,
             channel_api::upsert_workspace_mcp,
             channel_api::delete_workspace_mcp,
+            channel_api::test_mcp_connection,
+            channel_api::import_mcp_configs,
             channel_api::list_workspace_skills,
             channel_api::get_conversation_timeline,
             channel_api::get_conversation_state,
@@ -199,7 +212,20 @@ pub fn run() {
             channel_api::get_webui_enabled,
             channel_api::set_webui_enabled,
             channel_api::get_webui_password,
-            channel_api::get_webui_info
+            channel_api::get_webui_info,
+            channel_api::start_browser_session,
+            channel_api::stop_browser_session,
+            channel_api::get_browser_status,
+            channel_api::get_browser_config,
+            channel_api::save_browser_config,
+            channel_api::get_browser_mcp_config,
+            channel_api::navigate_browser,
+            channel_api::browser_click,
+            channel_api::browser_fill,
+            channel_api::browser_scroll,
+            channel_api::browser_reload,
+            channel_api::browser_go_back,
+            channel_api::browser_go_forward,
         ])
         .run(tauri::generate_context!())
         .expect("error while running OneAgent Tauri application");

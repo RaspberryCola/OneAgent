@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { AlertCircle, Menu, PanelLeftClose, PanelLeftOpen, Terminal, X } from 'lucide-react';
+import { AlertCircle, Globe, Menu, PanelLeftClose, PanelLeftOpen, Terminal, X } from 'lucide-react';
 import type * as Types from '../../lib/backend/types';
 
 interface ConversationStatus {
@@ -29,6 +29,11 @@ interface AppShellProps {
   isTerminalOpen: boolean;
   onToggleTerminal: () => void;
   terminalContent: ReactNode;
+
+  // Browser props
+  isBrowserOpen: boolean;
+  onToggleBrowser: () => void;
+  browserContent: ReactNode;
 }
 
 export function AppShell({
@@ -52,6 +57,11 @@ export function AppShell({
   isTerminalOpen,
   onToggleTerminal,
   terminalContent,
+  
+  // Browser destructuring
+  isBrowserOpen,
+  onToggleBrowser,
+  browserContent,
 }: AppShellProps) {
   return (
     <>
@@ -103,6 +113,20 @@ export function AppShell({
               </button>
             )}
 
+            {hasWorkspace && (
+              <button
+                type="button"
+                onClick={onToggleBrowser}
+                className={`md:min-h-0 min-h-[44px] p-2 shrink-0 rounded-interactive transition-colors hover:bg-light-gray/50 ${
+                  isBrowserOpen ? 'text-pure-black' : 'text-stone hover:text-pure-black'
+                }`}
+                title="Toggle browser panel"
+                aria-label="Toggle browser panel"
+              >
+                <Globe className="w-[18px] h-[18px]" />
+              </button>
+            )}
+
             {activeConversationId && (
               <button
                 type="button"
@@ -143,6 +167,7 @@ export function AppShell({
         {terminalContent}
       </main>
 
+      {browserContent}
       {workspacePanel}
     </>
   );

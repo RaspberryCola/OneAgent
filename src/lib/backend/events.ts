@@ -1,6 +1,6 @@
 import { listen } from './transport';
 import type { UnlistenFn } from './transport';
-import type { AvailableCommand, MessageProjection, ToolCallProjection, PermissionDecision, ConversationState, SessionConfigOption, AcpSessionModels, AcpSessionModeState, AgentCapabilities, PendingPermissionRequest, TerminalRecord, TaskRun, McpServerStatus } from './types';
+import type { AvailableCommand, MessageProjection, ToolCallProjection, PermissionDecision, ConversationState, SessionConfigOption, AcpSessionModels, AcpSessionModeState, AgentCapabilities, PendingPermissionRequest, TerminalRecord, TaskRun, McpServerStatus, BrowserState } from './types';
 
 // The backend now emits normalized envelopes, replacing the older raw-payload assumptions.
 
@@ -144,4 +144,26 @@ export type McpStatusChangedPayload = {
 
 export function onMcpStatusChanged(handler: (payload: McpStatusChangedPayload) => void): Promise<UnlistenFn> {
   return listen<McpStatusChangedPayload>('mcp:status_changed', (event) => handler(event.payload));
+}
+
+// Browser Use Events
+export type BrowserScreenshotPayload = {
+  base64_png: string;
+  url?: string | null;
+  timestamp: string;
+};
+
+export function onBrowserScreenshot(handler: (payload: BrowserScreenshotPayload) => void): Promise<UnlistenFn> {
+  return listen<BrowserScreenshotPayload>('browser:screenshot', (event) => handler(event.payload));
+}
+
+export type BrowserStateChangedPayload = {
+  state: BrowserState;
+  current_url?: string | null;
+  page_title?: string | null;
+  cdp_port?: number | null;
+};
+
+export function onBrowserStateChanged(handler: (payload: BrowserStateChangedPayload) => void): Promise<UnlistenFn> {
+  return listen<BrowserStateChangedPayload>('browser:state_changed', (event) => handler(event.payload));
 }

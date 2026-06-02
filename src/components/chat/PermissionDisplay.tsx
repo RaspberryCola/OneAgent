@@ -44,6 +44,19 @@ export function PermissionDisplay({ request, toolCall, requestMeta, decision }: 
 
   const toolTitle = requestMeta?.title || toolCall?.title || "Tool action";
 
+  // 去重：确保每种权限类型只显示一个选项
+  const uniqueOptions = useMemo(() => {
+    const seen = new Set<string>();
+    return options.filter((option: any) => {
+      const kind = String(option?.kind || "");
+      if (seen.has(kind)) {
+        return false;
+      }
+      seen.add(kind);
+      return true;
+    });
+  }, [options]);
+
   const optionMeta = (option: any) => {
     const kind = String(option?.kind || "");
     const baseLabel = String(option?.name || option?.label || option?.title || kind || "Confirm");
@@ -105,14 +118,14 @@ export function PermissionDisplay({ request, toolCall, requestMeta, decision }: 
           </div>
 
           {/* 第二行：操作按钮 */}
-          {options.length > 0 && (
+          {uniqueOptions.length > 0 && (
             <div className="flex gap-2 overflow-x-auto no-scrollbar">
-              {options.map((option: any, index: number) => {
+              {uniqueOptions.map((option: any, index: number) => {
                 const meta = optionMeta(option);
                 const isActive = isSubmitting === meta.decision;
                 return (
                   <button
-                    key={index}
+                    key={`${meta.decision}-${index}`}
                     onClick={() => void handleResolve(option)}
                     disabled={isResolved || !!isSubmitting}
                     className={`inline-flex items-center justify-center rounded-interactive px-3 py-1 text-[11px] font-medium transition-none cursor-pointer shrink-0 ${

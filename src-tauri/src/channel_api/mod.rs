@@ -22,6 +22,7 @@ pub struct AppState {
     pub terminal_manager: Arc<crate::capability_services::terminal::TerminalManager>,
     pub im_manager: Arc<im::ImChannelManager>,
     pub webui_manager: Arc<web::manager::WebUiManager>,
+    pub browser_manager: Arc<crate::capability_services::browser::BrowserManager>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -494,11 +495,28 @@ pub async fn create_conversation(
     state: State<'_, AppState>,
     input: CreateConversationInput,
 ) -> Result<ConversationState, BackendError> {
+    // Auto-start browser if configured and enabled
+    let browser_config_key = format!("browser_config_{}", input.workspace_id);
+    if let Ok(Some(json_str)) = state.gateway.db.get_system_setting(&browser_config_key) {
+        if let Ok(config) = serde_json::from_str::<BrowserSessionConfig>(&json_str) {
+            if config.enabled && state.browser_manager.status().state != BrowserState::Running {
+                if let Err(e) = state.browser_manager.start(config).await {
+                    tracing::warn!("Auto-start browser failed: {e}");
+                }
+                // Brief wait for browser to initialize
+                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+            }
+        }
+    }
+
     state
         .gateway
         .create_conversation(input)
         .await
-        .map_err(BackendError::from)
+        .map_err(|e| {
+            tracing::error!("create_conversation failed: {e}");
+            BackendError::from(e)
+        })
 }
 
 #[tauri::command]
@@ -686,6 +704,31 @@ pub async fn delete_workspace_mcp(
     state
         .gateway
         .delete_workspace_mcp(&config_id)
+        .map_err(BackendError::from)
+}
+
+#[tauri::command]
+pub async fn test_mcp_connection(
+    state: State<'_, AppState>,
+    config: McpServerConfig,
+) -> Result<McpServerStatus, BackendError> {
+    state
+        .gateway
+        .test_mcp_connection(config)
+        .await
+        .map_err(BackendError::from)
+}
+
+#[tauri::command]
+pub async fn import_mcp_configs(
+    state: State<'_, AppState>,
+    workspace_id: String,
+    json_string: String,
+) -> Result<Vec<McpServerConfig>, BackendError> {
+    state
+        .gateway
+        .import_mcp_configs(&workspace_id, &json_string)
+        .await
         .map_err(BackendError::from)
 }
 
@@ -891,4 +934,155 @@ pub async fn get_webui_info(
 pub struct WebUiInfo {
     pub port: u16,
     pub urls: Vec<String>,
+}
+
+// Browser Use Commands
+
+#[tauri::command]
+pub async fn start_browser_session(
+    state: State<'_, AppState>,
+    config: BrowserSessionConfig,
+) -> Result<BrowserSessionStatus, BackendError> {
+    state
+        .browser_manager
+        .start(config)
+        .await
+        .map_err(|e| BackendError::new(ErrorCode::RuntimeError, e))?;
+    Ok(state.browser_manager.status())
+}
+
+#[tauri::command]
+pub async fn stop_browser_session(
+    state: State<'_, AppState>,
+) -> Result<(), BackendError> {
+    state
+        .browser_manager
+        .stop()
+        .await
+        .map_err(|e| BackendError::new(ErrorCode::RuntimeError, e))
+}
+
+#[tauri::command]
+pub async fn get_browser_status(
+    state: State<'_, AppState>,
+) -> Result<BrowserSessionStatus, BackendError> {
+    Ok(state.browser_manager.status())
+}
+
+#[tauri::command]
+pub async fn get_browser_config(
+    state: State<'_, AppState>,
+    workspace_id: String,
+) -> Result<BrowserSessionConfig, BackendError> {
+    let key = format!("browser_config_{}", workspace_id);
+    match state.gateway.db.get_system_setting(&key) {
+        Ok(Some(json_str)) => {
+            serde_json::from_str(&json_str)
+                .map_err(|e| BackendError::new(ErrorCode::StorageError, e.to_string()))
+        }
+        _ => Ok(BrowserSessionConfig::default()),
+    }
+}
+
+#[tauri::command]
+pub async fn save_browser_config(
+    state: State<'_, AppState>,
+    workspace_id: String,
+    config: BrowserSessionConfig,
+) -> Result<(), BackendError> {
+    let key = format!("browser_config_{}", workspace_id);
+    let json_str = serde_json::to_string(&config)
+        .map_err(|e| BackendError::new(ErrorCode::StorageError, e.to_string()))?;
+    state.gateway.db.set_system_setting(&key, &json_str)
+        .map_err(|e| BackendError::new(ErrorCode::StorageError, e.to_string()))
+}
+
+#[tauri::command]
+pub async fn get_browser_mcp_config(
+    state: State<'_, AppState>,
+) -> Result<Option<McpServerConfig>, BackendError> {
+    Ok(state.browser_manager.mcp_server_config())
+}
+
+#[tauri::command]
+pub async fn navigate_browser(
+    state: State<'_, AppState>,
+    url: String,
+) -> Result<(), BackendError> {
+    state
+        .browser_manager
+        .navigate(&url)
+        .await
+        .map_err(|e| BackendError::new(ErrorCode::RuntimeError, e))
+}
+
+#[tauri::command]
+pub async fn browser_click(
+    state: State<'_, AppState>,
+    selector: String,
+) -> Result<(), BackendError> {
+    state
+        .browser_manager
+        .click(&selector)
+        .await
+        .map_err(|e| BackendError::new(ErrorCode::RuntimeError, e))
+}
+
+#[tauri::command]
+pub async fn browser_fill(
+    state: State<'_, AppState>,
+    selector: String,
+    value: String,
+) -> Result<(), BackendError> {
+    state
+        .browser_manager
+        .fill(&selector, &value)
+        .await
+        .map_err(|e| BackendError::new(ErrorCode::RuntimeError, e))
+}
+
+#[tauri::command]
+pub async fn browser_scroll(
+    state: State<'_, AppState>,
+    delta_x: i32,
+    delta_y: i32,
+) -> Result<(), BackendError> {
+    state
+        .browser_manager
+        .scroll(delta_x, delta_y)
+        .await
+        .map_err(|e| BackendError::new(ErrorCode::RuntimeError, e))
+}
+
+#[tauri::command]
+pub async fn browser_reload(
+    state: State<'_, AppState>,
+) -> Result<(), BackendError> {
+    state
+        .browser_manager
+        .reload()
+        .await
+        .map_err(|e| BackendError::new(ErrorCode::RuntimeError, e))
+}
+
+#[tauri::command]
+pub async fn browser_go_back(
+    state: State<'_, AppState>,
+) -> Result<(), BackendError> {
+    state
+        .browser_manager
+        .go_back()
+        .await
+        .map_err(|e| BackendError::new(ErrorCode::RuntimeError, e))
+}
+
+#[tauri::command]
+pub async fn browser_go_forward(
+    state: State<'_, AppState>,
+) -> Result<(), BackendError> {
+    state
+        .browser_manager
+        .go_forward()
+        .await
+        .map_err(|e| BackendError::new(ErrorCode::RuntimeError, e))
 }

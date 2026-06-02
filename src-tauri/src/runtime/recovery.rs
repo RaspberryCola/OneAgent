@@ -28,7 +28,10 @@ impl Runtime {
                 )?;
                 let workspace_id = self.db.get_conversation(conversation_id)?.workspace_id;
                 let workspace = self.db.get_workspace(&workspace_id)?;
-                let mcp_servers = self.mcp_registry.list_for_workspace(&workspace.id)?;
+                let mcp_servers = self.filter_mcp_by_agent_caps(
+                    self.resolve_mcp_servers(&workspace.id)?,
+                    &profile.capabilities_cache,
+                );
 
                 match AcpLiveSession::start_loaded(
                     profile,

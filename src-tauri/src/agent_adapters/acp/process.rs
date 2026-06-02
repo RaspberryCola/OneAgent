@@ -27,7 +27,7 @@ use crate::{
 
 use super::parser::jsonrpc_error_message;
 use super::types::{
-    jsonrpc_request, to_value_or_err, AcpClientCapabilities, AcpClientFsCapabilities,
+    to_value_or_err, AcpClientCapabilities, AcpClientFsCapabilities,
     AcpClientInfo, ACP_PROTOCOL_VERSION, FsReadTextFileParams, FsWriteTextFileParams,
     InitializeParams, TerminalCreateParams, TerminalIdParams, TerminalOutputParams,
 };
@@ -227,6 +227,9 @@ impl JsonRpcProcess {
     }
 
     /// Send a JSON-RPC request and wait for the response.
+    ///
+    /// A 120-second timeout is applied to prevent indefinite blocking
+    /// (e.g. if an MCP server fails to start during session/new).
     pub(crate) async fn request(&mut self, method: &str, params: Value) -> AdapterResult<Value> {
         let id = self.next_id();
         self.write_message(json!({
@@ -236,19 +239,33 @@ impl JsonRpcProcess {
             "params": params
         }))
         .await?;
-        loop {
-            let response = self.read_message().await?;
-            if response.get("method").and_then(Value::as_str).is_some() {
-                self.handle_client_request(&response).await?;
-                continue;
-            }
-            if response.get("id").and_then(Value::as_i64) == Some(id) {
-                if let Some(error_message) = jsonrpc_error_message(&response) {
-                    return Err(AdapterError::Protocol(format!(
-                        "{method} failed: {error_message}"
-                    )));
+        let deadline = Duration::from_secs(120);
+        let result = timeout(deadline, async {
+            loop {
+                let response = self.read_message().await?;
+                if response.get("method").and_then(Value::as_str).is_some() {
+                    self.handle_client_request(&response).await?;
+                    continue;
                 }
-                return Ok(response);
+                if response.get("id").and_then(Value::as_i64) == Some(id) {
+                    if let Some(error_message) = jsonrpc_error_message(&response) {
+                        return Err(AdapterError::Protocol(format!(
+                            "{method} failed: {error_message}"
+                        )));
+                    }
+                    return Ok(response);
+                }
+            }
+        })
+        .await;
+        match result {
+            Ok(inner) => inner,
+            Err(_elapsed) => {
+                tracing::error!("ACP request '{method}' timed out after {}s", deadline.as_secs());
+                Err(AdapterError::Protocol(format!(
+                    "{method} timed out after {}s",
+                    deadline.as_secs()
+                )))
             }
         }
     }

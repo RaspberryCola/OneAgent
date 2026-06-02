@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
-import { X, AlertCircle } from 'lucide-react';
+import { X, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
 import type * as Types from '../../lib/backend/types';
 
 interface McpServerDialogProps {
@@ -14,9 +14,14 @@ interface McpServerDialogProps {
   setArgsText: (text: string) => void;
   envText: string;
   setEnvText: (text: string) => void;
+  headersText: string;
+  setHeadersText: (text: string) => void;
   formError: string | null;
+  testResult?: { success: boolean; message: string } | null;
   onSave: () => void;
   onClose: () => void;
+  onTest?: () => void;
+  isTesting?: boolean;
 }
 
 export function McpServerDialog({
@@ -29,9 +34,14 @@ export function McpServerDialog({
   setArgsText,
   envText,
   setEnvText,
+  headersText,
+  setHeadersText,
   formError,
+  testResult,
   onSave,
   onClose,
+  onTest,
+  isTesting,
 }: McpServerDialogProps) {
   const { t } = useTranslation('settings');
 
@@ -47,11 +57,15 @@ export function McpServerDialog({
 
   if (!isOpen) return null;
 
+  const isStdio = formData.type === 'stdio';
+  const isHttp = formData.type === 'http' || formData.type === 'sse';
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
+      data-settings-child-dialog
       className="fixed inset-0 bg-pure-black/20 z-[110] flex items-center justify-center"
     >
       {/* Backdrop */}
@@ -80,7 +94,7 @@ export function McpServerDialog({
         </div>
 
         {/* Form content */}
-        <div className="px-4 py-4 space-y-3">
+        <div className="px-4 py-4 space-y-3 max-h-[60vh] overflow-y-auto">
           {/* Name */}
           <div className="flex flex-col gap-1">
             <label className="text-[10px] text-silver uppercase tracking-wider">
@@ -96,35 +110,92 @@ export function McpServerDialog({
             />
           </div>
 
-          {/* Command */}
+          {/* Transport Type */}
           <div className="flex flex-col gap-1">
             <label className="text-[10px] text-silver uppercase tracking-wider">
-              {t('mcp.command')} *
+              {t('mcp.transportType')}
             </label>
-            <input
-              type="text"
-              value={formData.command}
-              onChange={(e) => setFormData({ ...formData, command: e.target.value })}
-              placeholder="e.g. npx or uvx"
-              className="w-full px-3 py-2 border border-light-gray/60 rounded-interactive text-[13px] bg-pure-white text-pure-black focus:outline-none focus:border-pure-black transition-colors font-mono"
-            />
+            <div className="flex gap-2">
+              {(['stdio', 'sse', 'http'] as Types.McpTransportType[]).map((tt) => (
+                <button
+                  key={tt}
+                  type="button"
+                  onClick={() => setFormData({ ...formData, type: tt })}
+                  className={`flex-1 px-3 py-2 rounded-interactive text-[12px] font-medium border transition-colors ${
+                    formData.type === tt
+                      ? 'bg-pure-black text-pure-white border-pure-black'
+                      : 'bg-pure-white text-stone border-light-gray hover:border-pure-black'
+                  }`}
+                >
+                  {t(`mcp.transport${tt.charAt(0).toUpperCase() + tt.slice(1)}`)}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Args */}
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] text-silver uppercase tracking-wider">
-              {t('mcp.args')}
-            </label>
-            <textarea
-              value={argsText}
-              onChange={(e) => setArgsText(e.target.value)}
-              placeholder={t('mcp.argsPlaceholder')}
-              rows={2}
-              className="w-full px-3 py-2 border border-light-gray/60 rounded-interactive text-[12px] bg-pure-white text-pure-black focus:outline-none focus:border-pure-black transition-colors font-mono resize-none"
-            />
-          </div>
+          {/* Stdio fields */}
+          {isStdio && (
+            <>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-silver uppercase tracking-wider">
+                  {t('mcp.command')} *
+                </label>
+                <input
+                  type="text"
+                  value={formData.command}
+                  onChange={(e) => setFormData({ ...formData, command: e.target.value })}
+                  placeholder="e.g. npx or uvx"
+                  className="w-full px-3 py-2 border border-light-gray/60 rounded-interactive text-[13px] bg-pure-white text-pure-black focus:outline-none focus:border-pure-black transition-colors font-mono"
+                />
+              </div>
 
-          {/* Env */}
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-silver uppercase tracking-wider">
+                  {t('mcp.args')}
+                </label>
+                <textarea
+                  value={argsText}
+                  onChange={(e) => setArgsText(e.target.value)}
+                  placeholder={t('mcp.argsPlaceholder')}
+                  rows={2}
+                  className="w-full px-3 py-2 border border-light-gray/60 rounded-interactive text-[12px] bg-pure-white text-pure-black focus:outline-none focus:border-pure-black transition-colors font-mono resize-none"
+                />
+              </div>
+            </>
+          )}
+
+          {/* HTTP/SSE fields */}
+          {isHttp && (
+            <>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-silver uppercase tracking-wider">
+                  {t('mcp.url')} *
+                </label>
+                <input
+                  type="text"
+                  value={formData.url}
+                  onChange={(e) => setFormData({ ...formData, url: e.target.value })}
+                  placeholder={t('mcp.urlPlaceholder')}
+                  className="w-full px-3 py-2 border border-light-gray/60 rounded-interactive text-[13px] bg-pure-white text-pure-black focus:outline-none focus:border-pure-black transition-colors font-mono"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-silver uppercase tracking-wider">
+                  {t('mcp.headers')}
+                </label>
+                <textarea
+                  value={headersText}
+                  onChange={(e) => setHeadersText(e.target.value)}
+                  placeholder={t('mcp.headersPlaceholder')}
+                  rows={2}
+                  className="w-full px-3 py-2 border border-light-gray/60 rounded-interactive text-[12px] bg-pure-white text-pure-black focus:outline-none focus:border-pure-black transition-colors font-mono resize-none"
+                />
+              </div>
+            </>
+          )}
+
+          {/* Env (for all types) */}
           <div className="flex flex-col gap-1">
             <label className="text-[10px] text-silver uppercase tracking-wider">
               {t('mcp.env')}
@@ -133,7 +204,7 @@ export function McpServerDialog({
               value={envText}
               onChange={(e) => setEnvText(e.target.value)}
               placeholder={t('mcp.envPlaceholder')}
-              rows={3}
+              rows={2}
               className="w-full px-3 py-2 border border-light-gray/60 rounded-interactive text-[12px] bg-pure-white text-pure-black focus:outline-none focus:border-pure-black transition-colors font-mono resize-none"
             />
           </div>
@@ -142,6 +213,7 @@ export function McpServerDialog({
           <div className="flex items-center justify-between py-1">
             <span className="text-[13px] text-pure-black">{t('mcp.enabled')}</span>
             <button
+              type="button"
               onClick={() => setFormData({ ...formData, enabled: !formData.enabled })}
               className={`relative w-11 h-6 rounded-full transition-colors border ${
                 formData.enabled
@@ -164,6 +236,24 @@ export function McpServerDialog({
               <p className="text-[11px] text-stone">{formError}</p>
             </div>
           )}
+
+          {/* Test result */}
+          {testResult && (
+            <div className={`flex gap-2 p-2 rounded-interactive border ${
+              testResult.success
+                ? 'bg-green-50 border-green-200'
+                : 'bg-red-50 border-red-200'
+            }`}>
+              {testResult.success ? (
+                <CheckCircle2 className="w-3.5 h-3.5 text-green-600 shrink-0" />
+              ) : (
+                <XCircle className="w-3.5 h-3.5 text-red-500 shrink-0" />
+              )}
+              <p className={`text-[11px] ${testResult.success ? 'text-green-700' : 'text-red-600'}`}>
+                {testResult.message}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -174,6 +264,15 @@ export function McpServerDialog({
           >
             {t('cancel')}
           </button>
+          {onTest && (
+            <button
+              onClick={onTest}
+              disabled={isTesting}
+              className="px-4 py-2 rounded-interactive text-[13px] font-medium bg-pure-white text-pure-black hover:bg-light-gray/30 border border-light-gray transition-colors disabled:opacity-50"
+            >
+              {isTesting ? t('mcp.testing') : t('mcp.test')}
+            </button>
+          )}
           <button
             onClick={onSave}
             className="px-4 py-2 rounded-interactive text-[13px] font-medium bg-pure-black text-pure-white hover:bg-near-black transition-colors"

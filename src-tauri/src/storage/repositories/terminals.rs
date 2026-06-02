@@ -83,7 +83,7 @@ impl<'a> McpRepository<'a> {
     pub fn list_by_workspace(&self, workspace_id: &str) -> StorageResult<Vec<McpServerConfig>> {
         let conn = self.conn;
         let mut stmt = conn.prepare(
-            "SELECT id, workspace_id, name, command, args_json, env_json, enabled FROM mcp_server_configs WHERE workspace_id = ?1 ORDER BY name",
+            "SELECT id, workspace_id, name, command, args_json, env_json, enabled, transport_type, args_array, url, headers_json, builtin FROM mcp_server_configs WHERE workspace_id = ?1 ORDER BY name",
         )?;
         let rows = stmt.query_map(params![workspace_id], read_mcp)?;
         rows.collect::<Result<Vec<_>, _>>()
@@ -91,25 +91,50 @@ impl<'a> McpRepository<'a> {
     }
 
     pub fn upsert(&self, config: &McpServerConfig) -> StorageResult<()> {
+        let transport_str = match config.transport_type {
+            crate::domain::McpTransportType::Stdio => "stdio",
+            crate::domain::McpTransportType::Sse => "sse",
+            crate::domain::McpTransportType::Http => "http",
+        };
+        // For backward compat: command column stores transport type string for http/sse,
+        // or the actual command for stdio. args_json stores URL for http/sse, or args array for stdio.
+        let legacy_command = match config.transport_type {
+            crate::domain::McpTransportType::Stdio => config.command.clone(),
+            _ => transport_str.to_string(),
+        };
+        let legacy_args_json = match config.transport_type {
+            crate::domain::McpTransportType::Stdio => serde_json::to_string(&config.args).unwrap_or_else(|_| "[]".to_string()),
+            _ => config.url.clone(),
+        };
         self.conn.execute(
             r#"
-            INSERT INTO mcp_server_configs (id, workspace_id, name, command, args_json, env_json, enabled)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            INSERT INTO mcp_server_configs (id, workspace_id, name, command, args_json, env_json, enabled, transport_type, args_array, url, headers_json, builtin)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
             ON CONFLICT(id) DO UPDATE SET
               name = excluded.name,
               command = excluded.command,
               args_json = excluded.args_json,
               env_json = excluded.env_json,
-              enabled = excluded.enabled
+              enabled = excluded.enabled,
+              transport_type = excluded.transport_type,
+              args_array = excluded.args_array,
+              url = excluded.url,
+              headers_json = excluded.headers_json,
+              builtin = excluded.builtin
             "#,
             params![
                 config.id,
                 config.workspace_id,
                 config.name,
-                config.command,
-                config.args_json.to_string(),
-                config.env_json.to_string(),
-                config.enabled as i64
+                legacy_command,
+                legacy_args_json,
+                config.env.to_string(),
+                config.enabled as i64,
+                transport_str,
+                serde_json::to_string(&config.args).unwrap_or_else(|_| "[]".to_string()),
+                config.url,
+                config.headers.to_string(),
+                config.builtin as i64
             ],
         )?;
         Ok(())
