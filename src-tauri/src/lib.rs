@@ -68,6 +68,9 @@ pub fn run() {
         .with_env_filter("oneagent=debug,oneagent_lib::agent_adapters::acp::parser=info")
         .init();
 
+    // Initialize encryption key for secure storage
+    capability_services::crypto::init_encryption_key();
+
     // Handle bootstrap errors gracefully
     let gateway = match bootstrap() {
         Ok(g) => g,
@@ -107,10 +110,10 @@ pub fn run() {
             });
             managed_gateway.attach_emitter(emitter.clone());
 
-            // Inject browser MCP provider into runtime
+            // Inject browser MCP provider into runtime (always returns config, regardless of browser state)
             let bm_clone = browser_manager.clone();
             managed_gateway.runtime.set_browser_mcp_provider(move || {
-                bm_clone.mcp_server_config()
+                Some(bm_clone.mcp_server_config_always())
             });
 
             // Attach event emitter to browser manager for screenshot events
@@ -194,6 +197,9 @@ pub fn run() {
             channel_api::delete_workspace_mcp,
             channel_api::test_mcp_connection,
             channel_api::import_mcp_configs,
+            channel_api::reload_mcp_connection,
+            channel_api::reload_all_mcp_connections,
+            channel_api::get_mcp_connection_status,
             channel_api::list_workspace_skills,
             channel_api::get_conversation_timeline,
             channel_api::get_conversation_state,

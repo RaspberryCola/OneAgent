@@ -139,6 +139,7 @@ interface AppState {
   workspaces: Types.Workspace[];
   activeWorkspace: Types.Workspace | null;
   mcpServers: Types.McpServerConfig[];
+  mcpStatuses: Map<string, Types.McpServerStatus>;
   skills: Types.SkillRecord[];
   agentDiscoveryStatus: Types.AgentDiscoveryStatus[];
 
@@ -211,6 +212,11 @@ interface AppState {
   deleteMcpServer: (id: string) => Promise<void>;
   testMcpConnection: (config: Types.McpServerConfig) => Promise<Types.McpServerStatus>;
   importMcpConfigs: (jsonString: string) => Promise<void>;
+  reloadMcpConnection: (config: Types.McpServerConfig) => Promise<void>;
+  reloadAllMcpConnections: () => Promise<void>;
+  getMcpConnectionStatus: () => Promise<Types.McpServerStatus[]>;
+  updateMcpStatus: (workspaceId: string, status: Types.McpServerStatus) => void;
+  clearMcpStatuses: () => void;
 
   // Browser Use Actions
   startBrowser: (config?: Partial<Types.BrowserSessionConfig>) => Promise<void>;
@@ -239,6 +245,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   workspaces: [],
   activeWorkspace: null,
   mcpServers: [],
+  mcpStatuses: new Map(),
   skills: [],
   agentDiscoveryStatus: [],
 
@@ -336,7 +343,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       // 4. Set up event listeners
       get()._setupEventSubscriptions();
 
-      // 5. Refresh agent discovery state in the background
+      // 5. Fetch initial MCP connection status (backend auto-starts connections on bootstrap)
+      void get().getMcpConnectionStatus();
+
+      // 6. Refresh agent discovery state in the background
       void Promise.allSettled([API.listAgentProfiles(), API.listAgentDiscoveryStatus()]).then((results) => {
         const [profilesResult, discoveryResult] = results;
         set((state) => {
@@ -430,6 +440,7 @@ export const useAppStore = create<AppState>((set, get) => ({
               agentProfiles: sortedProfiles,
               discoveredSessions: bootstrapData.discovered_sessions,
               mcpServers: bootstrapData.mcp,
+              mcpStatuses: new Map(),
               skills: bootstrapData.skills,
               activeAgentProfileId:
                 selectedConversation?.agent_profile_id
@@ -437,6 +448,9 @@ export const useAppStore = create<AppState>((set, get) => ({
                 ?? state.activeAgentProfileId,
             };
           });
+
+          // Refresh MCP connection status for the newly selected workspace
+          void get().getMcpConnectionStatus();
         }
 
         const [timeline, conversationState] = await Promise.all([
@@ -1036,6 +1050,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         agentProfiles: sortedProfiles,
         discoveredSessions: bootstrapData.discovered_sessions,
         mcpServers: bootstrapData.mcp,
+        mcpStatuses: new Map(),
         skills: bootstrapData.skills,
         activeAgentProfileId: nextActiveAgentProfileId,
         activeConversationId: null,
@@ -1043,6 +1058,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         activeTimeline: null,
         activeTimelineItems: [],
       });
+
+      // Refresh MCP connection status for the new workspace
+      void get().getMcpConnectionStatus();
     } catch (error) {
       console.error('Failed to switch workspace', error);
     }
@@ -1181,6 +1199,74 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       mcpServers: [...state.mcpServers, ...imported],
     }));
+  },
+
+  reloadMcpConnection: async (config: Types.McpServerConfig): Promise<void> => {
+    try {
+      await API.reloadMcpConnection(config);
+    } catch (error) {
+      console.error('Failed to reload MCP connection', error);
+      throw error;
+    }
+  },
+
+  reloadAllMcpConnections: async (): Promise<void> => {
+    const activeWorkspaceId = get().activeWorkspace?.id;
+    if (!activeWorkspaceId) return;
+    // Optimistic update: mark all enabled servers as 'connecting'
+    set((state) => {
+      const next = new Map(state.mcpStatuses);
+      for (const server of state.mcpServers) {
+        if (server.enabled && server.workspaceId === activeWorkspaceId) {
+          const existing = next.get(server.id);
+          next.set(server.id, {
+            config_id: server.id,
+            name: server.name,
+            status: 'connecting',
+            tools: existing?.tools ?? [],
+            resources: existing?.resources ?? [],
+            prompts: existing?.prompts ?? [],
+            error_message: null,
+            server_info: existing?.server_info ?? null,
+            last_updated: new Date().toISOString(),
+          });
+        }
+      }
+      return { mcpStatuses: next };
+    });
+    try {
+      await API.reloadAllMcpConnections(activeWorkspaceId);
+    } catch (error) {
+      console.error('Failed to reload all MCP connections', error);
+      throw error;
+    }
+  },
+
+  getMcpConnectionStatus: async (): Promise<Types.McpServerStatus[]> => {
+    const activeWorkspaceId = get().activeWorkspace?.id;
+    if (!activeWorkspaceId) return [];
+    try {
+      const statuses = await API.getMcpConnectionStatus(activeWorkspaceId);
+      const map = new Map<string, Types.McpServerStatus>();
+      statuses.forEach((s) => map.set(s.config_id, s));
+      set({ mcpStatuses: map });
+      return statuses;
+    } catch (error) {
+      console.error('Failed to get MCP connection status', error);
+      return [];
+    }
+  },
+
+  updateMcpStatus: (workspaceId: string, status: Types.McpServerStatus) => {
+    set((state) => {
+      const next = new Map(state.mcpStatuses);
+      next.set(status.config_id, status);
+      return { mcpStatuses: next };
+    });
+  },
+
+  clearMcpStatuses: () => {
+    set({ mcpStatuses: new Map() });
   },
 
   // Browser Use Actions
@@ -1644,6 +1730,24 @@ export const useAppStore = create<AppState>((set, get) => ({
           browserPageTitle: payload.page_title ?? null,
           browserNavigating: false,
         });
+
+        // Delayed refresh of MCP list so the proxy has time to start/stop
+        setTimeout(() => {
+          get().refreshMcpServers();
+          get().getMcpConnectionStatus();
+        }, 800);
+      }));
+
+      // MCP status changed event subscription
+      unlistens.push(await Events.onMcpStatusChanged((payload) => {
+        if (payload.workspace_id === get().activeWorkspace?.id) {
+          get().updateMcpStatus(payload.workspace_id, payload.status);
+        }
+      }));
+
+      // MCP list changed event subscription (e.g. browser MCP toggle/start/stop)
+      unlistens.push(await Events.onMcpListChanged(() => {
+        get().refreshMcpServers();
       }));
 
       // Store all unlisten functions for cleanup

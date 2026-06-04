@@ -27,6 +27,7 @@ pub(crate) fn mcp_config_to_acp(config: &McpServerConfig) -> Value {
         McpTransportType::Stdio => "stdio",
         McpTransportType::Sse => "sse",
         McpTransportType::Http => "http",
+        McpTransportType::Acp => "acp",
     };
 
     match config.transport_type {
@@ -48,6 +49,19 @@ pub(crate) fn mcp_config_to_acp(config: &McpServerConfig) -> Value {
                 "command": config.command,
                 "args": config.args,
                 "env": env_to_acp_pairs(&config.env),
+                "headers": [],
+            })
+        }
+        McpTransportType::Acp => {
+            // MCP-over-ACP transport: the server runs in the agent's address space
+            // No command/url needed, just the server name and type
+            json!({
+                "type": "acp",
+                "name": config.name,
+                "command": "",
+                "args": [],
+                "env": [],
+                "url": "",
                 "headers": [],
             })
         }

@@ -304,7 +304,7 @@ export interface ExternalSession {
   // Other fields as defined by the protocol
 }
 
-export type McpTransportType = 'stdio' | 'sse' | 'http';
+export type McpTransportType = 'stdio' | 'sse' | 'http' | 'acp';
 
 export interface McpServerConfig {
   id: string;
@@ -318,12 +318,20 @@ export interface McpServerConfig {
   headers: Record<string, string>;
   enabled: boolean;
   builtin: boolean;
+  /** OAuth client ID for OAuth-enabled servers */
+  oauth_client_id?: string | null;
+  /** OAuth client secret for OAuth-enabled servers */
+  oauth_client_secret?: string | null;
+  /** OAuth scopes to request */
+  oauth_scopes?: string[] | null;
 }
 
 export interface AgentMcpCapabilities {
   stdio: boolean;
   http: boolean;
   sse: boolean;
+  /** MCP-over-ACP transport support */
+  acp: boolean;
 }
 
 export type McpConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -334,12 +342,40 @@ export interface McpToolInfo {
   input_schema?: any;
 }
 
+export interface McpServerInfo {
+  name: string;
+  version: string;
+  protocol_version?: string | null;
+}
+
+export interface McpResource {
+  uri: string;
+  name: string;
+  description?: string | null;
+  mime_type?: string | null;
+}
+
+export interface McpPromptArgument {
+  name: string;
+  description?: string | null;
+  required: boolean;
+}
+
+export interface McpPrompt {
+  name: string;
+  description?: string | null;
+  arguments: McpPromptArgument[];
+}
+
 export interface McpServerStatus {
   config_id: string;
   name: string;
   status: McpConnectionStatus;
   tools: McpToolInfo[];
+  resources: McpResource[];
+  prompts: McpPrompt[];
   error_message?: string | null;
+  server_info?: McpServerInfo | null;
   last_updated: string;
 }
 

@@ -241,6 +241,24 @@ impl Gateway {
             .await?)
     }
 
+    /// Reload a specific MCP server connection with updated configuration.
+    pub fn reload_mcp_connection(&self, config: McpServerConfig) -> GatewayResult<()> {
+        self.runtime.mcp_connection_manager().reload_connection(config);
+        Ok(())
+    }
+
+    /// Reload all MCP connections for a workspace.
+    pub fn reload_all_mcp_connections(&self, workspace_id: &str) -> GatewayResult<()> {
+        self.runtime.mcp_connection_manager().reload_all(workspace_id);
+        Ok(())
+    }
+
+    /// Get MCP connection status for all servers in a workspace.
+    pub fn get_mcp_connection_status(&self, workspace_id: &str) -> GatewayResult<Vec<McpServerStatus>> {
+        let _ = workspace_id;
+        Ok(self.runtime.mcp_registry().get_all_statuses())
+    }
+
     pub fn list_workspace_skills(&self, workspace_id: &str) -> GatewayResult<Vec<SkillRecord>> {
         Ok(self.app.workspaces.list_workspace_skills(workspace_id)?)
     }

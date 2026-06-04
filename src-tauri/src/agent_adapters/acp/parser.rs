@@ -180,6 +180,10 @@ pub fn parse_mcp_capabilities(result: &Value) -> Option<AgentMcpCapabilities> {
             .get("sse")
             .and_then(Value::as_bool)
             .unwrap_or(false),
+        acp: mcp_caps
+            .get("acp")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
     })
 }
 

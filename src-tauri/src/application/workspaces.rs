@@ -47,7 +47,8 @@ impl WorkspaceAppService {
         &self,
         workspace_id: &str,
     ) -> ApplicationResult<Vec<McpServerConfig>> {
-        Ok(self.db.list_workspace_mcp(workspace_id)?)
+        // Include builtin providers (e.g. Browser Use) in the list
+        Ok(self.runtime.mcp_registry().list_with_builtins(workspace_id)?)
     }
 
     pub fn upsert_workspace_mcp(
@@ -126,8 +127,11 @@ impl WorkspaceAppService {
             }
         }
 
-        let mcp = self.db.list_workspace_mcp(&input.workspace_id)?;
+        let mcp = self.list_workspace_mcp(&input.workspace_id)?;
         let skills = self.runtime.refresh_workspace_skills(&input.workspace_id)?;
+
+        // Auto-start persistent MCP connections for this workspace
+        self.runtime.start_mcp_connections(&input.workspace_id);
         let selected_agent_profile_id = input.agent_profile_id.clone().or_else(|| {
             agent_profiles
                 .iter()

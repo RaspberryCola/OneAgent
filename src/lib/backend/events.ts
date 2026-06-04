@@ -146,6 +146,10 @@ export function onMcpStatusChanged(handler: (payload: McpStatusChangedPayload) =
   return listen<McpStatusChangedPayload>('mcp:status_changed', (event) => handler(event.payload));
 }
 
+export function onMcpListChanged(handler: () => void): Promise<UnlistenFn> {
+  return listen<Record<string, never>>('mcp:list_changed', () => handler());
+}
+
 // Browser Use Events
 export type BrowserScreenshotPayload = {
   base64_png: string;

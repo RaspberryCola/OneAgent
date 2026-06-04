@@ -109,5 +109,8 @@ pub fn read_mcp(row: &Row<'_>) -> rusqlite::Result<McpServerConfig> {
         headers,
         enabled,
         builtin,
+        oauth_client_id: None,
+        oauth_client_secret: None,
+        oauth_scopes: None,
     })
 }

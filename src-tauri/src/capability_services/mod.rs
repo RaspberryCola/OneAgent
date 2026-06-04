@@ -1,6 +1,7 @@
 pub mod agent_discovery;
 pub mod agent_launch;
 pub mod browser;
+pub mod crypto;
 pub mod mcp;
 pub mod policy;
 pub mod skills;

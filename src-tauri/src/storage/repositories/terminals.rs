@@ -95,6 +95,7 @@ impl<'a> McpRepository<'a> {
             crate::domain::McpTransportType::Stdio => "stdio",
             crate::domain::McpTransportType::Sse => "sse",
             crate::domain::McpTransportType::Http => "http",
+            crate::domain::McpTransportType::Acp => "acp",
         };
         // For backward compat: command column stores transport type string for http/sse,
         // or the actual command for stdio. args_json stores URL for http/sse, or args array for stdio.

@@ -6,7 +6,7 @@ use tokio::time::{timeout, Duration};
 
 use crate::{
     agent_adapters::{acp::AcpAdapter, compat::CompatAdapter, AgentAdapter},
-    capability_services::{mcp::McpRegistry, policy::PolicyEngine, skills::SkillRegistry},
+    capability_services::{mcp::{McpConnectionManager, McpRegistry}, policy::PolicyEngine, skills::SkillRegistry},
     domain::*,
     storage::Database,
 };
@@ -54,6 +54,7 @@ pub use types::{ActiveStreamMessage, EventEmitter, ManagedSession, RuntimeError,
 pub struct Runtime {
     db: Database,
     mcp_registry: McpRegistry,
+    mcp_conn_manager: McpConnectionManager,
     skill_registry: SkillRegistry,
     policy_engine: PolicyEngine,
     pub event_bus: Arc<event_bus::EventBus>,
@@ -73,6 +74,7 @@ impl Runtime {
             }));
         }
         Self {
+            mcp_conn_manager: McpConnectionManager::new(mcp_registry.clone(), String::new()),
             mcp_registry,
             skill_registry: SkillRegistry::new(db.clone()),
             policy_engine: PolicyEngine::new(db.clone()),
@@ -96,6 +98,21 @@ impl Runtime {
     ) {
         self.mcp_registry
             .add_builtin_provider(Arc::new(provider));
+    }
+
+    /// Get a reference to the MCP connection manager.
+    pub fn mcp_connection_manager(&self) -> &McpConnectionManager {
+        &self.mcp_conn_manager
+    }
+
+    /// Start persistent connections for all enabled MCP servers in a workspace.
+    pub fn start_mcp_connections(&self, workspace_id: &str) {
+        self.mcp_conn_manager.reload_all(workspace_id);
+    }
+
+    /// Stop all persistent MCP connections.
+    pub fn stop_mcp_connections(&self) {
+        self.mcp_conn_manager.stop_all();
     }
 
     /// Set the browser MCP provider callback (convenience wrapper).
@@ -140,6 +157,7 @@ impl Runtime {
                 crate::domain::McpTransportType::Stdio => mcp_caps.stdio,
                 crate::domain::McpTransportType::Sse => mcp_caps.sse,
                 crate::domain::McpTransportType::Http => mcp_caps.http,
+                crate::domain::McpTransportType::Acp => mcp_caps.acp,
             })
             .collect()
     }

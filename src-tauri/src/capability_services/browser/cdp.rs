@@ -477,21 +477,37 @@ impl CdpClient {
             .await
             .map_err(|e| format!("CDP TCP connect failed: {e}"))?;
 
+        // Chrome's CDP HTTP server requires HTTP/1.1 (rejects HTTP/1.0).
+        // We rely on Content-Length to read the body exactly, since HTTP/1.1
+        // keep-alive means the connection won't close after the response.
         let request = format!("GET /json HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
         stream
             .write_all(request.as_bytes())
             .await
             .map_err(|e| format!("CDP HTTP write failed: {e}"))?;
 
-        // Use a timeout for the entire response reading to avoid hanging
+        // Use a short timeout for the response to avoid hanging during Chrome startup.
+        // The caller retries rapidly, so a 5s timeout is sufficient.
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             let mut reader = BufReader::new(stream);
 
-            // Read status line + headers until empty line. We don't need any
-            // header values; the body is everything after the `\r\n\r\n`
-            // separator, regardless of `Content-Length` or chunked encoding.
-            let mut header_buf = Vec::new();
+            // Read status line, parsing HTTP status code.
             let mut line = String::new();
+            let bytes_read = reader
+                .read_line(&mut line)
+                .await
+                .map_err(|e| format!("CDP HTTP read failed: {e}"))?;
+            if bytes_read == 0 {
+                return Err("CDP HTTP: connection closed before status line".to_string());
+            }
+            // Expect "HTTP/1.1 200 OK\r\n" or similar; reject non-200 early.
+            if !line.contains(" 200 ") {
+                return Err(format!("CDP HTTP unexpected status: {}", line.trim()));
+            }
+
+            // Read headers, parsing Content-Length (required since HTTP/1.1
+            // keep-alive means read_to_end would block forever).
+            let mut content_length: Option<usize> = None;
             loop {
                 line.clear();
                 let bytes_read = reader
@@ -501,17 +517,26 @@ impl CdpClient {
                 if bytes_read == 0 {
                     break;
                 }
-                header_buf.extend_from_slice(line.as_bytes());
                 if line == "\r\n" || line == "\n" {
                     break;
                 }
+                // Parse Content-Length header (case-insensitive)
+                if line.len() > 15 {
+                    let (name, rest) = line.split_at(14);
+                    if name.eq_ignore_ascii_case("content-length") && rest.starts_with(':') {
+                        if let Ok(len) = rest[1..].trim().parse::<usize>() {
+                            content_length = Some(len);
+                        }
+                    }
+                }
             }
 
-            // Whatever remains in the stream is the body. `Connection: close`
-            // guarantees EOF after the response.
-            let mut body_buf = Vec::new();
+            // Read exactly Content-Length bytes for the body.
+            let content_length = content_length
+                .ok_or_else(|| "CDP HTTP /json response missing Content-Length header".to_string())?;
+            let mut body_buf = vec![0u8; content_length];
             reader
-                .read_to_end(&mut body_buf)
+                .read_exact(&mut body_buf)
                 .await
                 .map_err(|e| format!("CDP HTTP body read failed: {e}"))?;
 
@@ -606,8 +631,8 @@ mod tests {
             "webSocketDebuggerUrl": "ws://h/p"
         }]"#;
         let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nX-Custom: a\r\nX-Other: b\r\nConnection: close\r\n\r\n{}",
-            body
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nX-Custom: a\r\nX-Other: b\r\nConnection: close\r\n\r\n{}",
+            body.len(), body
         );
         let ws_url = run_discover_against(response)
             .await
@@ -625,8 +650,8 @@ mod tests {
             "webSocketDebuggerUrl": "ws://127.0.0.1:19222/devtools/browser/sw1"
         }]"#;
         let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{}",
-            body
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(), body
         );
         let ws_url = run_discover_against(response)
             .await
@@ -636,11 +661,35 @@ mod tests {
 
     #[tokio::test]
     async fn discover_ws_url_empty_targets() {
-        let response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n[]".to_string();
+        let body = "[]";
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(), body
+        );
         let err = run_discover_against(response)
             .await
             .expect_err("discover should fail when no targets exist");
         assert!(err.contains("No CDP target"), "unexpected error: {err}");
+    }
+
+    #[tokio::test]
+    async fn discover_ws_url_missing_content_length() {
+        // Without Content-Length the parser should return a clear error
+        // rather than hanging on read_to_end.
+        let response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n[]".to_string();
+        let err = run_discover_against(response)
+            .await
+            .expect_err("discover should fail without Content-Length");
+        assert!(err.contains("Content-Length"), "unexpected error: {err}");
+    }
+
+    #[tokio::test]
+    async fn discover_ws_url_non_200_status() {
+        let response = "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n".to_string();
+        let err = run_discover_against(response)
+            .await
+            .expect_err("discover should fail with non-200 status");
+        assert!(err.contains("unexpected status"), "unexpected error: {err}");
     }
 
     #[tokio::test]

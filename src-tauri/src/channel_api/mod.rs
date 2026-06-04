@@ -690,6 +690,30 @@ pub async fn upsert_workspace_mcp(
     state: State<'_, AppState>,
     config: McpServerConfig,
 ) -> Result<McpServerConfig, BackendError> {
+    // Handle builtin MCP: only toggle enabled state (cannot be edited or deleted)
+    if config.builtin {
+        state.gateway.runtime.mcp_registry()
+            .set_builtin_enabled(&config.id, config.enabled)
+            .map_err(|e| BackendError::new(ErrorCode::RuntimeError, e.to_string()))?;
+
+        if config.enabled {
+            // Enable: reload all connections so the builtin provider is picked up
+            state.gateway.reload_all_mcp_connections(&config.workspace_id)
+                .map_err(|e| BackendError::new(ErrorCode::RuntimeError, e.to_string()))?;
+        } else {
+            // Disable: stop the specific connection
+            state.gateway.runtime.mcp_connection_manager()
+                .stop_connection(&config.id);
+        }
+
+        // Notify frontend to refresh MCP list
+        state.gateway.runtime.event_bus.broadcast(
+            "mcp:list_changed",
+            &serde_json::json!({}),
+        );
+        return Ok(config);
+    }
+
     state
         .gateway
         .upsert_workspace_mcp(config)
@@ -729,6 +753,39 @@ pub async fn import_mcp_configs(
         .gateway
         .import_mcp_configs(&workspace_id, &json_string)
         .await
+        .map_err(BackendError::from)
+}
+
+#[tauri::command]
+pub async fn reload_mcp_connection(
+    state: State<'_, AppState>,
+    config: McpServerConfig,
+) -> Result<(), BackendError> {
+    state
+        .gateway
+        .reload_mcp_connection(config)
+        .map_err(BackendError::from)
+}
+
+#[tauri::command]
+pub async fn reload_all_mcp_connections(
+    state: State<'_, AppState>,
+    workspace_id: String,
+) -> Result<(), BackendError> {
+    state
+        .gateway
+        .reload_all_mcp_connections(&workspace_id)
+        .map_err(BackendError::from)
+}
+
+#[tauri::command]
+pub async fn get_mcp_connection_status(
+    state: State<'_, AppState>,
+    workspace_id: String,
+) -> Result<Vec<McpServerStatus>, BackendError> {
+    state
+        .gateway
+        .get_mcp_connection_status(&workspace_id)
         .map_err(BackendError::from)
 }
 

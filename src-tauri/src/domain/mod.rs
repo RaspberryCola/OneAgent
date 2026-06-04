@@ -423,6 +423,8 @@ pub enum McpTransportType {
     Stdio,
     Sse,
     Http,
+    /// MCP-over-ACP transport
+    Acp,
 }
 
 impl Default for McpTransportType {
@@ -460,6 +462,15 @@ pub struct McpServerConfig {
     /// Built-in servers cannot be edited or deleted by users
     #[serde(default)]
     pub builtin: bool,
+    /// OAuth client ID for OAuth-enabled servers
+    #[serde(default)]
+    pub oauth_client_id: Option<String>,
+    /// OAuth client secret for OAuth-enabled servers
+    #[serde(default)]
+    pub oauth_client_secret: Option<String>,
+    /// OAuth scopes to request
+    #[serde(default)]
+    pub oauth_scopes: Option<Vec<String>>,
 }
 
 impl McpServerConfig {
@@ -491,12 +502,46 @@ pub struct McpToolInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpServerInfo {
+    pub name: String,
+    pub version: String,
+    pub protocol_version: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpResource {
+    pub uri: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub mime_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpPrompt {
+    pub name: String,
+    pub description: Option<String>,
+    pub arguments: Vec<McpPromptArgument>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpPromptArgument {
+    pub name: String,
+    pub description: Option<String>,
+    pub required: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpServerStatus {
     pub config_id: String,
     pub name: String,
     pub status: McpConnectionStatus,
     pub tools: Vec<McpToolInfo>,
+    #[serde(default)]
+    pub resources: Vec<McpResource>,
+    #[serde(default)]
+    pub prompts: Vec<McpPrompt>,
     pub error_message: Option<String>,
+    pub server_info: Option<McpServerInfo>,
     pub last_updated: DateTime<Utc>,
 }
 
@@ -689,6 +734,9 @@ pub struct AgentMcpCapabilities {
     pub http: bool,
     #[serde(default)]
     pub sse: bool,
+    /// MCP-over-ACP transport support
+    #[serde(default)]
+    pub acp: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

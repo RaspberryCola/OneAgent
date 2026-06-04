@@ -13,7 +13,7 @@ use crate::{
     agent_adapters::{AdapterError, AdapterResult, AgentSessionHandle, RuntimeStreamEvent},
     domain::{
         AcpSessionModeState, AcpSessionModels, AgentProfile, AttachmentInput, McpServerConfig,
-        PermissionDecisionKind, PermissionOptionKind, SessionConfigOption,
+        McpTransportType, PermissionDecisionKind, PermissionOptionKind, SessionConfigOption,
     },
     storage::mappers::enum_text,
 };
@@ -500,6 +500,7 @@ const LIVE_SESSION_CHANNEL_CAPACITY: usize = 64;
 fn spawn_live_actor(process: JsonRpcProcess, handle: AgentSessionHandle) -> AcpLiveSession {
     let (command_tx, mut command_rx) = mpsc::channel(LIVE_SESSION_CHANNEL_CAPACITY);
     let live_handle = handle.clone();
+    let mcp_acp_manager = crate::capability_services::mcp::McpAcpManager::new();
     tokio::spawn(async move {
         let mut process = process;
         while let Some(command) = command_rx.recv().await {
@@ -515,6 +516,7 @@ fn spawn_live_actor(process: JsonRpcProcess, handle: AgentSessionHandle) -> AcpL
                         prompt,
                         &event_tx,
                         &mut command_rx,
+                        &mcp_acp_manager,
                     )
                     .await;
                     let _ = completion_tx.send(result);
@@ -632,6 +634,7 @@ async fn run_turn_loop(
     prompt: Vec<Value>,
     event_tx: &mpsc::UnboundedSender<RuntimeStreamEvent>,
     command_rx: &mut mpsc::Receiver<LiveSessionCommand>,
+    mcp_acp_manager: &crate::capability_services::mcp::McpAcpManager,
 ) -> AdapterResult<()> {
     let turn_id = Uuid::new_v4().to_string();
     process.bind_turn(&turn_id, event_tx);
@@ -798,6 +801,90 @@ async fn run_turn_loop(
                                 let _ = event_tx.send(RuntimeStreamEvent::Error {
                                     message: "failed to parse permission request from agent".to_string(),
                                 });
+                            }
+                        }
+                        "mcp/connect" => {
+                            // Handle MCP-over-ACP connect message
+                            let params = message.get("params").cloned().unwrap_or(Value::Null);
+                            let acp_id = params.get("acpId").and_then(Value::as_str).unwrap_or("");
+                            
+                            // Find the MCP server config for this ACP ID
+                            // For now, we create a placeholder config
+                            // In a real implementation, we would look up the config from the registry
+                            let config = McpServerConfig {
+                                id: acp_id.to_string(),
+                                workspace_id: String::new(),
+                                name: acp_id.to_string(),
+                                transport_type: McpTransportType::Acp,
+                                command: String::new(),
+                                args: vec![],
+                                url: String::new(),
+                                env: serde_json::json!({}),
+                                headers: serde_json::json!({}),
+                                enabled: true,
+                                builtin: false,
+                                oauth_client_id: None,
+                                oauth_client_secret: None,
+                                oauth_scopes: None,
+                            };
+                            
+                            // Generate a connection ID
+                            let connection_id = Uuid::new_v4().to_string();
+                            
+                            // Register the connection
+                            mcp_acp_manager.connect(connection_id.clone(), config);
+                            
+                            // Send response with connection ID
+                            if let Some(id) = message.get("id").cloned() {
+                                process
+                                    .write_message(json!({
+                                        "jsonrpc": "2.0",
+                                        "id": id,
+                                        "result": {
+                                            "connectionId": connection_id
+                                        }
+                                    }))
+                                    .await?;
+                            }
+                        }
+                        "mcp/message" => {
+                            // Handle MCP-over-ACP message
+                            let params = message.get("params").cloned().unwrap_or(Value::Null);
+                            let connection_id = params.get("connectionId").and_then(Value::as_str).unwrap_or("");
+                            let mcp_method = params.get("method").and_then(Value::as_str).unwrap_or("");
+                            let mcp_params = params.get("params").cloned().unwrap_or(Value::Null);
+                            
+                            // Route the message to the MCP server
+                            mcp_acp_manager.handle_message(connection_id, mcp_method, &mcp_params);
+                            
+                            // Send response
+                            if let Some(id) = message.get("id").cloned() {
+                                process
+                                    .write_message(json!({
+                                        "jsonrpc": "2.0",
+                                        "id": id,
+                                        "result": {}
+                                    }))
+                                    .await?;
+                            }
+                        }
+                        "mcp/disconnect" => {
+                            // Handle MCP-over-ACP disconnect message
+                            let params = message.get("params").cloned().unwrap_or(Value::Null);
+                            let connection_id = params.get("connectionId").and_then(Value::as_str).unwrap_or("");
+                            
+                            // Unregister the connection
+                            mcp_acp_manager.disconnect(connection_id);
+                            
+                            // Send response
+                            if let Some(id) = message.get("id").cloned() {
+                                process
+                                    .write_message(json!({
+                                        "jsonrpc": "2.0",
+                                        "id": id,
+                                        "result": {}
+                                    }))
+                                    .await?;
                             }
                         }
                         _ => {

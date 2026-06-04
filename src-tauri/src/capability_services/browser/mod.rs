@@ -19,9 +19,7 @@ struct BrowserInner {
     state: BrowserState,
     config: Option<BrowserSessionConfig>,
     chromium_process: Option<Child>,
-    mcp_process: Option<Child>,
     cdp_port: Option<u16>,
-    mcp_proxy_port: Option<u16>,
     current_url: Option<String>,
     page_title: Option<String>,
     error: Option<String>,
@@ -37,9 +35,7 @@ impl BrowserManager {
                 state: BrowserState::Stopped,
                 config: None,
                 chromium_process: None,
-                mcp_process: None,
                 cdp_port: None,
-                mcp_proxy_port: None,
                 current_url: None,
                 page_title: None,
                 error: None,
@@ -65,26 +61,82 @@ impl BrowserManager {
         }
     }
 
-    /// Generate the MCP server config for chrome-devtools-mcp pointing to our browser
+    /// Generate the MCP server config for chrome-devtools-mcp pointing to our browser.
+    /// Uses stdio transport — the MCP manager spawns chrome-devtools-mcp directly
+    /// (no HTTP proxy needed, since rmcp does not support the legacy SSE protocol
+    /// that mcp-proxy exposes).
     pub fn mcp_server_config(&self) -> Option<crate::domain::McpServerConfig> {
         let inner = self.inner.read();
         if inner.state != BrowserState::Running {
             return None;
         }
-        let mcp_proxy_port = inner.mcp_proxy_port?;
+        let cdp_port = inner.cdp_port?;
         Some(crate::domain::McpServerConfig {
             id: "browser-use-internal".to_string(),
             workspace_id: String::new(),
             name: "Browser Use".to_string(),
-            transport_type: crate::domain::McpTransportType::Sse,
-            command: String::new(),
-            args: vec![],
-            url: format!("http://127.0.0.1:{mcp_proxy_port}/sse"),
+            transport_type: crate::domain::McpTransportType::Stdio,
+            command: "npx".to_string(),
+            args: vec![
+                "-y".to_string(),
+                "chrome-devtools-mcp@latest".to_string(),
+                "--browser-url".to_string(),
+                format!("http://127.0.0.1:{cdp_port}"),
+            ],
+            url: String::new(),
             env: serde_json::json!({}),
             headers: serde_json::json!({}),
             enabled: true,
             builtin: true,
+            oauth_client_id: None,
+            oauth_client_secret: None,
+            oauth_scopes: None,
         })
+    }
+
+    /// Always returns a config for the browser MCP, regardless of browser state.
+    /// `enabled` reflects the actual running state so that `resolve_all()` (for
+    /// agent usage) only includes the browser MCP when it's truly available.
+    pub fn mcp_server_config_always(&self) -> crate::domain::McpServerConfig {
+        let inner = self.inner.read();
+        let cdp_port = inner.cdp_port;
+        let is_running = inner.state == BrowserState::Running;
+
+        let args = if is_running && cdp_port.is_some() {
+            vec![
+                "-y".to_string(),
+                "chrome-devtools-mcp@latest".to_string(),
+                "--browser-url".to_string(),
+                format!("http://127.0.0.1:{}", cdp_port.unwrap()),
+            ]
+        } else {
+            vec![
+                "-y".to_string(),
+                "chrome-devtools-mcp@latest".to_string(),
+                "--browser-url".to_string(),
+                "http://127.0.0.1:0".to_string(),
+            ]
+        };
+
+        crate::domain::McpServerConfig {
+            id: "browser-use-internal".to_string(),
+            workspace_id: String::new(),
+            name: "Browser Use".to_string(),
+            transport_type: crate::domain::McpTransportType::Stdio,
+            command: "npx".to_string(),
+            args,
+            url: String::new(),
+            env: serde_json::json!({}),
+            headers: serde_json::json!({}),
+            // When not running, mark as disabled so resolve_all() skips it
+            // for agent tool injection. list_with_builtins() overrides this
+            // with the user's system_settings preference for the UI.
+            enabled: is_running,
+            builtin: true,
+            oauth_client_id: None,
+            oauth_client_secret: None,
+            oauth_scopes: None,
+        }
     }
 
     /// Start browser session with given config
@@ -160,6 +212,10 @@ impl BrowserManager {
             inner.config = Some(config.clone());
         }
 
+        // Give Chrome a moment to fully initialize its CDP HTTP server
+        // before the first connection attempt (avoids long HTTP timeouts).
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+
         // Create persistent CDP client and connect
         tracing::info!("Browser: connecting to CDP on port {cdp_port}");
         let cdp_client = CdpClient::new(cdp_port);
@@ -170,18 +226,21 @@ impl BrowserManager {
                     tracing::info!("Browser: CDP connected successfully on port {cdp_port}");
                     break;
                 }
-                Err(e) if retries < 30 => {
+                Err(e) if retries < 60 => {
                     retries += 1;
                     if retries <= 3 || retries % 10 == 0 {
-                        tracing::warn!("Browser: CDP connect attempt {retries}/30 failed: {e}");
+                        tracing::warn!("Browser: CDP connect attempt {retries}/60 failed: {e}");
                     }
-                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                    // Progressive delay: longer at first (Chrome may be slow to start),
+                    // then shorter once we know TCP is available.
+                    let delay_ms = if retries <= 5 { 500 } else { 200 };
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
                 }
                 Err(e) => {
-                    tracing::error!("Browser: CDP connect failed after 30 retries: {e}");
+                    tracing::error!("Browser: CDP connect failed after 60 retries: {e}");
                     self.cleanup().await;
                     self.set_state(BrowserState::Error, None, Some(format!("CDP not ready: {e}")));
-                    return Err(format!("Chrome CDP not ready after 6s: {e}"));
+                    return Err(format!("Chrome CDP not ready: {e}"));
                 }
             }
         }
@@ -259,31 +318,8 @@ impl BrowserManager {
             inner.screenshot_task_handle = Some(handle);
         }
 
-        // Start mcp-proxy to bridge chrome-devtools-mcp stdio to HTTP/SSE
-        let mcp_proxy_port = find_available_port(19300).await
-            .ok_or_else(|| "No available port for MCP proxy (tried 10 ports)".to_string())?;
-
-        let mcp_proxy = Command::new("npx")
-            .args([
-                "-y", "mcp-proxy",
-                "--port", &mcp_proxy_port.to_string(),
-                "--",
-                "npx", "-y", "chrome-devtools-mcp@latest",
-                "--browser-url",
-                &format!("http://127.0.0.1:{cdp_port}"),
-            ])
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|e| format!("Failed to spawn mcp-proxy: {e}"))?;
-
-        {
-            let mut inner = self.inner.write();
-            inner.mcp_process = Some(mcp_proxy);
-            inner.mcp_proxy_port = Some(mcp_proxy_port);
-        }
-
         self.set_state(BrowserState::Running, None, None);
-        tracing::info!("Browser session started on CDP port {cdp_port}, MCP proxy on port {mcp_proxy_port}");
+        tracing::info!("Browser session started on CDP port {cdp_port}");
         Ok(())
     }
 
@@ -400,22 +436,18 @@ impl BrowserManager {
     }
 
     async fn cleanup(&self) {
-        let (screenshot_handle, mut chromium, mut mcp) = {
+        let (screenshot_handle, mut chromium) = {
             let mut inner = self.inner.write();
             let handle = inner.screenshot_task_handle.take();
             let chromium = inner.chromium_process.take();
-            let mcp = inner.mcp_process.take();
             inner.cdp_client = None;
-            (handle, chromium, mcp)
+            (handle, chromium)
         };
 
         if let Some(h) = screenshot_handle {
             h.abort();
         }
         if let Some(ref mut child) = chromium {
-            let _ = child.kill().await;
-        }
-        if let Some(ref mut child) = mcp {
             let _ = child.kill().await;
         }
     }
@@ -440,6 +472,8 @@ impl BrowserManager {
 
         if let Some(emitter) = emitter {
             emitter("browser:state_changed", state_payload);
+            // Notify frontend to refresh MCP list (browser state affects MCP availability)
+            emitter("mcp:list_changed", serde_json::json!({}));
         }
     }
 }

@@ -161,6 +161,18 @@ export async function importMcpConfigs(workspaceId: string, jsonString: string):
   return invoke('import_mcp_configs', { workspaceId, jsonString });
 }
 
+export async function reloadMcpConnection(config: Types.McpServerConfig): Promise<void> {
+  return invoke('reload_mcp_connection', { config });
+}
+
+export async function reloadAllMcpConnections(workspaceId: string): Promise<void> {
+  return invoke('reload_all_mcp_connections', { workspaceId });
+}
+
+export async function getMcpConnectionStatus(workspaceId: string): Promise<Types.McpServerStatus[]> {
+  return invoke('get_mcp_connection_status', { workspaceId });
+}
+
 export async function listWorkspaceSkills(workspaceId: string): Promise<Types.SkillRecord[]> {
   return invoke('list_workspace_skills', { workspaceId });
 }
