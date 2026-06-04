@@ -1277,7 +1277,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         headless: true,
         viewport_width: 1280,
         viewport_height: 720,
-        screenshot_interval_ms: 1000,
+        enable_screenshots: false,
+        screenshot_interval_ms: 5000,
       };
       const config = { ...baseConfig, ...configOverrides, enabled: true };
       set({ browserStatus: { state: 'starting' } });

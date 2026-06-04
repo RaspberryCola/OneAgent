@@ -114,7 +114,12 @@
     "noDescription": "无描述",
     "noToolsDiscovered": "未发现工具（需要完整 MCP 连接才能发现工具）",
     "headersInvalid": "HTTP 头必须是有效的 JSON 对象",
-    "disableConfirm": "禁用？"
+    "disableConfirm": "禁用？",
+    "builtinTab": "内置",
+    "customTab": "自定义",
+    "noBuiltinServers": "暂无内置 MCP 服务器",
+    "noCustomServers": "未配置自定义 MCP 服务器",
+    "noCustomServersDesc": "点击\"添加服务器\"添加一个。"
   },
   "cancel": "取消",
   "save": "保存",
@@ -165,7 +170,9 @@
     "cdpPortConfig": "CDP 端口（可选）",
     "cdpPortPlaceholder": "自动分配（默认：19222）",
     "screenshotInterval": "截图间隔（毫秒）",
-    "screenshotIntervalDesc": "截图捕获频率（500-5000ms）",
+    "screenshotIntervalDesc": "截图捕获频率（2000-10000ms）",
+    "enableScreenshots": "启用截图",
+    "enableScreenshotsDesc": "定时捕获浏览器截图用于预览。关闭可降低 CPU 占用。",
     "saveConfig": "保存配置",
     "saving": "保存中...",
     "noWorkspace": "未选择工作区"

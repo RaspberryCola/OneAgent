@@ -102,7 +102,7 @@ export function McpServerDialog({
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
         transition={{ duration: 0.15 }}
-        className="relative z-10 w-full max-w-md bg-pure-white rounded-container border border-light-gray shadow-lg overflow-hidden"
+        className="relative z-10 w-full max-w-lg bg-pure-white rounded-container border border-light-gray shadow-lg overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -126,7 +126,7 @@ export function McpServerDialog({
           {/* Transport Type */}
           <div className="flex flex-col gap-1">
             <FieldLabel>{t('mcp.transportType')}</FieldLabel>
-            <div className="grid grid-cols-4 gap-1.5">
+            <div className="flex gap-1 bg-snow rounded-interactive p-1 w-fit">
               {TRANSPORT_OPTIONS.map((opt) => {
                 const Icon = opt.icon;
                 const selected = formData.type === opt.key;
@@ -135,8 +135,10 @@ export function McpServerDialog({
                     key={opt.key}
                     type="button"
                     onClick={() => setFormData({ ...formData, type: opt.key })}
-                    className={`flex flex-col items-center gap-1 px-2 py-2 rounded-interactive text-[10px] font-medium border transition-colors ${
-                      selected ? 'bg-pure-black text-pure-white border-pure-black' : 'bg-pure-white text-stone border-light-gray hover:border-pure-black'
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-interactive transition-colors ${
+                      selected
+                        ? 'bg-light-gray text-near-black'
+                        : 'bg-transparent text-stone hover:text-pure-black'
                     }`}
                   >
                     <Icon className="w-3.5 h-3.5" />
@@ -147,101 +149,104 @@ export function McpServerDialog({
             </div>
           </div>
 
-          {/* Stdio fields */}
-          {isStdio && (
-            <>
-              <div className="flex flex-col gap-1">
-                <FieldLabel required>{t('mcp.command')}</FieldLabel>
-                <input type="text" value={formData.command} onChange={(e) => setFormData({ ...formData, command: e.target.value })} placeholder="e.g. npx or uvx" className={monoFieldCls} />
-              </div>
-              <div className="flex flex-col gap-1">
-                <FieldLabel>{t('mcp.args')}</FieldLabel>
-                <textarea
-                  value={argsText}
-                  onChange={(e) => { setArgsText(e.target.value); validateJson(e.target.value, setArgsValid); }}
-                  placeholder={t('mcp.argsPlaceholder')}
-                  rows={2}
-                  className={`${monoFieldCls} resize-none ${argsValid ? '' : 'border-rose-300 focus:border-rose-500'}`}
-                />
-                {!argsValid && (
-                  <p className="text-[10px] text-rose-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{t('mcp.argsInvalid')}</p>
-                )}
-              </div>
-            </>
-          )}
+          {/* Transport Configuration Box */}
+          <div className="border border-light-gray/60 rounded-container bg-pure-white p-3 space-y-3">
+            {/* Stdio fields */}
+            {isStdio && (
+              <>
+                <div className="flex flex-col gap-1">
+                  <FieldLabel required>{t('mcp.command')}</FieldLabel>
+                  <input type="text" value={formData.command} onChange={(e) => setFormData({ ...formData, command: e.target.value })} placeholder="e.g. npx or uvx" className={monoFieldCls} />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <FieldLabel>{t('mcp.args')}</FieldLabel>
+                  <textarea
+                    value={argsText}
+                    onChange={(e) => { setArgsText(e.target.value); validateJson(e.target.value, setArgsValid); }}
+                    placeholder={t('mcp.argsPlaceholder')}
+                    rows={2}
+                    className={`${monoFieldCls} resize-none ${argsValid ? '' : 'border-rose-300 focus:border-rose-500'}`}
+                  />
+                  {!argsValid && (
+                    <p className="text-[10px] text-rose-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{t('mcp.argsInvalid')}</p>
+                  )}
+                </div>
+              </>
+            )}
 
-          {/* HTTP/SSE fields */}
-          {isHttp && (
-            <>
-              <div className="flex flex-col gap-1">
-                <FieldLabel required>{t('mcp.url')}</FieldLabel>
-                <input type="text" value={formData.url} onChange={(e) => setFormData({ ...formData, url: e.target.value })} placeholder={t('mcp.urlPlaceholder')} className={monoFieldCls} />
-              </div>
-              <div className="flex flex-col gap-1">
-                <FieldLabel>{t('mcp.headers')}</FieldLabel>
-                <textarea
-                  value={headersText}
-                  onChange={(e) => { setHeadersText(e.target.value); validateJson(e.target.value, setHeadersValid); }}
-                  placeholder={t('mcp.headersPlaceholder')}
-                  rows={2}
-                  className={`${monoFieldCls} resize-none ${headersValid ? '' : 'border-rose-300 focus:border-rose-500'}`}
-                />
-                {!headersValid && (
-                  <p className="text-[10px] text-rose-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{t('mcp.headersInvalid')}</p>
-                )}
-              </div>
-            </>
-          )}
+            {/* HTTP/SSE fields */}
+            {isHttp && (
+              <>
+                <div className="flex flex-col gap-1">
+                  <FieldLabel required>{t('mcp.url')}</FieldLabel>
+                  <input type="text" value={formData.url} onChange={(e) => setFormData({ ...formData, url: e.target.value })} placeholder={t('mcp.urlPlaceholder')} className={monoFieldCls} />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <FieldLabel>{t('mcp.headers')}</FieldLabel>
+                  <textarea
+                    value={headersText}
+                    onChange={(e) => { setHeadersText(e.target.value); validateJson(e.target.value, setHeadersValid); }}
+                    placeholder={t('mcp.headersPlaceholder')}
+                    rows={2}
+                    className={`${monoFieldCls} resize-none ${headersValid ? '' : 'border-rose-300 focus:border-rose-500'}`}
+                  />
+                  {!headersValid && (
+                    <p className="text-[10px] text-rose-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{t('mcp.headersInvalid')}</p>
+                  )}
+                </div>
+              </>
+            )}
 
-          {/* ACP fields */}
-          {isAcp && (
-            <>
-              <div className="flex flex-col gap-1">
-                <FieldLabel>{t('mcp.agentId')}</FieldLabel>
-                <input type="text" value={formData.url} onChange={(e) => setFormData({ ...formData, url: e.target.value })} placeholder={t('mcp.agentIdPlaceholder')} className={monoFieldCls} />
-              </div>
-              <div className="px-3 py-2 rounded-interactive bg-amber-50 border border-amber-200">
-                <p className="text-[11px] text-amber-800 leading-relaxed">{t('mcp.acpDescriptionText')}</p>
-              </div>
-            </>
-          )}
+            {/* ACP fields */}
+            {isAcp && (
+              <>
+                <div className="flex flex-col gap-1">
+                  <FieldLabel>{t('mcp.agentId')}</FieldLabel>
+                  <input type="text" value={formData.url} onChange={(e) => setFormData({ ...formData, url: e.target.value })} placeholder={t('mcp.agentIdPlaceholder')} className={monoFieldCls} />
+                </div>
+                <div className="px-3 py-2 rounded-interactive bg-amber-50 border border-amber-200">
+                  <p className="text-[11px] text-amber-800 leading-relaxed">{t('mcp.acpDescriptionText')}</p>
+                </div>
+              </>
+            )}
 
-          {/* Env */}
-          <div className="flex flex-col gap-1">
-            <FieldLabel>{t('mcp.env')}</FieldLabel>
-            <textarea
-              value={envText}
-              onChange={(e) => { setEnvText(e.target.value); validateJson(e.target.value, setEnvValid); }}
-              placeholder={t('mcp.envPlaceholder')}
-              rows={2}
-              className={`${monoFieldCls} resize-none ${envValid ? '' : 'border-rose-300 focus:border-rose-500'}`}
-            />
-            {!envValid && (
-              <p className="text-[10px] text-rose-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{t('mcp.envInvalid')}</p>
+            {/* Env */}
+            <div className="flex flex-col gap-1">
+              <FieldLabel>{t('mcp.env')}</FieldLabel>
+              <textarea
+                value={envText}
+                onChange={(e) => { setEnvText(e.target.value); validateJson(e.target.value, setEnvValid); }}
+                placeholder={t('mcp.envPlaceholder')}
+                rows={2}
+                className={`${monoFieldCls} resize-none ${envValid ? '' : 'border-rose-300 focus:border-rose-500'}`}
+              />
+              {!envValid && (
+                <p className="text-[10px] text-rose-500 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{t('mcp.envInvalid')}</p>
+              )}
+            </div>
+
+            {/* OAuth Configuration (for HTTP/SSE) */}
+            {isHttp && (
+              <div className="space-y-2 pt-2 border-t border-light-gray/30">
+                <span className="text-[10px] text-silver font-medium uppercase tracking-wider">OAuth 2.1</span>
+                <div className="flex flex-col gap-1">
+                  <FieldLabel>{t('mcp.oauthClientId')}</FieldLabel>
+                  <input type="text" value={formData.oauth_client_id || ''} onChange={(e) => setFormData({ ...formData, oauth_client_id: e.target.value || null })} placeholder={t('mcp.oauthClientIdPlaceholder')} className={monoFieldCls} />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <FieldLabel>{t('mcp.oauthClientSecret')}</FieldLabel>
+                  <input type="password" value={formData.oauth_client_secret || ''} onChange={(e) => setFormData({ ...formData, oauth_client_secret: e.target.value || null })} placeholder={t('mcp.oauthClientSecretPlaceholder')} className={monoFieldCls} />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <FieldLabel>{t('mcp.oauthScopes')}</FieldLabel>
+                  <input type="text" value={formData.oauth_scopes?.join(', ') || ''} onChange={(e) => {
+                    const scopes = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
+                    setFormData({ ...formData, oauth_scopes: scopes.length > 0 ? scopes : null });
+                  }} placeholder={t('mcp.oauthScopesPlaceholder')} className={monoFieldCls} />
+                </div>
+              </div>
             )}
           </div>
-
-          {/* OAuth Configuration (for HTTP/SSE) */}
-          {isHttp && (
-            <div className="space-y-2 pt-2 border-t border-light-gray/30">
-              <span className="text-[10px] text-silver font-medium uppercase tracking-wider">OAuth 2.1</span>
-              <div className="flex flex-col gap-1">
-                <FieldLabel>{t('mcp.oauthClientId')}</FieldLabel>
-                <input type="text" value={formData.oauth_client_id || ''} onChange={(e) => setFormData({ ...formData, oauth_client_id: e.target.value || null })} placeholder={t('mcp.oauthClientIdPlaceholder')} className={monoFieldCls} />
-              </div>
-              <div className="flex flex-col gap-1">
-                <FieldLabel>{t('mcp.oauthClientSecret')}</FieldLabel>
-                <input type="password" value={formData.oauth_client_secret || ''} onChange={(e) => setFormData({ ...formData, oauth_client_secret: e.target.value || null })} placeholder={t('mcp.oauthClientSecretPlaceholder')} className={monoFieldCls} />
-              </div>
-              <div className="flex flex-col gap-1">
-                <FieldLabel>{t('mcp.oauthScopes')}</FieldLabel>
-                <input type="text" value={formData.oauth_scopes?.join(', ') || ''} onChange={(e) => {
-                  const scopes = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-                  setFormData({ ...formData, oauth_scopes: scopes.length > 0 ? scopes : null });
-                }} placeholder={t('mcp.oauthScopesPlaceholder')} className={monoFieldCls} />
-              </div>
-            </div>
-          )}
 
           {/* Enabled toggle */}
           <div className="flex items-center justify-between py-1">
@@ -252,12 +257,12 @@ export function McpServerDialog({
             <button
               type="button"
               onClick={() => setFormData({ ...formData, enabled: !formData.enabled })}
-              className={`relative w-10 h-[22px] rounded-full transition-colors border shrink-0 ${
+              className={`relative w-12 h-7 rounded-full transition-colors border shrink-0 ${
                 formData.enabled ? 'bg-pure-black border-pure-black' : 'bg-pure-white border-light-gray'
               }`}
             >
-              <div className={`absolute top-[2px] w-[18px] h-[18px] rounded-full transition-transform ${
-                formData.enabled ? 'left-[18px] bg-pure-white' : 'left-[2px] bg-light-gray'
+              <div className={`absolute top-[1px] w-6 h-6 rounded-full transition-transform ${
+                formData.enabled ? 'left-[22px] bg-pure-white' : 'left-[2px] bg-light-gray'
               }`} />
             </button>
           </div>

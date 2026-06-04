@@ -125,25 +125,20 @@ export function McpServerRow({
             </span>
           )}
           {isConnected && realTools.length > 0 && (
-            <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-600 font-medium">
+            <span className="inline-flex items-center gap-0.5 text-[10px] text-stone font-medium">
               <Wrench className="w-3 h-3" /> {realTools.length}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2 mt-0.5">
-          <span className="font-mono text-[10px] text-silver truncate">
-            {server.type === 'stdio'
-              ? `${server.command}${server.args?.length ? ' ' + server.args.join(' ') : ''}`
-              : server.url}
-          </span>
-          {/* Test result feedback */}
-          {lastTestResult?.id === server.id && (
+        {/* Test result feedback */}
+        {lastTestResult?.id === server.id && (
+          <div className="flex items-center gap-2 mt-0.5">
             <span className={`text-[10px] flex items-center gap-0.5 ${lastTestResult.success ? 'text-emerald-600' : 'text-rose-500'}`}>
               {lastTestResult.success ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
               {lastTestResult.message}
             </span>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Actions */}
@@ -181,12 +176,12 @@ export function McpServerRow({
           )}
           <button
             onClick={handleToggle}
-            className={`relative w-10 h-[22px] rounded-full transition-colors border shrink-0 ${
+            className={`relative w-12 h-7 rounded-full transition-colors border shrink-0 ${
               server.enabled ? 'bg-pure-black border-pure-black' : 'bg-pure-white border-light-gray'
             } ${showDisableConfirm ? 'ring-2 ring-rose-300' : ''}`}
           >
-            <div className={`absolute top-[2px] w-[18px] h-[18px] rounded-full transition-transform ${
-              server.enabled ? 'left-[18px] bg-pure-white' : 'left-[2px] bg-light-gray'
+            <div className={`absolute top-[1px] w-6 h-6 rounded-full transition-transform ${
+              server.enabled ? 'left-[22px] bg-pure-white' : 'left-[2px] bg-light-gray'
             }`} />
           </button>
         </div>

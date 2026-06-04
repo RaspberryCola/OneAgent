@@ -216,8 +216,9 @@ export function ImSettingsPane({
   useEffect(() => {
     refreshPlugins();
     
-    // Set up polling for plugin status every 3 seconds to keep UI synced
-    const interval = setInterval(refreshPlugins, 3000);
+    // Set up polling for plugin status every 10 seconds as a fallback.
+    // Primary updates come from IM events (onImPluginConfigChanged, onImWeixinLoginDone, etc.).
+    const interval = setInterval(refreshPlugins, 10000);
     return () => clearInterval(interval);
   }, []);
 

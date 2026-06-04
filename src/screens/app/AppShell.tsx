@@ -34,6 +34,7 @@ interface AppShellProps {
   isBrowserOpen: boolean;
   onToggleBrowser: () => void;
   browserContent: ReactNode;
+  browserScreenshotsEnabled: boolean;
 }
 
 export function AppShell({
@@ -62,6 +63,7 @@ export function AppShell({
   isBrowserOpen,
   onToggleBrowser,
   browserContent,
+  browserScreenshotsEnabled,
 }: AppShellProps) {
   return (
     <>
@@ -113,7 +115,7 @@ export function AppShell({
               </button>
             )}
 
-            {hasWorkspace && (
+            {hasWorkspace && browserScreenshotsEnabled && (
               <button
                 type="button"
                 onClick={onToggleBrowser}

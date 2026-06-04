@@ -251,12 +251,13 @@ impl BrowserManager {
             inner.cdp_client = Some(cdp_client.clone());
         }
 
-        // Start screenshot monitoring task
-        let inner_clone = self.inner.clone();
-        let screenshot_interval = config.screenshot_interval_ms;
-        let handle = tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(std::time::Duration::from_millis(screenshot_interval)).await;
+        // Start screenshot monitoring task only if enabled in config
+        if config.enable_screenshots {
+            let inner_clone = self.inner.clone();
+            let screenshot_interval = config.screenshot_interval_ms;
+            let handle = tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(screenshot_interval)).await;
 
                 // Check if still running and get CDP client clone
                 let cdp = {
@@ -311,11 +312,14 @@ impl BrowserManager {
                     tracing::debug!("Browser: no CDP client available for screenshot");
                 }
             }
-        });
+            });
 
-        {
-            let mut inner = self.inner.write();
-            inner.screenshot_task_handle = Some(handle);
+            {
+                let mut inner = self.inner.write();
+                inner.screenshot_task_handle = Some(handle);
+            }
+        } else {
+            tracing::info!("Browser: screenshots disabled, skipping screenshot task");
         }
 
         self.set_state(BrowserState::Running, None, None);

@@ -184,11 +184,17 @@ impl CdpClient {
     /// This is needed because MCP tools may navigate to a different page/tab
     /// than what this CDP client is currently connected to.
     pub async fn reconnect_to_active_page(&self) -> Result<(), String> {
+        // Fast path: if we're already connected, skip the expensive HTTP discovery.
+        // This avoids a TCP connect + HTTP /json request on every screenshot cycle.
+        if self.is_connected().await {
+            return Ok(());
+        }
+
         let ws_url = self.discover_ws_url().await?;
         let current_ws_url = self.inner.lock().await.ws_url.clone();
 
         // Only reconnect if the target has changed
-        if Some(&ws_url) == current_ws_url.as_ref() && self.is_connected().await {
+        if Some(&ws_url) == current_ws_url.as_ref() {
             return Ok(());
         }
 

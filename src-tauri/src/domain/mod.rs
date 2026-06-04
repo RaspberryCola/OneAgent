@@ -568,6 +568,8 @@ pub struct BrowserSessionConfig {
     pub browser_path: Option<String>,
     #[serde(default)]
     pub cdp_port: Option<u16>,
+    #[serde(default)]
+    pub enable_screenshots: bool,
     #[serde(default = "default_screenshot_interval")]
     pub screenshot_interval_ms: u64,
 }
@@ -585,7 +587,7 @@ fn default_viewport_height() -> u32 {
 }
 
 fn default_screenshot_interval() -> u64 {
-    1000
+    5000
 }
 
 impl Default for BrowserSessionConfig {
@@ -597,7 +599,8 @@ impl Default for BrowserSessionConfig {
             viewport_height: 720,
             browser_path: None,
             cdp_port: None,
-            screenshot_interval_ms: 1000,
+            enable_screenshots: false,
+            screenshot_interval_ms: 5000,
         }
     }
 }

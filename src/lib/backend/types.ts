@@ -389,6 +389,7 @@ export interface BrowserSessionConfig {
   viewport_height: number;
   browser_path?: string | null;
   cdp_port?: number | null;
+  enable_screenshots: boolean;
   screenshot_interval_ms: number;
 }
 

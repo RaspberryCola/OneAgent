@@ -236,6 +236,7 @@ export default function App() {
     webuiInfo,
     setWebuiEnabled,
     logout,
+    browserConfig,
   } = useAppStore();
 
   const activeAgent = agentProfiles.find((agent) => agent.id === activeAgentProfileId) ?? null;
@@ -756,6 +757,7 @@ export default function App() {
             onClose={() => setIsBrowserOpen(false)}
           />
         }
+        browserScreenshotsEnabled={!!browserConfig?.enable_screenshots}
         homeContent={
           <HomeScreen
             workspaces={workspaces}

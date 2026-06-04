@@ -114,7 +114,12 @@
     "noDescription": "No description",
     "noToolsDiscovered": "No tools discovered (full MCP connection required to discover tools)",
     "headersInvalid": "HTTP headers must be a valid JSON object",
-    "disableConfirm": "Disable?"
+    "disableConfirm": "Disable?",
+    "builtinTab": "Built-in",
+    "customTab": "Custom",
+    "noBuiltinServers": "No built-in MCP servers",
+    "noCustomServers": "No custom MCP servers",
+    "noCustomServersDesc": "Click 'Add Server' to add one."
   },
   "cancel": "Cancel",
   "save": "Save",
@@ -165,7 +170,9 @@
     "cdpPortConfig": "CDP Port (optional)",
     "cdpPortPlaceholder": "Auto-assign (default: 19222)",
     "screenshotInterval": "Screenshot Interval (ms)",
-    "screenshotIntervalDesc": "How often to capture screenshots (500-5000ms)",
+    "screenshotIntervalDesc": "How often to capture screenshots (2000-10000ms)",
+    "enableScreenshots": "Enable Screenshots",
+    "enableScreenshotsDesc": "Capture periodic browser screenshots for preview. Disable to reduce CPU usage.",
     "saveConfig": "Save Configuration",
     "saving": "Saving...",
     "noWorkspace": "No workspace selected"

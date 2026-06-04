@@ -97,6 +97,9 @@ export function McpSettingsPane({ workspaceId }: McpSettingsPaneProps) {
     updateMcpStatus,
   } = useAppStore();
 
+  // Category tab: 'builtin' | 'custom'
+  const [categoryTab, setCategoryTab] = useState<'builtin' | 'custom'>('builtin');
+
   // Dialog state
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogMode, setDialogMode] = useState<'add' | 'edit'>('add');
@@ -116,8 +119,7 @@ export function McpSettingsPane({ workspaceId }: McpSettingsPaneProps) {
   const [importText, setImportText] = useState('');
   const [importError, setImportError] = useState<string | null>(null);
 
-  // Preset picker state
-  const [presetsOpen, setPresetsOpen] = useState(false);
+
 
   // Form state for editing/adding
   const [formData, setFormData] = useState<Types.McpServerConfig>({
@@ -189,7 +191,6 @@ export function McpSettingsPane({ workspaceId }: McpSettingsPaneProps) {
     setEnvText(JSON.stringify(preset.env || {}, null, 2));
     setHeadersText('{}');
     setFormError(null);
-    setPresetsOpen(false);
     setDialogOpen(true);
   };
 
@@ -346,13 +347,22 @@ export function McpSettingsPane({ workspaceId }: McpSettingsPaneProps) {
     setDetailTab('tools');
   };
 
-  // Include builtin MCPs (which have empty workspaceId) alongside workspace-specific ones
-  const servers = mcpServers.filter((s) => s.workspaceId === workspaceId || s.builtin);
+  // Switch category tab and collapse any expanded server
+  const switchCategoryTab = (tab: 'builtin' | 'custom') => {
+    setCategoryTab(tab);
+    setExpandedId(null);
+  };
 
-  const connectedCount = servers.filter(s => mcpStatuses.get(s.id)?.status === 'connected').length;
-  const errorCount = servers.filter(s => mcpStatuses.get(s.id)?.status === 'error').length;
-  const disabledCount = servers.filter(s => !s.enabled).length;
-  const totalTools = servers.reduce((acc, s) => {
+  // Include builtin MCPs (which have empty workspaceId) alongside workspace-specific ones
+  const allServers = mcpServers.filter((s) => s.workspaceId === workspaceId || s.builtin);
+  const builtinServers = allServers.filter((s) => s.builtin);
+  const customServers = allServers.filter((s) => !s.builtin);
+  const servers = categoryTab === 'builtin' ? builtinServers : customServers;
+
+  const connectedCount = allServers.filter(s => mcpStatuses.get(s.id)?.status === 'connected').length;
+  const errorCount = allServers.filter(s => mcpStatuses.get(s.id)?.status === 'error').length;
+  const disabledCount = allServers.filter(s => !s.enabled).length;
+  const totalTools = allServers.reduce((acc, s) => {
     const status = mcpStatuses.get(s.id);
     return acc + (status?.tools.filter(t => t.name).length || 0);
   }, 0);
@@ -360,13 +370,24 @@ export function McpSettingsPane({ workspaceId }: McpSettingsPaneProps) {
   // -- Main render --
   return (
     <div className="space-y-6">
-      {/* Section: MCP Header & Actions */}
-      <section className="space-y-2">
-        <div className="flex items-center justify-between px-1">
-          {/* Left side: MCP Title + Status summary + Reload */}
+      {/* Error banner */}
+      {error && (
+        <div className="flex gap-2 p-2.5 rounded-interactive bg-rose-50 border border-rose-500/20">
+          <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0 mt-0.5" />
+          <p className="text-[11px] text-rose-800 leading-relaxed flex-1">{error}</p>
+          <button onClick={() => setError(null)} className="text-rose-500 hover:text-rose-800 transition-colors">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Servers List */}
+      <section>
+        <div className="flex items-center justify-between mb-3 px-1">
+          {/* Left: "Servers" label + Status summary + Reload */}
           <div className="flex items-center gap-2">
-            <h2 className="text-[10px] text-silver font-medium uppercase tracking-wider">MCP</h2>
-            
+            <div className="text-[10px] text-silver font-medium uppercase tracking-wider">{t('mcp.servers')}</div>
+
             {(connectedCount > 0 || errorCount > 0 || disabledCount > 0 || totalTools > 0) && (
               <>
                 <div className="w-px h-3 bg-light-gray" />
@@ -398,7 +419,7 @@ export function McpSettingsPane({ workspaceId }: McpSettingsPaneProps) {
                 </div>
               </>
             )}
-            
+
             <button
               onClick={() => reloadAllMcpConnections()}
               className="p-1 rounded hover:bg-light-gray/30 text-stone hover:text-pure-black transition-colors"
@@ -408,7 +429,7 @@ export function McpSettingsPane({ workspaceId }: McpSettingsPaneProps) {
             </button>
           </div>
 
-          {/* Right side: Global Actions */}
+          {/* Right: Import + Add */}
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => setImportOpen(true)}
@@ -417,89 +438,74 @@ export function McpSettingsPane({ workspaceId }: McpSettingsPaneProps) {
               <Upload className="w-3 h-3" />
               <span>{t('mcp.import')}</span>
             </button>
-            <div className="relative">
-              <button
-                onClick={() => setPresetsOpen(!presetsOpen)}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-interactive text-[11px] font-medium bg-pure-black text-pure-white hover:bg-near-black transition-colors"
-              >
-                <Plus className="w-3 h-3" />
-                {t('mcp.add')}
-              </button>
-              {/* Preset dropdown */}
-              {presetsOpen && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setPresetsOpen(false)} />
-                  <div className="absolute right-0 top-full mt-1 z-20 w-56 bg-pure-white border border-light-gray rounded-container shadow-lg overflow-hidden">
+            <button
+              onClick={openAddDialog}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-interactive text-[11px] font-medium bg-pure-black text-pure-white hover:bg-near-black transition-colors"
+            >
+              <Plus className="w-3 h-3" />
+              {t('mcp.add')}
+            </button>
+          </div>
+        </div>
+
+        <div className="border border-light-gray/60 rounded-container overflow-hidden bg-pure-white">
+          {/* Category Tab: Built-in / Custom — inside the list container as header */}
+          <div className="flex gap-1 p-2 border-b border-light-gray/30 bg-snow/40">
+            <button
+              onClick={() => switchCategoryTab('builtin')}
+              className={`px-3 py-1.5 text-[12px] font-medium rounded-interactive transition-colors ${
+                categoryTab === 'builtin'
+                  ? 'bg-light-gray text-near-black'
+                  : 'bg-transparent text-stone hover:text-pure-black'
+              }`}
+            >
+              {t('mcp.builtinTab')}
+            </button>
+            <button
+              onClick={() => switchCategoryTab('custom')}
+              className={`px-3 py-1.5 text-[12px] font-medium rounded-interactive transition-colors ${
+                categoryTab === 'custom'
+                  ? 'bg-light-gray text-near-black'
+                  : 'bg-transparent text-stone hover:text-pure-black'
+              }`}
+            >
+              {t('mcp.customTab')}
+            </button>
+          </div>
+
+          {servers.length === 0 ? (
+            /* Empty state */
+            categoryTab === 'custom' ? (
+              /* Custom tab: show preset suggestions */
+              <div className="p-6">
+                <div className="text-center mb-4">
+                  <Server className="w-8 h-8 text-light-gray mx-auto mb-2" />
+                  <p className="text-[13px] text-stone font-medium">{t('mcp.noCustomServers')}</p>
+                  <p className="text-[11px] text-silver mt-1">{t('mcp.noCustomServersDesc')}</p>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {MCP_PRESETS.map((preset) => (
                     <button
-                      onClick={() => { setPresetsOpen(false); openAddDialog(); }}
-                      className="w-full text-left px-3 py-2 text-[12px] font-medium text-pure-black hover:bg-snow transition-colors border-b border-light-gray/30"
+                      key={preset.name}
+                      onClick={() => openPresetDialog(preset)}
+                      className="flex flex-col items-start px-3 py-2.5 rounded-interactive border border-light-gray/60 hover:border-pure-black hover:bg-snow transition-colors text-left"
                     >
-                      Custom server...
+                      <span className="text-[12px] font-medium text-pure-black">{preset.name}</span>
+                      <span className="text-[10px] text-silver mt-0.5">{preset.description}</span>
                     </button>
-                    {MCP_PRESETS.map((preset) => (
-                      <button
-                        key={preset.name}
-                        onClick={() => openPresetDialog(preset)}
-                        className="w-full text-left px-3 py-2 text-[12px] hover:bg-snow transition-colors"
-                      >
-                        <span className="font-medium text-pure-black">{preset.name}</span>
-                        <span className="block text-[10px] text-silver mt-0.5">{preset.description}</span>
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Explanation description text */}
-        <p className="text-[11px] text-stone leading-relaxed px-1">
-          {t('mcp.description')}
-        </p>
-      </section>
-
-      {/* Error banner */}
-      {error && (
-        <div className="flex gap-2 p-2.5 rounded-interactive bg-rose-50 border border-rose-500/20">
-          <AlertCircle className="w-3.5 h-3.5 text-rose-500 shrink-0 mt-0.5" />
-          <p className="text-[11px] text-rose-800 leading-relaxed flex-1">{error}</p>
-          <button onClick={() => setError(null)} className="text-rose-500 hover:text-rose-800 transition-colors">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-
-      {/* Section 3: Servers List */}
-      <section>
-        <div className="flex items-center justify-between mb-3 px-1">
-          <div className="text-[10px] text-silver font-medium uppercase tracking-wider">{t('mcp.servers')}</div>
-        </div>
-
-        {servers.length === 0 ? (
-          /* Empty state with preset suggestions */
-          <div className="border border-dashed border-light-gray rounded-container p-6">
-            <div className="text-center mb-4">
-              <Server className="w-8 h-8 text-light-gray mx-auto mb-2" />
-              <p className="text-[13px] text-stone font-medium">{t('mcp.noServers')}</p>
-              <p className="text-[11px] text-silver mt-1">{t('mcp.noServersDesc')}</p>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {MCP_PRESETS.map((preset) => (
-                <button
-                  key={preset.name}
-                  onClick={() => openPresetDialog(preset)}
-                  className="flex flex-col items-start px-3 py-2.5 rounded-interactive border border-light-gray/60 hover:border-pure-black hover:bg-snow transition-colors text-left"
-                >
-                  <span className="text-[12px] font-medium text-pure-black">{preset.name}</span>
-                  <span className="text-[10px] text-silver mt-0.5">{preset.description}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="border border-light-gray/60 rounded-container overflow-hidden bg-pure-white">
-            {servers.map((server, index) => {
+                  ))}
+                </div>
+              </div>
+            ) : (
+              /* Builtin tab: simple empty message */
+              <div className="p-6 text-center">
+                <Server className="w-8 h-8 text-light-gray mx-auto mb-2" />
+                <p className="text-[13px] text-stone font-medium">{t('mcp.noBuiltinServers')}</p>
+              </div>
+            )
+          ) : (
+            <div>
+              {servers.map((server, index) => {
               const isExpanded = expandedId === server.id;
               const status = mcpStatuses.get(server.id);
               const isConnected = status?.status === 'connected';
@@ -538,6 +544,7 @@ export function McpSettingsPane({ workspaceId }: McpSettingsPaneProps) {
             })}
           </div>
         )}
+        </div>
       </section>
 
       {/* JSON Import Modal */}

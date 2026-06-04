@@ -31,7 +31,8 @@ export function BrowserSettingsPane({ workspaceId }: BrowserSettingsPaneProps) {
     headless: true,
     viewport_width: 1280,
     viewport_height: 720,
-    screenshot_interval_ms: 1000,
+    enable_screenshots: false,
+    screenshot_interval_ms: 5000,
   });
 
   const [isSaving, setIsSaving] = useState(false);
@@ -290,6 +291,30 @@ export function BrowserSettingsPane({ workspaceId }: BrowserSettingsPaneProps) {
             />
           </div>
 
+          {/* Enable Screenshots toggle */}
+          <div className="border-t border-light-gray/30" />
+          <div className="flex items-center justify-between py-3 px-4">
+            <div>
+              <div className="font-display font-medium text-[13px] text-pure-black">{t('browser.enableScreenshots')}</div>
+              <div className="text-[11px] text-stone">{t('browser.enableScreenshotsDesc')}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => updateConfig({ enable_screenshots: !localConfig.enable_screenshots })}
+              className={`relative w-12 h-7 rounded-full transition-colors border ${
+                localConfig.enable_screenshots
+                  ? 'bg-pure-black border-pure-black'
+                  : 'bg-pure-white border-light-gray'
+              }`}
+            >
+              <div
+                className={`absolute top-[1px] w-6 h-6 rounded-full transition-transform ${
+                  localConfig.enable_screenshots ? 'left-[22px] bg-pure-white' : 'left-[2px] bg-light-gray'
+                }`}
+              />
+            </button>
+          </div>
+
           {/* Screenshot Interval */}
           <div className="border-t border-light-gray/30" />
           <div className="py-3 px-4">
@@ -299,11 +324,12 @@ export function BrowserSettingsPane({ workspaceId }: BrowserSettingsPaneProps) {
             <input
               type="number"
               value={localConfig.screenshot_interval_ms}
-              onChange={(e) => updateConfig({ screenshot_interval_ms: parseInt(e.target.value) || 1000 })}
-              min={500}
-              max={5000}
+              onChange={(e) => updateConfig({ screenshot_interval_ms: parseInt(e.target.value) || 5000 })}
+              min={2000}
+              max={10000}
               step={100}
-              className="w-full px-3 py-2 text-[13px] border border-light-gray/60 rounded-interactive bg-pure-white text-pure-black focus:outline-none focus:border-pure-black transition-colors"
+              disabled={!localConfig.enable_screenshots}
+              className="w-full px-3 py-2 text-[13px] border border-light-gray/60 rounded-interactive bg-pure-white text-pure-black focus:outline-none focus:border-pure-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             />
             <p className="text-[11px] text-stone mt-1">{t('browser.screenshotIntervalDesc')}</p>
           </div>
