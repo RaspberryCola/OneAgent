@@ -1,10 +1,10 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides guidance to Qoder (qoder.com) when working with code in this repository.
 
 ## Project Overview
 
-OneAgent is a Tauri desktop application that provides a unified interface for managing multiple AI coding agents (Codex, OpenCode, Goose, etc.) through the Agent Client Protocol (ACP). It enables workspace management, conversation history, MCP server integration, and permission handling.
+OneAgent is a Tauri desktop application that provides a unified interface for managing multiple AI coding agents (Claude Code, OpenCode, Goose, etc.) through the Agent Client Protocol (ACP). It enables workspace management, conversation history, MCP server integration, and permission handling.
 
 ## Build Commands
 
@@ -12,14 +12,14 @@ OneAgent is a Tauri desktop application that provides a unified interface for ma
 # Setup (after cloning)
 git submodule update --init --recursive  # Initialize git submodules (required: src-tauri/wechatbot)
 npm install                             # Install frontend dependencies
-npm run prepare:Codex-runtime           # Download bundled Bun runtime and Codex adapter (required once)
+npm run prepare:claude-runtime           # Download bundled Bun runtime and Claude adapter (required once)
 
 # Development
 npm run dev                  # Start Vite frontend dev server (port 1420)
 npm run tauri dev            # Full Tauri development mode (frontend + backend)
 
 # Build
-npm run prepare:Codex-runtime  # Download bundled Bun runtime and Codex adapter (required once)
+npm run prepare:claude-runtime  # Download bundled Bun runtime and Claude adapter (required once)
 npm run build                # TypeScript check + Vite build
 npm run tauri build          # Full production build
 
@@ -111,7 +111,7 @@ domain is shared by all backend modules but depends on none of the above
 
 **Agent Adapters:**
 
-- `agent_adapters/acp/` - ACP protocol adapter (JSON-RPC over stdin/stdout) for agents like Codex
+- `agent_adapters/acp/` - ACP protocol adapter (JSON-RPC over stdin/stdout) for agents like Claude Code
   - `adapter.rs` - Adapter trait implementation
   - `process.rs` - Subprocess spawning and management
   - `parser.rs` - JSON-RPC message parsing
@@ -143,9 +143,9 @@ Priority for NpmAdapter: bundled Bun > system bunx > system bun x > system npx
 
 ### Bundled Resources
 
-The `scripts/prepare-Codex-runtime.mjs` script downloads:
+The `scripts/prepare-claude-runtime.mjs` script downloads:
 - Bun runtime from GitHub releases into `src-tauri/resources/bundled-bun/{platform}/`
-- `@agentclientprotocol/Codex-agent-acp` npm package into `src-tauri/resources/external_agents/`
+- `@agentclientprotocol/claude-agent-acp` npm package into `src-tauri/resources/external_agents/`
 
 These are bundled with the app for offline-ready agent execution.
 
@@ -157,6 +157,16 @@ See `FRONTEND_DESIGN.md` for the Ollama-inspired design system:
 - SF Pro Rounded for headlines, zero shadows
 - Font weights: only 400 (body) and 500 (headings) — no bold
 
+## Backend Design Principles
+
+See `BACKEND_DESIGN.md` for detailed backend architecture constraints:
+- Strict unidirectional dependency flow: `channel_api -> gateway -> application -> runtime/storage/agent_adapters`
+- `domain` module shared by all but depends on none
+- `channel_api` must NOT directly access `storage`
+- `domain` must NOT depend on Tauri, SQLite, or tokio subprocess details
+- Multi-step writes must have explicit transaction boundaries
+- Stream event processing must be decomposable into projector commands
+
 ## Configuration Files
 
 - `src-tauri/tauri.conf.json` - Tauri app configuration, window settings, bundle resources
@@ -165,7 +175,7 @@ See `FRONTEND_DESIGN.md` for the Ollama-inspired design system:
 - `package.json` - Frontend dependencies and scripts
 - `tailwind.config.ts` - Tailwind config with custom grayscale palette and 3-tier border-radius
 - `rust-toolchain.toml` - Rust stable toolchain with clippy + rustfmt
-- `.Codex/agents/frontend-developer.md` - Custom Codex agent for frontend work
+- `.claude/agents/frontend-developer.md` - Custom Claude Code agent for frontend work
 
 ## Event System
 
@@ -197,7 +207,7 @@ When agents request permissions (file operations, commands, etc.), the runtime:
 - Application data (database, keys, auth config) is stored in system directories (e.g., `~/Library/Application Support/oneagent/` on macOS)
 - Agent profiles are auto-discovered on startup from installed tools
 - MCP servers are configured per-workspace
-- Skills are discovered from `.Codex/skills/` directories
+- Skills are discovered from `.claude/skills/` directories
 - **IM Sidecar:** `im-sidecar/` is a separate Node.js process for Lark and WeChat bot integration (depends on `@larksuiteoapi/node-sdk`). Build with `cd im-sidecar && npm run build`.
 - **WebUI mode:** The app can also run as a web application (not just desktop) with JWT-based authentication, served via an embedded axum HTTP server (see `channel_api/web/`).
 - **CI/CD:** GitHub Actions release workflow (`.github/workflows/release.yml`) builds for macOS, Ubuntu (deb), and Windows (nsis) on `v*` tags.
@@ -205,10 +215,10 @@ When agents request permissions (file operations, commands, etc.), the runtime:
 
 ## Troubleshooting
 
-**Runtime preparation fails:** Run `npm run prepare:Codex-runtime` manually to download bundled Bun and Codex ACP adapter. Check network connectivity to GitHub.
+**Runtime preparation fails:** Run `npm run prepare:claude-runtime` manually to download bundled Bun and Claude ACP adapter. Check network connectivity to GitHub.
 
 **Agent not discovered:** Verify the agent CLI is in PATH. Run "Refresh Agent Discovery" from the UI or call `listAgentDiscoveryStatus` to diagnose.
 
-**Conversation stuck in "initializing":** Check backend logs (`tracing` output) for adapter spawn errors. May indicate missing runtime (Bun/Node) or authentication issues (Codex requires `CLAUDE_API_KEY`).
+**Conversation stuck in "initializing":** Check backend logs (`tracing` output) for adapter spawn errors. May indicate missing runtime (Bun/Node) or authentication issues (Claude requires `CLAUDE_API_KEY`).
 
 **Frontend tests failing:** Ensure `jsdom` environment is correctly configured in `vitest.config.ts`. Some tests may require Tauri API mocks.

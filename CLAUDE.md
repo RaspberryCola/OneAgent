@@ -4,211 +4,154 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-OneAgent is a Tauri desktop application that provides a unified interface for managing multiple AI coding agents (Claude Code, OpenCode, Goose, etc.) through the Agent Client Protocol (ACP). It enables workspace management, conversation history, MCP server integration, and permission handling.
+OneAgent is a Tauri 2 desktop application that provides a unified interface for managing multiple AI coding agents (Claude Code, OpenCode, Qwen Code, Gemini CLI, Kiro, OpenClaw, etc.) through the **Agent Client Protocol (ACP)**. It also supports a WebUI mode served via an embedded axum HTTP server with JWT authentication.
+
+Inspired by [AionUi](https://github.com/iOfficeAI/AionUi) but built as a desktop app with Tauri + Rust backend.
 
 ## Build Commands
 
 ```bash
 # Setup (after cloning)
 git submodule update --init --recursive  # Initialize git submodules (required: src-tauri/wechatbot)
-npm install                             # Install frontend dependencies
-npm run prepare:claude-runtime           # Download bundled Bun runtime and Claude adapter (required once)
+npm install
+npm run prepare:claude-runtime           # Download bundled Bun + Claude ACP adapter (required once)
 
 # Development
-npm run dev                  # Start Vite frontend dev server (port 1420)
-npm run tauri dev            # Full Tauri development mode (frontend + backend)
+npm run tauri dev            # Full Tauri dev mode (frontend + backend, port 1420)
+npm run dev                  # Vite frontend dev server only
 
 # Build
-npm run prepare:claude-runtime  # Download bundled Bun runtime and Claude adapter (required once)
 npm run build                # TypeScript check + Vite build
 npm run tauri build          # Full production build
 
-# Tauri-specific
-cd src-tauri && cargo build  # Build Rust backend only
-cd src-tauri && cargo test   # Run Rust tests
-cd src-tauri && cargo clippy # Lint Rust code (configured in rust-toolchain.toml)
+# Rust backend
+cd src-tauri && cargo build
+cd src-tauri && cargo test
+cd src-tauri && cargo clippy   # Lint (configured in rust-toolchain.toml)
 
-# IM sidecar (Lark/WeChat integration)
-cd im-sidecar && npm install && npm run build  # Build IM sidecar
+# Frontend tests (Vitest)
+npm run test                 # Watch mode
+npm run test:run             # CI mode
+npm run test -- src/lib/utils/__tests__/conversation.test.ts  # Single file
 
-# Frontend tests
-npm run test                 # Run Vitest in watch mode
-npm run test:run             # Run Vitest once (CI mode)
-
-# Run a single test file
-npm run test -- src/lib/utils/__tests__/conversation.test.ts
+# IM sidecar (Lark/WeChat)
+cd im-sidecar && npm install && npm run build
 ```
 
 ## Architecture
 
+### Backend Layers (strict unidirectional dependency)
+
+```
+channel_api  →  gateway  →  application  →  runtime / capability_services / storage / agent_adapters
+                  ↑ shared by all, depends on none ↑
+                              domain
+```
+
+| Module | Responsibility |
+|--------|---------------|
+| `channel_api/` | Tauri IPC commands (`mod.rs`, ~33KB) + WebUI server (`web/`) + IM channels (`im/`). Must stay thin — no business logic. |
+| `gateway/` | Facade aggregating services with lightweight validation. Not an orchestration layer. |
+| `application/` | Use-case services owning transaction boundaries (create/import/send/cancel, permissions, attachments). |
+| `runtime/` | Session lifecycle, streaming, event projection, recovery. Key files: `session_manager.rs`, `stream_processor.rs`, `projector/`, `recovery.rs`, `event_bus.rs`, `snapshot_manager.rs`, `turn.rs`. |
+| `agent_adapters/` | `acp/` — JSON-RPC over stdin/stdout for ACP agents (adapter, process, parser, permission, live_session, types). `compat.rs` — legacy protocol adapter. |
+| `capability_services/` | MCP registry, skill discovery, policy engine, agent discovery, browser CDP, terminal, crypto. |
+| `storage/` | `sqlite/` (connection, migrations, tx), `repositories/` (CRUD per entity), `mappers/` (row→domain), `facade.rs` (unified Database facade). |
+| `domain/` | Core types (Workspace, AgentProfile, Conversation, MessageProjection, etc.) and BackendError. **No Tauri, SQLite, or tokio dependencies.** |
+
+**Invariant violations to watch for:**
+- `channel_api` must NOT directly access `storage`
+- `gateway` must NOT carry multi-step business flows (that's `application`'s job)
+- `runtime` must NOT depend on specific SQL details
+- Multi-step writes must have explicit transaction boundaries in `application`
+
+### Agent Launch Flow
+
+Agents launch in two modes:
+- **Native** — direct command execution
+- **NpmAdapter** — via bundled/system Bun or Node runtime
+
+Runtime resolution priority: `BundledBun` → `SystemBun` → `SystemNode`  
+Binary resolution priority: bundled Bun → system `bunx` → system `bun x` → system `npx`
+
+The `scripts/prepare-claude-runtime.mjs` downloads the bundled Bun runtime into `src-tauri/resources/bundled-bun/{platform}/` and the `@agentclientprotocol/claude-agent-acp` npm package into `src-tauri/resources/external_agents/`.
+
 ### Frontend (React + TypeScript + Vite)
 
-**Core Files:**
-- `src/App.tsx` - Main application component with layout
-- `src/lib/store.ts` - Zustand state management (workspace, conversations, agents, timeline)
-- `src/lib/backend/commands.ts` - Tauri command invocations
-- `src/lib/backend/events.ts` - Tauri event subscriptions
-- `src/lib/backend/transport.ts` - Transport abstraction (Tauri IPC vs Web REST/WS for WebUI mode)
-- `src/lib/backend/types.ts` - TypeScript types matching Rust domain types
+**State management:** Zustand (`src/lib/store.ts`, ~66KB) with a Map-based multi-workspace architecture. Conversations keyed by `workspace_id` for cross-workspace navigation.
 
-**Custom Hooks:**
-- `useSearch` - Workspace file and conversation search
-- `useWorkspaceFileTree` - File tree navigation
-- `useModelSelector` - Model selection with state management
-- `useModeSelector` - Agent mode selection
-- `useAttachmentHandler` - File attachment handling
-- `useScrollManager` - Chat scroll behavior management
-- `useConversationComposer` - Message composition and sending
-- `useGitDiff` - Git diff display
+**Backend communication:**
+- `src/lib/backend/commands.ts` — Tauri IPC command invocations
+- `src/lib/backend/events.ts` — Tauri event subscriptions
+- `src/lib/backend/transport.ts` — Transport abstraction (Tauri IPC vs Web REST/WS for WebUI mode)
+- `src/lib/backend/types.ts` — TypeScript types matching Rust domain types
 
-**Utilities:**
-- `src/lib/utils/conversation.ts` - Conversation helpers (title building, status checks, cross-workspace lookup)
-- `src/lib/utils/timeline.ts` - Timeline item merging, key generation, message/tool_call/terminal merging
-- `src/lib/utils/settings.ts` - LocalStorage-based settings persistence
-- `src/lib/utils/constants.ts` - Sync configuration (poll intervals, grace periods)
+**Path alias:** `@/*` maps to `./src/*`
 
-**Path Alias:** `@/*` maps to `./src/*` (configured in `tsconfig.json`).
+**Key custom hooks:** `useSearch`, `useWorkspaceFileTree`, `useModelSelector`, `useModeSelector`, `useAttachmentHandler`, `useScrollManager`, `useConversationComposer`, `useGitDiff`
 
-State management uses a Map-based multi-workspace architecture where conversations are keyed by workspace_id for cross-workspace navigation.
+**Key utilities:** `src/lib/utils/conversation.ts` (cross-workspace lookup, title building), `src/lib/utils/timeline.ts` (item merging, key generation), `src/lib/utils/settings.ts` (LocalStorage persistence), `src/lib/utils/constants.ts` (sync config)
 
-### Backend (Rust + Tauri)
+### Event System
 
-**Module Structure:**
+Frontend subscribes to real-time Tauri events via `src/lib/backend/events.ts`. Key event families:
+- `conversation:*` — `state_changed`, `message_appended`, `message_updated`, `tool_call_changed`, `permission_requested`, `permission_resolved`, `terminal_output`, `turn_finished`, `deleted`
+- `task_run:state_changed`
+- `agent:profile_probed`
 
-| Module | Purpose |
-|--------|---------|
-| `domain/` | Core domain types (Workspace, AgentProfile, Conversation, MessageProjection, etc.) and BackendError definitions |
-| `gateway/` | Facade layer — aggregates services, does lightweight validation; NOT a business orchestration layer |
-| `application/` | Use-case services (create/import/send/cancel, permissions, attachments) — owns transaction boundaries |
-| `runtime/` | Session orchestration, streaming, event projection, recovery |
-| `channel_api/` | Tauri IPC commands exposed to frontend — must stay thin |
-| `storage/` | SQLite database operations (workspaces, profiles, conversations, bindings, events) |
-| `agent_adapters/` | Protocol adapters for AI agents (ACP, compat) |
-| `capability_services/` | MCP registry, skill discovery, policy engine, agent discovery, browser CDP, terminal |
+**Stable contract:** These event names and their JSON shapes are stable — do not rename or restructure them without migration.
 
-**Dependency direction (strict, no exceptions):**
-```
-channel_api -> gateway -> application -> runtime / capability_services / storage / agent_adapters
-domain is shared by all backend modules but depends on none of the above
-```
-- `channel_api` must NOT directly access `storage`
-- `domain` must NOT depend on Tauri, SQLite, or tokio subprocess details
+### Permission Flow
 
-**Storage Layer:**
-- `storage/sqlite/` - Database connection, migrations, transaction management
-- `storage/repositories/` - CRUD operations per entity (agent_profiles, conversations, workspaces, permissions, etc.)
-- `storage/mappers/` - Row-to-domain mapping logic
-- `storage/facade.rs` - Unified Database facade wrapping repository access
-
-**Runtime Module:**
-- `runtime/session_manager.rs` - Manages agent session lifecycle
-- `runtime/stream_processor.rs` - Processes streaming events from agent subprocesses
-- `runtime/projector/` - Event projection to timeline (message, tool_call, terminal, permission)
-- `runtime/recovery.rs` - Session recovery and state reconstruction
-- `runtime/event_bus.rs` - Event emission to frontend
-- `runtime/snapshot_manager.rs` - Conversation snapshot persistence
-- `runtime/turn.rs` - Turn lifecycle management
-
-**Agent Adapters:**
-
-- `agent_adapters/acp/` - ACP protocol adapter (JSON-RPC over stdin/stdout) for agents like Claude Code
-  - `adapter.rs` - Adapter trait implementation
-  - `process.rs` - Subprocess spawning and management
-  - `parser.rs` - JSON-RPC message parsing
-  - `permission.rs` - Permission request mapping
-  - `live_session.rs` - Live session state
-  - `types.rs` - ACP-specific types
-- `agent_adapters/compat.rs` - Compatibility adapter for legacy agent protocols
-
-**Agent Launch Flow:**
-
-Agents can be launched in two modes:
-- `Native` - Direct command execution
-- `NpmAdapter` - Via bundled/system Bun or Node runtime
-
-Priority for NpmAdapter: bundled Bun > system bunx > system bun x > system npx
-
-**Runtime Priority:**
-- `BundledBun` - Uses pre-packaged Bun in `resources/bundled-bun/{platform}/`
-- `SystemBun` - Uses system-installed Bun
-- `SystemNode` - Uses system Node.js
-
-### Key Data Flow
-
-1. Frontend calls `bootstrapWorkspace` to load workspace data
-2. Gateway coordinates with storage and runtime
-3. Runtime creates session via appropriate adapter (ACP/Compat)
-4. Adapter spawns agent subprocess, establishes JSON-RPC communication
-5. Events stream back through runtime -> gateway -> Tauri emit -> frontend
-
-### Bundled Resources
-
-The `scripts/prepare-claude-runtime.mjs` script downloads:
-- Bun runtime from GitHub releases into `src-tauri/resources/bundled-bun/{platform}/`
-- `@agentclientprotocol/claude-agent-acp` npm package into `src-tauri/resources/external_agents/`
-
-These are bundled with the app for offline-ready agent execution.
+1. Runtime emits `conversation:permission_requested` event
+2. Frontend shows pending permission UI
+3. User decides: `allow_once` | `allow_always` | `reject_once` | `reject_always`
+4. Frontend calls `resolvePermissionRequest`
+5. Runtime forwards decision to adapter; agent continues
 
 ## Design System
 
-See `FRONTEND_DESIGN.md` for the Ollama-inspired design system:
-- Pure grayscale palette (no chromatic colors except focus ring)
-- Three-tier border-radius: 12px (containers/cards), 8px (interactive elements — buttons, inputs, tabs, tags), 9999px (pill — reserved for homepage Agent switcher and toggle switches only)
-- SF Pro Rounded for headlines, zero shadows
-- Font weights: only 400 (body) and 500 (headings) — no bold
+Ollama-inspired minimalism. See `FRONTEND_DESIGN.md` for full spec.
+
+- **Palette:** Pure grayscale only. The only chromatic color is `#3b82f6` at 50% for keyboard focus rings — never visible in normal flow.
+- **Border-radius:** 3 tiers — 12px (containers/cards), 8px (interactive: buttons, inputs, tabs, tags), 9999px (pill: reserved for homepage Agent switcher and toggle switches only).
+- **Typography:** SF Pro Rounded for display headlines, system sans for body. Only weights 400 (body) and 500 (headings) — no bold.
+- **Depth:** Zero shadows. Separation via background color shifts and 1px borders only.
+- **Tailwind config:** Custom grayscale palette and border-radius tiers in `tailwind.config.ts`.
 
 ## Configuration Files
 
-- `src-tauri/tauri.conf.json` - Tauri app configuration, window settings, bundle resources
-- `src-tauri/Cargo.toml` - Rust dependencies
-- `src-tauri/capabilities/default.json` - Tauri v2 permissions for the main window
-- `package.json` - Frontend dependencies and scripts
-- `tailwind.config.ts` - Tailwind config with custom grayscale palette and 3-tier border-radius
-- `rust-toolchain.toml` - Rust stable toolchain with clippy + rustfmt
-- `.claude/agents/frontend-developer.md` - Custom Claude Code agent for frontend work
-
-## Event System
-
-Frontend subscribes to Tauri events via `src/lib/backend/events.ts`:
-- `conversation:message_appended` - New message chunk
-- `conversation:message_updated` - Message content update
-- `conversation:tool_call_changed` - Tool call status change
-- `conversation:permission_requested` - Permission request pending
-- `conversation:permission_resolved` - Permission decision made
-- `conversation:state_changed` - Conversation status change
-- `conversation:turn_finished` - Agent turn completed
-- `conversation:deleted` - Conversation removed
-- `task_run:state_changed` - Task run status update
-- `agent:profile_probed` - Agent capabilities discovered
-
-## Permission System
-
-When agents request permissions (file operations, commands, etc.), the runtime:
-1. Emits `conversation:permission_requested` event
-2. Frontend displays pending permission UI
-3. User makes decision (allow_once, allow_always, reject_once, reject_always)
-4. Frontend calls `resolvePermissionRequest`
-5. Runtime forwards decision to adapter, agent continues
-
-## Notes
-
-- Default workspace is at `~/.oneagent/workspace/`
-- Global skills are at `~/.oneagent/skills/`
-- Application data (database, keys, auth config) is stored in system directories (e.g., `~/Library/Application Support/oneagent/` on macOS)
-- Agent profiles are auto-discovered on startup from installed tools
-- MCP servers are configured per-workspace
-- Skills are discovered from `.claude/skills/` directories
-- **IM Sidecar:** `im-sidecar/` is a separate Node.js process for Lark and WeChat bot integration (depends on `@larksuiteoapi/node-sdk`). Build with `cd im-sidecar && npm run build`.
-- **WebUI mode:** The app can also run as a web application (not just desktop) with JWT-based authentication, served via an embedded axum HTTP server (see `channel_api/web/`).
-- **CI/CD:** GitHub Actions release workflow (`.github/workflows/release.yml`) builds for macOS, Ubuntu (deb), and Windows (nsis) on `v*` tags.
-- **Git submodule:** `src-tauri/wechatbot/` — WeChat bot protocol library from corespeed-io. Run `git submodule update --init` after cloning.
+| File | Purpose |
+|------|---------|
+| `src-tauri/tauri.conf.json` | Tauri v2 app config, window settings, bundle resources |
+| `src-tauri/Cargo.toml` | Rust dependencies |
+| `src-tauri/capabilities/default.json` | Tauri v2 permissions for the main window |
+| `src-tauri/rust-toolchain.toml` | Rust stable toolchain with clippy + rustfmt |
+| `package.json` | Frontend dependencies and scripts |
+| `tailwind.config.ts` | Tailwind config with custom grayscale palette and 3-tier border-radius |
+| `tsconfig.json` | TypeScript strict mode, ESNext, `@/*` path alias |
+| `vite.config.ts` | Vite + React + Vitest config (port 1420) |
+| `.claude/agents/frontend-developer.md` | Custom Claude Code agent for frontend work |
 
 ## Troubleshooting
 
-**Runtime preparation fails:** Run `npm run prepare:claude-runtime` manually to download bundled Bun and Claude ACP adapter. Check network connectivity to GitHub.
+**Runtime preparation fails:** Run `npm run prepare:claude-runtime` manually. Check network connectivity to GitHub.
 
-**Agent not discovered:** Verify the agent CLI is in PATH. Run "Refresh Agent Discovery" from the UI or call `listAgentDiscoveryStatus` to diagnose.
+**Agent not discovered:** Verify the agent CLI is in PATH. Call `listAgentDiscoveryStatus` to diagnose.
 
-**Conversation stuck in "initializing":** Check backend logs (`tracing` output) for adapter spawn errors. May indicate missing runtime (Bun/Node) or authentication issues (Claude requires `CLAUDE_API_KEY`).
+**Conversation stuck in "initializing":** Check backend logs (`tracing` output) for adapter spawn errors. May indicate missing runtime (Bun/Node) or auth issues (Claude requires `CLAUDE_API_KEY`).
 
-**Frontend tests failing:** Ensure `jsdom` environment is correctly configured in `vitest.config.ts`. Some tests may require Tauri API mocks.
+**Frontend tests failing:** Ensure `jsdom` environment is configured in `vite.config.ts`. Some tests may require Tauri API mocks.
+
+## Notes
+
+- Default workspace: `~/.oneagent/workspace/`
+- Global skills: `~/.oneagent/skills/`
+- Application data (database, keys, auth config) stored in system directories (e.g., `~/Library/Application Support/oneagent/` on macOS)
+- Agent profiles auto-discovered on startup from installed tools
+- MCP servers configured per-workspace
+- Skills discovered from `.claude/skills/` directories
+- **IM Sidecar:** `im-sidecar/` is a separate Node.js process for Lark and WeChat bot integration
+- **WebUI mode:** Same backend serves HTTP/WebSocket via axum (see `channel_api/web/`)
+- **CI/CD:** GitHub Actions release workflow (`.github/workflows/release.yml`) builds for macOS, Ubuntu (deb), and Windows (nsis) on `v*` tags
+- **Git submodule:** `src-tauri/wechatbot/` — WeChat bot protocol library. Run `git submodule update --init` after cloning.
