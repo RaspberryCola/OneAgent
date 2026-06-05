@@ -1,9 +1,11 @@
 import { ArrowDown } from 'lucide-react';
 import type { ClipboardEvent, DragEvent, KeyboardEvent, RefObject } from 'react';
 import type { AttachmentState, ModelSelectorState } from '../../hooks';
+import { useActivityBlocks } from '../../hooks/useActivityBlocks';
 import type * as Types from '../../lib/backend/types';
 import type { TimelineItem } from '../../lib/utils';
 import { Composer } from '../../components/composer/Composer';
+import { ActivityBlock } from '../../components/chat/ActivityBlock';
 import { PermissionDisplay } from '../../components/chat/PermissionDisplay';
 import { ThoughtDisplay } from '../../components/chat/ThoughtDisplay';
 import { ToolCallDisplay } from '../../components/chat/ToolCallDisplay';
@@ -59,6 +61,7 @@ interface ConversationScreenProps {
   onCompositionStart: () => void;
   onCompositionEnd: () => void;
   availableCommands?: Types.AvailableCommand[];
+  isTurnActive: boolean;
 }
 
 export function ConversationScreen({
@@ -99,11 +102,18 @@ export function ConversationScreen({
   onCompositionStart,
   onCompositionEnd,
   availableCommands,
+  isTurnActive,
 }: ConversationScreenProps) {
   const planItems = activeTimelineItems.filter(
     (item) => item.type === 'message' && item.data.kind === 'plan'
   );
   const latestPlanMessage = planItems.length > 0 ? planItems[planItems.length - 1].data as any : null;
+
+  // Group timeline items into activity blocks
+  const { segments } = useActivityBlocks({
+    activeTimelineItems,
+    isTurnActive,
+  });
 
   return (
     <CustomScrollbar
@@ -114,7 +124,27 @@ export function ConversationScreen({
     >
       <div ref={scrollContentRef} className="max-w-[768px] mx-auto w-full flex-1 flex flex-col min-h-full">
         <div className="flex-1 space-y-4 px-4 md:px-6 pt-4 pb-4">
-          {activeTimelineItems.map((item) => {
+          {segments.map((segment) => {
+            // Render activity block
+            if (segment.type === 'activity_block') {
+              return (
+                <ActivityBlock
+                  key={segment.block.id}
+                  block={segment.block}
+                  isTurnActive={isTurnActive}
+                  terminals={activeTimeline?.terminals ?? []}
+                  permissionDecisions={permissionDecisions}
+                  getLatestPermissionDecision={getLatestPermissionDecision}
+                />
+              );
+            }
+
+            // Render standalone item
+            const item = segment.item;
+
+            // Permission items are rendered in the sticky bottom area, not here
+            if (item.type === 'permission') return null;
+
             if (item.type === 'message') {
               const message = item.data;
               if (message.kind === 'thinking') {

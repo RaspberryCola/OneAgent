@@ -65,7 +65,7 @@ pub fn bootstrap() -> Result<Arc<Gateway>, BootstrapError> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tracing_subscriber::fmt()
-        .with_env_filter("oneagent=debug,oneagent_lib::agent_adapters::acp::parser=info")
+        .with_env_filter("oneagent=info,oneagent_lib::agent_adapters::acp::parser=warn")
         .init();
 
     // Initialize encryption key for secure storage

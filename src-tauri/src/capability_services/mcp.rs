@@ -1053,6 +1053,20 @@ async fn run_persistent_connection(
                 // Connection was established and then closed normally (or cancelled)
                 attempt = 0;
                 tracing::info!("MCP connection closed for '{}'", config.name);
+
+                // Always wait a minimum delay after a connection drops before
+                // reconnecting.  Without this, a process that starts and
+                // immediately exits would create a tight reconnection loop
+                // that hammers the CPU.
+                let cooldown = std::time::Duration::from_secs(RECONNECT_BASE_SECS);
+                tokio::select! {
+                    _ = tokio::time::sleep(cooldown) => {}
+                    _ = cancel_rx.changed() => {
+                        if *cancel_rx.borrow() {
+                            return;
+                        }
+                    }
+                }
             }
             Err(e) => {
                 attempt += 1;

@@ -19,9 +19,9 @@ export const SIDEBAR_CONFIG = {
 
 // Polling / Sync Configuration
 export const SYNC_CONFIG = {
-  POLL_INTERVAL_MS: 500,
-  MAX_POLL_ATTEMPTS: 1200,
-  GRACE_POLLS: 4,
+  POLL_INTERVAL_MS: 800,
+  MAX_POLL_ATTEMPTS: 375,
+  GRACE_POLLS: 3,
 } as const;
 
 // Attachment Limits
@@ -38,6 +38,7 @@ export const DISPLAY_LIMITS = {
   MAX_PARAM_PREVIEW: 100,
   COLLAPSIBLE_DEFAULT_MAX_HEIGHT: 240,
   TERMINAL_DISPLAY_MAX_HEIGHT: 300,
+  ACTIVITY_BLOCK_MAX_HEIGHT: 300,
 } as const;
 
 // Timing Constants

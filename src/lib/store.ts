@@ -25,7 +25,15 @@ import {
 } from './utils';
 import { SYNC_CONFIG } from './constants';
 
-let activeTurnSyncToken = 0;
+// Per-conversation sync tokens: each call to startConversationSync for a given
+// conversation increments its token, invalidating any previous polling loop for
+// the same conversation.  This prevents concurrent polling storms when multiple
+// event handlers trigger startConversationSync simultaneously.
+const conversationSyncTokens = new Map<string, number>();
+
+// Global turn sync token used to invalidate ALL polling loops at once
+// (e.g. when the user navigates away from a conversation).
+let globalSyncToken = 0;
 
 // Store unlisten functions for cleanup
 let eventUnlisteners: UnlistenFn[] = [];
@@ -35,7 +43,10 @@ function startConversationSync(
   set: (partial: Partial<AppState> | ((state: AppState) => Partial<AppState>)) => void,
   get: () => AppState,
 ) {
-  const syncToken = ++activeTurnSyncToken;
+  // Bump the per-conversation token, cancelling any previous loop for this conv
+  const syncToken = (conversationSyncTokens.get(conversationId) ?? 0) + 1;
+  conversationSyncTokens.set(conversationId, syncToken);
+  const capturedGlobalToken = globalSyncToken;
   // Grace period: the first few polls may hit the backend before the spawned
   // turn task has transitioned the state to Running.  To avoid stopping the
   // sync loop prematurely we allow up to GRACE_POLLS polls that return a
@@ -44,7 +55,9 @@ function startConversationSync(
   let idleSeen = 0;
   void (async () => {
     for (let attempt = 0; attempt < SYNC_CONFIG.MAX_POLL_ATTEMPTS; attempt += 1) {
-      if (syncToken !== activeTurnSyncToken) return;
+      // Bail out if a newer sync was started for this conversation or globally
+      if (syncToken !== conversationSyncTokens.get(conversationId)) return;
+      if (capturedGlobalToken !== globalSyncToken) return;
 
       try {
         const [timeline, state] = await Promise.all([
@@ -52,7 +65,8 @@ function startConversationSync(
           API.getConversationState(conversationId),
         ]);
 
-        if (syncToken !== activeTurnSyncToken) return;
+        if (syncToken !== conversationSyncTokens.get(conversationId)) return;
+        if (capturedGlobalToken !== globalSyncToken) return;
 
         set((current: AppState) => ({
           activeTimeline:
@@ -70,8 +84,9 @@ function startConversationSync(
           // During the grace period keep polling so a slow backend spawn
           // doesn't cause us to miss the entire turn.
           if (idleSeen > GRACE_POLLS) {
-            if (syncToken === activeTurnSyncToken) {
-              activeTurnSyncToken += 1;
+            // Clean up the token entry since this loop is done
+            if (syncToken === conversationSyncTokens.get(conversationId)) {
+              conversationSyncTokens.delete(conversationId);
             }
             return;
           }
@@ -392,8 +407,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   selectConversation: async (id: string | null) => {
-    activeTurnSyncToken += 1;
-    const syncToken = activeTurnSyncToken;
+    // Invalidate ALL running polling loops (user navigated to a different conversation)
+    globalSyncToken += 1;
+    conversationSyncTokens.clear();
+    const syncToken = globalSyncToken;
     const selectedEntry = id
       ? findConversationAcrossWorkspaces(get().workspaceConversations, id)
       : null;
@@ -426,7 +443,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             workspace_id: selectedEntry.workspaceId,
           });
 
-          if (syncToken !== activeTurnSyncToken) return;
+          if (syncToken !== globalSyncToken) return;
 
           set((state) => {
             const workspaceConversations = new Map(state.workspaceConversations);
@@ -458,7 +475,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           API.getConversationState(id),
         ]);
 
-        if (syncToken !== activeTurnSyncToken) return;
+        if (syncToken !== globalSyncToken) return;
 
         set({
           activeTimeline: timeline,
@@ -471,7 +488,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
       } catch (error) {
         console.error('Failed to fetch timeline for conversation', id, error);
-        if (syncToken !== activeTurnSyncToken) return;
+        if (syncToken !== globalSyncToken) return;
         set({ activeTimeline: null, activeTimelineItems: [], activeConversationState: null });
       }
     } else {

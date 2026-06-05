@@ -44,3 +44,9 @@ export type {
   UseConversationComposerOptions,
   UseConversationComposerReturn,
 } from './useConversationComposer';
+
+export { useActivityBlocks } from './useActivityBlocks';
+export type {
+  UseActivityBlocksOptions,
+  UseActivityBlocksReturn,
+} from './useActivityBlocks';

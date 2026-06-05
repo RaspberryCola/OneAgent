@@ -404,6 +404,8 @@ export default function App() {
     null;
   const conversationStatus = statusMeta(activeConversationState?.runtime, currentConversation?.status);
   const isConversationBusy = conversationStatus?.pulse ?? false;
+  const isTurnActive = activeConversationState?.runtime?.turn_phase === 'running'
+    || activeConversationState?.runtime?.turn_phase === 'cancelling';
 
   useEffect(() => {
     if (activeConversationId || !activeAgentProfileId) return;
@@ -842,6 +844,7 @@ export default function App() {
             onCompositionStart={handleCompositionStart}
             onCompositionEnd={handleCompositionEnd}
             availableCommands={activeConversationState?.available_commands}
+            isTurnActive={isTurnActive}
           />
         }
         workspacePanel={activeConversationId !== null ? (
