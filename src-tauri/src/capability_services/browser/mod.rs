@@ -4,6 +4,7 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 use tokio::process::{Child, Command};
 
+use crate::capability_services::system_path::resolve_npx_command;
 use crate::domain::{BrowserScreenshotPayload, BrowserSessionConfig, BrowserSessionStatus, BrowserState};
 
 pub mod cdp;
@@ -71,20 +72,25 @@ impl BrowserManager {
             return None;
         }
         let cdp_port = inner.cdp_port?;
+        let extra_args = vec![
+            "--browser-url".to_string(),
+            format!("http://127.0.0.1:{cdp_port}"),
+        ];
+
+        let (command, args, env_patch) = resolve_npx_command(
+            "chrome-devtools-mcp@latest",
+            &extra_args,
+        )?; // No runtime available → return None
+
         Some(crate::domain::McpServerConfig {
             id: "browser-use-internal".to_string(),
             workspace_id: String::new(),
             name: "Browser Use".to_string(),
             transport_type: crate::domain::McpTransportType::Stdio,
-            command: "npx".to_string(),
-            args: vec![
-                "-y".to_string(),
-                "chrome-devtools-mcp@latest".to_string(),
-                "--browser-url".to_string(),
-                format!("http://127.0.0.1:{cdp_port}"),
-            ],
+            command,
+            args,
             url: String::new(),
-            env: serde_json::json!({}),
+            env: serde_json::json!(env_patch),
             headers: serde_json::json!({}),
             enabled: true,
             builtin: true,
@@ -102,31 +108,44 @@ impl BrowserManager {
         let cdp_port = inner.cdp_port;
         let is_running = inner.state == BrowserState::Running;
 
-        let args = if is_running && cdp_port.is_some() {
-            vec![
-                "-y".to_string(),
-                "chrome-devtools-mcp@latest".to_string(),
-                "--browser-url".to_string(),
-                format!("http://127.0.0.1:{}", cdp_port.unwrap()),
-            ]
+        let browser_url_arg = if is_running && cdp_port.is_some() {
+            format!("http://127.0.0.1:{}", cdp_port.unwrap())
         } else {
-            vec![
-                "-y".to_string(),
-                "chrome-devtools-mcp@latest".to_string(),
-                "--browser-url".to_string(),
-                "http://127.0.0.1:0".to_string(),
-            ]
+            "http://127.0.0.1:0".to_string()
         };
+
+        let extra_args = vec![
+            "--browser-url".to_string(),
+            browser_url_arg,
+        ];
+
+        // Try to resolve the best available runtime; fall back to npx as last resort
+        // so the UI always shows the browser MCP entry.
+        let (command, args, env_patch) = resolve_npx_command(
+            "chrome-devtools-mcp@latest",
+            &extra_args,
+        ).unwrap_or_else(|| {
+            // Fallback: use npx even if not found, so UI can still display the entry.
+            // The connection will fail with a clear error if no runtime is available.
+            let mut env = std::collections::BTreeMap::new();
+            if let Some(path) = crate::capability_services::system_path::effective_path_env() {
+                env.insert("PATH".to_string(), path);
+            }
+            env.insert("npm_config_yes".to_string(), "true".to_string());
+            let mut fallback_args = vec!["-y".to_string(), "chrome-devtools-mcp@latest".to_string()];
+            fallback_args.extend(extra_args);
+            ("npx".to_string(), fallback_args, env)
+        });
 
         crate::domain::McpServerConfig {
             id: "browser-use-internal".to_string(),
             workspace_id: String::new(),
             name: "Browser Use".to_string(),
             transport_type: crate::domain::McpTransportType::Stdio,
-            command: "npx".to_string(),
+            command,
             args,
             url: String::new(),
-            env: serde_json::json!({}),
+            env: serde_json::json!(env_patch),
             headers: serde_json::json!({}),
             // When not running, mark as disabled so resolve_all() skips it
             // for agent tool injection. list_with_builtins() overrides this

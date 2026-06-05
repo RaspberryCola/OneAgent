@@ -6,6 +6,7 @@ use parking_lot::RwLock;
 use serde_json::json;
 
 use crate::{
+    capability_services::system_path::effective_path_env,
     domain::{
         McpConnectionStatus, McpPrompt, McpPromptArgument, McpResource, McpServerConfig,
         McpServerInfo, McpServerStatus, McpToolInfo, McpTransportType,
@@ -508,6 +509,26 @@ fn parse_array_format(
 // MCP Discovery via rmcp
 // ---------------------------------------------------------------------------
 
+/// Inject the augmented PATH into a Command's environment.
+///
+/// This ensures child processes can locate tools like `npx`, `bun`, `node`,
+/// etc. that may be installed in non-standard directories (Volta, fnm,
+/// nvm-windows, etc.) or bundled with the application.
+///
+/// On Windows, also injects `PATHEXT` so that `.cmd` / `.bat` wrappers
+/// (e.g. `npx.cmd`) are correctly resolved.
+fn inject_augmented_path(cmd: &mut tokio::process::Command) {
+    if let Some(augmented_path) = effective_path_env() {
+        cmd.env("PATH", augmented_path);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(pathext) = std::env::var("PATHEXT") {
+            cmd.env("PATHEXT", pathext);
+        }
+    }
+}
+
 /// Build a `ClientInfo` with OneAgent's client identity and sampling capability.
 fn build_client_info() -> rmcp::model::ClientInfo {
     let mut capabilities = rmcp::model::ClientCapabilities::default();
@@ -565,6 +586,9 @@ async fn discover_via_stdio(
             }
         }
     }
+
+    // Inject augmented PATH — ensures npx/bun/node etc. can be found
+    inject_augmented_path(&mut cmd);
 
     // Create rmcp child process transport
     let child_process = TokioChildProcess::new(cmd)
@@ -1142,6 +1166,9 @@ async fn establish_persistent(
                     }
                 }
             }
+
+            // Inject augmented PATH — ensures npx/bun/node etc. can be found
+            inject_augmented_path(&mut cmd);
 
             let child_process = TokioChildProcess::new(cmd).map_err(|e| {
                 McpError::Transport(format!("Failed to spawn '{}': {e}", config.command))

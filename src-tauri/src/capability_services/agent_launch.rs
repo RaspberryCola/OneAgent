@@ -1,11 +1,13 @@
 use std::{
     collections::BTreeMap,
-    env,
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 use crate::{
-    capability_services::system_path::{command_exists, effective_path_env},
+    capability_services::system_path::{
+        bundled_bun_path, bundled_resources_base, command_exists, default_dev_resources_dir,
+        effective_path_env,
+    },
     domain::{AgentDisplaySource, AgentLaunchMode, AgentProfile, JsonMap},
 };
 
@@ -225,59 +227,10 @@ fn apply_augmented_path(env_map: &mut BTreeMap<String, String>) {
     }
 }
 
-fn bundled_bun_path() -> Option<PathBuf> {
-    let executable_name = if cfg!(windows) { "bun.exe" } else { "bun" };
-    let platform_key = bundled_runtime_key();
-    let base = bundled_resources_base()?;
-    Some(
-        base.join("bundled-bun")
-            .join(platform_key)
-            .join(executable_name),
-    )
-}
-
 fn bundled_adapter_root() -> PathBuf {
     bundled_resources_base()
         .unwrap_or_else(default_dev_resources_dir)
         .join("external_agents")
-}
-
-fn bundled_runtime_key() -> &'static str {
-    match (env::consts::OS, env::consts::ARCH) {
-        ("macos", "aarch64") => "darwin-arm64",
-        ("macos", "x86_64") => "darwin-x64",
-        ("linux", "x86_64") => "linux-x64",
-        ("windows", "x86_64") => "win32-x64",
-        _ => "unsupported",
-    }
-}
-
-fn bundled_resources_base() -> Option<PathBuf> {
-    let exe = env::current_exe().ok()?;
-    let exe_dir = exe.parent()?;
-    let candidates = if cfg!(target_os = "macos") {
-        // macOS .app bundle structure:
-        // OneAgent.app/Contents/MacOS/oneagent (exe)
-        // OneAgent.app/Contents/Resources/resources/bundled-bun/... (actual location)
-        vec![
-            exe_dir
-                .parent()
-                .map(|path| path.join("Resources").join("resources")), // Production: Contents/Resources/resources
-            exe_dir.parent().map(|path| path.join("Resources")), // Alternative: Contents/Resources
-            Some(default_dev_resources_dir()),                   // Development
-        ]
-    } else {
-        vec![
-            Some(exe_dir.join("resources")),
-            Some(exe_dir.join("../resources")),
-            Some(default_dev_resources_dir()),
-        ]
-    };
-    candidates.into_iter().flatten().find(|path| path.exists())
-}
-
-fn default_dev_resources_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("resources")
 }
 
 pub fn is_claude_bridge_profile(profile: &AgentProfile) -> bool {

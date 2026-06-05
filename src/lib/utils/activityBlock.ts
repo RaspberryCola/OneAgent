@@ -116,7 +116,9 @@ export function groupTimelineSegments(
   function flushBlock(isLastBlock: boolean): void {
     if (currentBlockItems.length === 0) return;
 
-    const hasActive = currentBlockItems.some(isItemActive);
+    // When the turn is not active (e.g. after app restart with stale DB data),
+    // no item should be considered active to avoid ghost "Processing" timers.
+    const hasActive = isTurnActive && currentBlockItems.some(isItemActive);
     const toolCalls = currentBlockItems.filter((i) => i.type === 'tool_call');
     const thoughts = currentBlockItems.filter(
       (i) => i.type === 'message' && i.data.kind === 'thinking',

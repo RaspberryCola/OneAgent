@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     env,
     ffi::OsString,
     fs,
@@ -158,6 +159,31 @@ fn fallback_path_dirs() -> Vec<PathBuf> {
         ]);
     }
 
+    #[cfg(target_os = "windows")]
+    {
+        // Node.js official MSI/ZIP installer default path
+        dirs.push(PathBuf::from(r"C:\Program Files\nodejs"));
+
+        if let Some(appdata) = env::var_os("APPDATA") {
+            // nvm-windows default install path
+            dirs.push(PathBuf::from(&appdata).join("nvm"));
+        }
+        if let Some(home) = &home_dir {
+            // Volta default bin path
+            dirs.push(home.join(".volta").join("bin"));
+            // fnm (Fast Node Manager) default path
+            dirs.push(
+                home.join("AppData").join("Roaming").join("fnm").join("aliases").join("default").join("bin"),
+            );
+            // npm global bin (default AppData/Roaming/npm)
+            dirs.push(home.join("AppData").join("Roaming").join("npm"));
+        }
+        if let Some(localappdata) = env::var_os("LOCALAPPDATA") {
+            // pnpm global bin
+            dirs.push(PathBuf::from(&localappdata).join("pnpm"));
+        }
+    }
+
     dirs
 }
 
@@ -263,4 +289,124 @@ pub fn command_exists(command: &str) -> bool {
             .map(|candidate| dir.join(candidate))
             .any(|path| path.is_file())
     })
+}
+
+// ---------------------------------------------------------------------------
+// Bundled Runtime Resource Location
+// ---------------------------------------------------------------------------
+
+fn bundled_runtime_key() -> &'static str {
+    match (env::consts::OS, env::consts::ARCH) {
+        ("macos", "aarch64") => "darwin-arm64",
+        ("macos", "x86_64") => "darwin-x64",
+        ("linux", "x86_64") => "linux-x64",
+        ("windows", "x86_64") => "win32-x64",
+        _ => "unsupported",
+    }
+}
+
+pub(crate) fn bundled_resources_base() -> Option<PathBuf> {
+    let exe = env::current_exe().ok()?;
+    let exe_dir = exe.parent()?;
+    let candidates = if cfg!(target_os = "macos") {
+        // macOS .app bundle structure:
+        // OneAgent.app/Contents/MacOS/oneagent (exe)
+        // OneAgent.app/Contents/Resources/resources/bundled-bun/... (actual location)
+        vec![
+            exe_dir
+                .parent()
+                .map(|path| path.join("Resources").join("resources")), // Production: Contents/Resources/resources
+            exe_dir.parent().map(|path| path.join("Resources")), // Alternative: Contents/Resources
+            Some(default_dev_resources_dir()),                   // Development
+        ]
+    } else {
+        vec![
+            Some(exe_dir.join("resources")),
+            Some(exe_dir.join("../resources")),
+            Some(default_dev_resources_dir()),
+        ]
+    };
+    candidates.into_iter().flatten().find(|path| path.exists())
+}
+
+pub fn default_dev_resources_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("resources")
+}
+
+/// Returns the absolute path to the bundled Bun executable, if it exists on disk.
+pub fn bundled_bun_path() -> Option<PathBuf> {
+    let executable_name = if cfg!(windows) { "bun.exe" } else { "bun" };
+    let platform_key = bundled_runtime_key();
+    let base = bundled_resources_base()?;
+    let path = base
+        .join("bundled-bun")
+        .join(platform_key)
+        .join(executable_name);
+    if path.exists() {
+        Some(path)
+    } else {
+        None
+    }
+}
+
+// ---------------------------------------------------------------------------
+// NPX-style Command Resolution
+// ---------------------------------------------------------------------------
+
+/// Resolve an npm package execution command, preferring bundled Bun, then
+/// falling back to system `bunx` / `bun` / `npx`.
+///
+/// Returns a `(command, args, env_patch)` triple where `env_patch` contains
+/// an augmented `PATH` (and possibly `npm_config_yes`) to ensure the child
+/// process can locate the chosen runtime.
+///
+/// Resolution priority:
+///   1. bundled bun  → `bun x <package_spec> [extra_args]`
+///   2. system bunx  → `bunx --yes <package_spec> [extra_args]`
+///   3. system bun   → `bun x --yes <package_spec> [extra_args]`
+///   4. system npx   → `npx -y <package_spec> [extra_args]`
+pub fn resolve_npx_command(
+    package_spec: &str,
+    extra_args: &[String],
+) -> Option<(String, Vec<String>, BTreeMap<String, String>)> {
+    let mut env_patch = BTreeMap::new();
+    if let Some(path) = effective_path_env() {
+        env_patch.insert("PATH".to_string(), path);
+    }
+
+    // 1. bundled bun
+    if let Some(bun_path) = bundled_bun_path() {
+        let mut args = vec!["x".to_string(), package_spec.to_string()];
+        args.extend(extra_args.iter().cloned());
+        tracing::debug!("resolve_npx_command: using bundled bun at {}", bun_path.display());
+        return Some((bun_path.to_string_lossy().to_string(), args, env_patch));
+    }
+    // 2. system bunx
+    if command_exists("bunx") {
+        let mut args = vec!["--yes".to_string(), package_spec.to_string()];
+        args.extend(extra_args.iter().cloned());
+        tracing::debug!("resolve_npx_command: using system bunx");
+        return Some(("bunx".to_string(), args, env_patch));
+    }
+    // 3. system bun x
+    if command_exists("bun") {
+        let mut args = vec!["x".to_string(), "--yes".to_string(), package_spec.to_string()];
+        args.extend(extra_args.iter().cloned());
+        tracing::debug!("resolve_npx_command: using system bun");
+        return Some(("bun".to_string(), args, env_patch));
+    }
+    // 4. system npx
+    if command_exists("npx") {
+        env_patch.insert("npm_config_yes".to_string(), "true".to_string());
+        let mut args = vec!["-y".to_string(), package_spec.to_string()];
+        args.extend(extra_args.iter().cloned());
+        tracing::debug!("resolve_npx_command: using system npx");
+        return Some(("npx".to_string(), args, env_patch));
+    }
+
+    tracing::warn!(
+        "resolve_npx_command: no runtime found for {package_spec}; \
+         install Node.js or Bun, or ensure bundled resources are present"
+    );
+    None
 }

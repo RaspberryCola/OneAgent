@@ -54,6 +54,7 @@ pub fn bootstrap() -> Result<Arc<Gateway>, BootstrapError> {
     prime_process_path();
     write_path_diagnostics(&[
         "gemini", "qwen", "opencode", "goose", "copilot", "qodercli", "agent", "kiro-cli",
+        "npx", "bun", "bunx",
     ]);
     let storage = storage::Database::open_default()
         .map_err(|e| BootstrapError::Database(e.to_string()))?;

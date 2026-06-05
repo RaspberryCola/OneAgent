@@ -291,7 +291,7 @@ describe('groupTimelineSegments', () => {
 });
 
 describe('isActive logic', () => {
-  it('block is active when any tool call is running', () => {
+  it('stale running tool call + turn idle = not active (app restart scenario)', () => {
     const items = [
       makeToolCall('tc1', 'completed', '2025-01-01T00:00:00Z', '2025-01-01T00:00:01Z'),
       makeToolCall('tc2', 'running', '2025-01-01T00:00:02Z', ''),
@@ -299,12 +299,30 @@ describe('isActive logic', () => {
     const result = groupTimelineSegments(items, false);
     expect(result).toHaveLength(1);
     const block = (result[0] as Extract<GroupedSegment, { type: 'activity_block' }>).block;
+    expect(block.isActive).toBe(false);
+  });
+
+  it('running tool call + turn active = active', () => {
+    const items = [
+      makeToolCall('tc1', 'completed', '2025-01-01T00:00:00Z', '2025-01-01T00:00:01Z'),
+      makeToolCall('tc2', 'running', '2025-01-01T00:00:02Z', ''),
+    ];
+    const result = groupTimelineSegments(items, true);
+    expect(result).toHaveLength(1);
+    const block = (result[0] as Extract<GroupedSegment, { type: 'activity_block' }>).block;
     expect(block.isActive).toBe(true);
   });
 
-  it('block is active when any thinking is in progress', () => {
+  it('stale thinking + turn idle = not active (app restart scenario)', () => {
     const items = [makeThinking('t1', 'thinking', '2025-01-01T00:00:00Z')];
     const result = groupTimelineSegments(items, false);
+    const block = (result[0] as Extract<GroupedSegment, { type: 'activity_block' }>).block;
+    expect(block.isActive).toBe(false);
+  });
+
+  it('thinking + turn active = active', () => {
+    const items = [makeThinking('t1', 'thinking', '2025-01-01T00:00:00Z')];
+    const result = groupTimelineSegments(items, true);
     const block = (result[0] as Extract<GroupedSegment, { type: 'activity_block' }>).block;
     expect(block.isActive).toBe(true);
   });
@@ -362,14 +380,26 @@ describe('time calculations', () => {
     expect(block.endedAt).toBe('2025-01-01T00:00:10Z');
   });
 
-  it('endedAt is null when any item is active', () => {
+  it('endedAt is null when any item is active and turn is active', () => {
+    const items = [
+      makeToolCall('tc1', 'completed', '2025-01-01T00:00:00Z', '2025-01-01T00:00:05Z'),
+      makeToolCall('tc2', 'running', '2025-01-01T00:00:03Z', ''),
+    ];
+    const result = groupTimelineSegments(items, true);
+    const block = (result[0] as Extract<GroupedSegment, { type: 'activity_block' }>).block;
+    expect(block.endedAt).toBeNull();
+  });
+
+  it('endedAt is computed when items have stale running status but turn is idle', () => {
     const items = [
       makeToolCall('tc1', 'completed', '2025-01-01T00:00:00Z', '2025-01-01T00:00:05Z'),
       makeToolCall('tc2', 'running', '2025-01-01T00:00:03Z', ''),
     ];
     const result = groupTimelineSegments(items, false);
     const block = (result[0] as Extract<GroupedSegment, { type: 'activity_block' }>).block;
-    expect(block.endedAt).toBeNull();
+    // Stale running items should not prevent endedAt from being set when turn is idle
+    expect(block.endedAt).toBe('2025-01-01T00:00:05Z');
+    expect(block.isActive).toBe(false);
   });
 });
 
